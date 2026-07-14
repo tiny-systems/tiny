@@ -51,6 +51,7 @@ Run with no command to start the dev server (MCP endpoint + editor).`,
 		newStatusCmd(),
 		newMCPCmd(),
 		newEditCmd(),
+		newUpgradeCmd(),
 	)
 	return root.Execute()
 }

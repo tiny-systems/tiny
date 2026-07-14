@@ -1,0 +1,66 @@
+version: 2
+
+project_name: tiny
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: tiny
+    main: .
+    binary: tiny
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: tiny
+    # Consistent, greppable asset names — `tiny upgrade` matches on
+    # {{ .Os }}_{{ .Arch }} to find the right download.
+    name_template: "tiny_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  name_template: "checksums.txt"
+
+# Homebrew formula, pushed to tiny-systems/homebrew-tap on each release so
+# `brew install tiny-systems/tap/tiny` always has the latest.
+brews:
+  - name: tiny
+    repository:
+      owner: tiny-systems
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://tinysystems.io"
+    description: "Self-hosted AI agents on your own Kubernetes"
+    license: "MIT"
+    install: |
+      bin.install "tiny"
+    test: |
+      system "#{bin}/tiny", "--version"
+
+release:
+  github:
+    owner: tiny-systems
+    name: tiny
+  prerelease: auto
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"

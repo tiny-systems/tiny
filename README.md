@@ -38,12 +38,14 @@ One process serves both surfaces: the MCP endpoint your editor drives, and the b
 ## Install
 
 ```sh
-# Homebrew (coming with the first release)
+# Homebrew
 brew install tiny-systems/tap/tiny
 
 # or grab a binary from Releases, or:
 go install github.com/tiny-systems/tiny@latest
 ```
+
+Update later with `tiny upgrade` (or `brew upgrade tiny` for Homebrew installs).
 
 ## Quick start
 
