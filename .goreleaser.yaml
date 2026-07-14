@@ -38,6 +38,10 @@ checksum:
 # `brew install tiny-systems/tap/tiny` always has the latest.
 brews:
   - name: tiny
+    # The tap already has a Formula/ dir (mcp-server.rb). When that dir
+    # exists, brew looks ONLY there — a root-level formula is invisible.
+    # Keep tiny.rb alongside it in Formula/.
+    directory: Formula
     repository:
       owner: tiny-systems
       name: homebrew-tap
