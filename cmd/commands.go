@@ -105,28 +105,7 @@ func newStatusCmd() *cobra.Command {
 	}
 }
 
-// ----- mcp -----
-
-func newMCPCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "mcp",
-		Short: "Run the local MCP server (or print the client config)",
-		Long: `Expose the runtime as an MCP endpoint your editor connects to by URL,
-so Claude Code / Cursor drive agents on YOUR cluster — prompt-build,
-install-on-the-fly, all local. HTTP/SSE (not stdio) on purpose: one
-process can then serve the MCP endpoint AND the editor, sharing live
-state — that is what the bare "tiny" dev command does.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Print("\n  Add this to your MCP client (Claude Code / Cursor):\n\n")
-			snippet := fmt.Sprintf("\"tinysystems\": {\n  \"url\": \"http://localhost:%d/mcp\"\n}", mcpPort)
-			fmt.Println(styleBox.Render(snippet))
-			fmt.Println("\n  " + styleWarn.Render("▸ v0.2") + styleSubtle.Render("  serving the endpoint against your kubeconfig is the next milestone."))
-			fmt.Println()
-			return nil
-		},
-	}
-	return cmd
-}
+// ----- mcp lives in mcp.go (it serves, so it's more than a stub) -----
 
 // ----- edit -----
 
