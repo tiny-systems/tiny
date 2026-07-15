@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"time"
 
+	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 
 	"github.com/tiny-systems/tiny/internal/catalog"
@@ -92,17 +94,52 @@ func runUp(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// step runs one provisioning action, printing a ⋯ → ✓/✗ line with elapsed
-// time. helm blocks (Wait) until each release is healthy, so the line sits
-// on ⋯ for the duration and resolves in place.
+// spinnerFrames is a braille spinner — smooth, single-width, reads as
+// motion even at a lazy tick.
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+// step runs one provisioning action and shows its progress. helm blocks
+// (Wait) until each release is healthy — often 20-60s while images pull —
+// so on a TTY we animate a spinner with a live elapsed counter to make it
+// obvious the install is working, not hung. Off a TTY (CI, piped) we fall
+// back to a single static line per step.
 func step(label string, fn func() error) error {
-	fmt.Printf("  %s %s", styleSubtle.Render("⋯"), label)
 	start := time.Now()
-	if err := fn(); err != nil {
-		fmt.Printf("\r  %s %s\n\n", styleWarn.Render("✗"), label)
-		return err
+
+	if !isatty.IsTerminal(os.Stdout.Fd()) {
+		if err := fn(); err != nil {
+			fmt.Printf("  %s %s\n\n", styleWarn.Render("✗"), label)
+			return err
+		}
+		fmt.Printf("  %s %s %s\n", styleOK.Render("✓"), label, styleSubtle.Render("("+elapsed(start)+")"))
+		return nil
 	}
-	elapsed := time.Since(start).Round(time.Second)
-	fmt.Printf("\r  %s %s %s\n", styleOK.Render("✓"), label, styleSubtle.Render("("+elapsed.String()+")"))
-	return nil
+
+	done := make(chan error, 1)
+	go func() { done <- fn() }()
+
+	ticker := time.NewTicker(90 * time.Millisecond)
+	defer ticker.Stop()
+	i := 0
+	for {
+		select {
+		case err := <-done:
+			fmt.Print("\r\033[K") // clear the spinner line
+			if err != nil {
+				fmt.Printf("  %s %s\n\n", styleWarn.Render("✗"), label)
+				return err
+			}
+			fmt.Printf("  %s %s %s\n", styleOK.Render("✓"), label, styleSubtle.Render("("+elapsed(start)+")"))
+			return nil
+		case <-ticker.C:
+			fmt.Printf("\r\033[K  %s %s %s",
+				styleKey.Render(spinnerFrames[i%len(spinnerFrames)]),
+				label, styleSubtle.Render(elapsed(start)))
+			i++
+		}
+	}
+}
+
+func elapsed(start time.Time) string {
+	return time.Since(start).Round(time.Second).String()
 }

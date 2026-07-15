@@ -58,14 +58,28 @@ func runMCP(cmd *cobra.Command) error {
 	server := mcpsrv.NewServer(buildRegistry(), bundle)
 	transport := mcpsrv.NewHTTPTransport(server, fmt.Sprintf("127.0.0.1:%d", mcpPort))
 
+	url := fmt.Sprintf("http://localhost:%d/mcp", mcpPort)
+
 	fmt.Println()
 	fmt.Println("  " + banner())
 	fmt.Printf("\n  %s %s   %s %s\n",
 		styleKey.Render("context"), styleTitle.Render(targetContext()),
 		styleKey.Render("namespace"), styleTitle.Render(flagNamespace))
-	fmt.Printf("  %s %s\n", styleKey.Render("serving"), styleURL.Render(fmt.Sprintf("http://localhost:%d/mcp", mcpPort)))
-	printMCPConfig()
-	fmt.Println("  " + styleSubtle.Render("Ctrl-C to stop."))
+	fmt.Printf("  %s %s\n", styleKey.Render("serving"), styleURL.Render(url))
+
+	// Single-command connection: wire the endpoint into Claude Code for the
+	// user unless they opted out. Falls back to the paste snippet when the
+	// claude CLI isn't installed (or for other MCP clients).
+	if flagNoRegister {
+		printMCPConfig()
+	} else if status, found := registerWithClaude(url); found {
+		fmt.Printf("  %s %s\n", styleOK.Render("✓"), status)
+		fmt.Println("  " + styleSubtle.Render("other MCP clients → "+url))
+	} else {
+		printMCPConfig()
+	}
+
+	fmt.Println("\n  " + styleSubtle.Render("Ctrl-C to stop."))
 	fmt.Println()
 
 	return transport.Run(ctx)

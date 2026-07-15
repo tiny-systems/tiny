@@ -15,9 +15,10 @@ import (
 // shelling helm/kubectl into the wrong context is the classic footgun,
 // so the target is always shown and (unless --yes) confirmed.
 var (
-	flagContext   string
-	flagNamespace string
-	flagYes       bool
+	flagContext    string
+	flagNamespace  string
+	flagYes        bool
+	flagNoRegister bool
 )
 
 const defaultNamespace = "tinysystems"
@@ -44,6 +45,7 @@ Run with no command to start the dev server (MCP endpoint + editor).`,
 	root.PersistentFlags().StringVar(&flagContext, "context", "", "kubeconfig context to target (default: current-context)")
 	root.PersistentFlags().StringVarP(&flagNamespace, "namespace", "n", defaultNamespace, "namespace to install the runtime into")
 	root.PersistentFlags().BoolVarP(&flagYes, "yes", "y", false, "skip the target confirmation prompt (for CI)")
+	root.PersistentFlags().BoolVar(&flagNoRegister, "no-register", false, "don't auto-add the MCP endpoint to Claude Code on serve")
 
 	root.AddCommand(
 		newUpCmd(),
