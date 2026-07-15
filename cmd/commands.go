@@ -7,6 +7,10 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/tiny-systems/tiny/internal/catalog"
+	"github.com/tiny-systems/tiny/internal/kube"
+	"github.com/tiny-systems/tiny/internal/provision"
 )
 
 // ----- install -----
@@ -23,11 +27,41 @@ it needs on the fly through the MCP endpoint. Use it to pre-warm a
 cluster or add something specific.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := confirmTarget(fmt.Sprintf("Install module %q into:", args[0])); err != nil {
+			name := args[0]
+			if err := confirmTarget(fmt.Sprintf("Install module %q into:", name)); err != nil {
 				return err
 			}
-			fmt.Printf("  %s resolving %s from the public catalog…\n", styleKey.Render("install"), styleTitle.Render(args[0]))
-			fmt.Println("  " + styleWarn.Render("▸ v0.1") + styleSubtle.Render("  chart resolution + helm install is being lifted from the platform install path."))
+			ctx := cmd.Context()
+
+			cfg, err := kube.RestConfig(flagContext)
+			if err != nil {
+				return err
+			}
+			hc, err := provision.NewClient(cfg, flagNamespace, nil)
+			if err != nil {
+				return err
+			}
+
+			m, err := catalog.Resolve(ctx, name)
+			if err != nil {
+				return err
+			}
+			if err := provision.EnsureNamespace(ctx, cfg, flagNamespace); err != nil {
+				return err
+			}
+			brokerURL := provision.BrokerURL(ctx, cfg, flagNamespace)
+
+			fmt.Println()
+			var release string
+			if err := step(fmt.Sprintf("module: %s %s", m.FullName, styleSubtle.Render(m.Tag)), func() error {
+				var e error
+				release, e = hc.InstallModule(ctx, m, brokerURL)
+				return e
+			}); err != nil {
+				fmt.Println("  " + styleSubtle.Render("fresh cluster? run `tiny up` first to install the runtime, then retry."))
+				return err
+			}
+			fmt.Printf("\n  %s %s %s\n\n", styleOK.Render("✓ installed"), styleTitle.Render(m.FullName), styleSubtle.Render("· release "+release))
 			return nil
 		},
 	}
