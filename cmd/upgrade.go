@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -38,14 +39,6 @@ type ghRelease struct {
 func runUpgrade(cmd *cobra.Command, _ []string) error {
 	current := cmd.Root().Version
 
-	// Homebrew manages its own binaries — self-replacing one it installed
-	// leaves brew's metadata stale. Detect and defer to `brew upgrade`.
-	if exe, _ := os.Executable(); isHomebrew(exe) {
-		fmt.Println("  " + styleSubtle.Render("installed via Homebrew — update with:"))
-		fmt.Println("    brew upgrade tiny")
-		return nil
-	}
-
 	fmt.Println("  " + styleSubtle.Render("checking for updates…"))
 	rel, err := latestRelease()
 	if err != nil {
@@ -70,11 +63,22 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("no release asset for %s/%s in %s", runtime.GOOS, runtime.GOARCH, rel.TagName)
 	}
 
+	// We self-update in place even on Homebrew installs (we resolve the symlink
+	// and overwrite the real binary, so brew's bin/ link still points at it).
+	// brew's recorded version goes stale — harmless — so just note it after.
+	brew := false
+	if exe, _ := os.Executable(); isHomebrew(exe) {
+		brew = true
+	}
+
 	fmt.Printf("  %s %s → %s\n", styleKey.Render("upgrade"), styleSubtle.Render(current), styleTitle.Render(rel.TagName))
 	if err := applyUpdate(assetURL); err != nil {
 		return fmt.Errorf("apply update: %w", err)
 	}
 	fmt.Printf("  %s updated to %s\n", styleOK.Render("✓"), styleTitle.Render(rel.TagName))
+	if brew {
+		fmt.Println("  " + styleSubtle.Render("(Homebrew still lists the old version — `brew upgrade tiny` reconciles it; harmless to leave)"))
+	}
 	return nil
 }
 
@@ -105,6 +109,11 @@ func applyUpdate(archiveURL string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
+	}
+	// Resolve symlinks so we overwrite the actual binary (e.g. Homebrew's
+	// Cellar target), not a symlink in bin/ — that keeps brew's link valid.
+	if resolved, rerr := filepath.EvalSymlinks(exe); rerr == nil {
+		exe = resolved
 	}
 
 	client := &http.Client{Timeout: 2 * time.Minute}
