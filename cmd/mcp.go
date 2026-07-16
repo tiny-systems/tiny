@@ -22,31 +22,6 @@ import (
 // installable modules and solutions — same endpoint `tiny install` uses.
 const publicAPIURL = "https://api.tinysystems.io"
 
-func newMCPCmd() *cobra.Command {
-	var printOnly bool
-	cmd := &cobra.Command{
-		Use:   "mcp",
-		Short: "Serve the local MCP endpoint against your cluster",
-		Long: `Expose your cluster's runtime as an MCP endpoint that Claude Code /
-Cursor connect to by URL. Prompt-build agents, read projects, inspect
-traces — all against YOUR cluster, no hosted account.
-
-The endpoint speaks MCP over HTTP (POST /mcp) on localhost. Point your
-AI client at it with the snippet printed on start. Runs until Ctrl-C.
-
-  tiny mcp --print   just print the client config and exit`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if printOnly {
-				printMCPConfig()
-				return nil
-			}
-			return runMCP(cmd)
-		},
-	}
-	cmd.Flags().BoolVar(&printOnly, "print", false, "print the MCP client config snippet and exit (don't serve)")
-	return cmd
-}
-
 func runMCP(cmd *cobra.Command) error {
 	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()

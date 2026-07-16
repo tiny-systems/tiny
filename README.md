@@ -51,9 +51,10 @@ Update later with `tiny upgrade` (or `brew upgrade tiny` for Homebrew installs).
 
 ```sh
 tiny up            # provision the runtime onto your current cluster (asks first)
-tiny mcp           # print the line to add to Claude Code / Cursor
-tiny               # start the dev server: MCP endpoint + editor
+tiny               # serve it — auto-connects Claude Code, then build by prompt
 ```
+
+`tiny` auto-adds the endpoint to Claude Code on start (as `tiny`); pass `--no-register` to skip, or `tiny --print` to just see the client config.
 
 Then, in your editor: *"an HTTP endpoint that summarizes the JSON I POST and alerts Slack if the sentiment is negative"* — and watch it build on the canvas.
 
@@ -61,11 +62,11 @@ Then, in your editor: *"an HTTP endpoint that summarizes the JSON I POST and ale
 
 | command | what it does |
 |---|---|
-| `tiny` | start the dev server — MCP endpoint + browser editor, one process |
+| `tiny` | serve the local MCP endpoint (+ browser editor, soon) and auto-connect Claude Code |
 | `tiny up` | provision the runtime (NATS/JetStream broker + operator + core modules) |
 | `tiny install <module>` | add a capability module from the public catalog |
 | `tiny status` | show the runtime + installed modules on the target cluster |
-| `tiny mcp` | run the local MCP server, or print the client config |
+| `tiny --print` | print the MCP client config and exit (don't serve) |
 | `tiny edit [flow]` | open the web canvas against your cluster |
 
 Every mutating command shows the exact context and namespace it will touch and asks before it acts. Pass `--yes` to skip in CI, or `--context` / `--namespace` to target explicitly.

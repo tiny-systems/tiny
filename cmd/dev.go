@@ -18,5 +18,9 @@ const (
 // endpoint (the same thing `tiny mcp` serves). Needs a provisioned runtime:
 // run `tiny up` first on a fresh cluster.
 func runDev(cmd *cobra.Command, _ []string) error {
+	if flagPrint {
+		printMCPConfig()
+		return nil
+	}
 	return runMCP(cmd)
 }
