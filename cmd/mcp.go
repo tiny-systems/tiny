@@ -133,29 +133,27 @@ func chooseProject(ctx context.Context, cfg *rest.Config) string {
 	if err != nil {
 		return ""
 	}
-	// Exactly one project → it's the session's, no prompt.
-	if len(names) == 1 {
-		return names[0]
-	}
 
+	// Always offer select-or-create at start (one project per session). Only
+	// when the namespace is empty do we skip straight to the create input.
 	const newSentinel = "\x00new"
 	var choice string
 	if len(names) == 0 {
-		choice = newSentinel // nothing to pick — go straight to create
+		choice = newSentinel
 	} else {
 		opts := make([]huh.Option[string], 0, len(names)+1)
 		for _, n := range names {
 			opts = append(opts, huh.NewOption(n, n))
 		}
-		opts = append(opts, huh.NewOption("＋ Create a new project", newSentinel))
+		opts = append(opts, huh.NewOption("＋ Create a new project…", newSentinel))
 		if err := huh.NewSelect[string]().
 			Title("Project for this session").
-			Description("one project per session · ↑↓ to move, ↵ to select").
+			Description("↑↓ to move · ↵ to select · esc to skip").
 			Options(opts...).
 			Value(&choice).
 			WithTheme(tinyHuhTheme()).
 			Run(); err != nil {
-			return "" // ctrl-c / error → serve unpinned
+			return "" // ctrl-c / esc → serve unpinned
 		}
 	}
 
