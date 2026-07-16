@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/tiny-systems/ajson"
@@ -87,10 +88,14 @@ func (s *Service) GetFlowStream(req *platform.GetFlowStreamRequest, stream grpc.
 	}
 }
 
-// buildFlowEvents turns the flow's current TinyNodes into node + edge canvas
-// events, and returns the set of element IDs present (for delete-diffing).
+// buildFlowEvents renders the project as canvas events, focused on the active
+// flow (layer). A flow is a transparent layer of a project: the active layer's
+// nodes are editable; nodes from other layers appear only when explicitly
+// shared with this flow, and then only as blocked (dimmed) context; everything
+// else is hidden. So we watch the WHOLE project, not one flow in isolation.
+// Returns the set of element IDs present (for delete-diffing).
 func (s *Service) buildFlowEvents(ctx context.Context, mgr *resource.Manager, req *platform.GetFlowStreamRequest) ([]*platform.NodeEvent, map[string]bool, error) {
-	nodes, err := mgr.GetProjectFlowNodes(ctx, req.ProjectName, req.FlowName)
+	nodes, err := mgr.GetProjectNodes(ctx, req.ProjectName)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -105,18 +110,26 @@ func (s *Service) buildFlowEvents(ctx context.Context, mgr *resource.Manager, re
 	}
 	portExampleMap := utils.GetPortExampleMap(nodesMap)
 
+	flowName := req.FlowName
 	events := make([]*platform.NodeEvent, 0, len(nodesMap)*2)
 	ids := make(map[string]bool)
 
 	for name, node := range nodesMap {
-		nodeAsMap := utils.ApiNodeToMap(node, map[string]interface{}{"blocked": false}, false)
+		notThisFlow := node.Labels[v1alpha1.FlowNameLabel] != flowName
+		sharedWithThisFlow := utils.ContainsStr(flowName, strings.Split(node.Annotations[v1alpha1.SharedWithFlowsAnnotation], ","))
+		if notThisFlow && !sharedWithThisFlow {
+			continue // a node from another layer, not shared into this one
+		}
+		blocked := notThisFlow // shared-in nodes are context, not editable here
+
+		nodeAsMap := utils.ApiNodeToMap(node, map[string]interface{}{"blocked": blocked}, false)
 		graph, _ := json.Marshal(nodeAsMap)
 		events = append(events, &platform.NodeEvent{ID: name, Type: string(watch.Added), Graph: graph})
 		ids[name] = true
 
 		for _, edge := range node.Spec.Edges {
 			ids[edge.ID] = true
-			edgeMap, err := buildEdge(ctx, node, edge, nodesMap, statusPortSchemaMap, portConfigMap, edgeConfigMap, portSchemaMap, portExampleMap)
+			edgeMap, err := buildEdge(ctx, node, edge, flowName, sharedWithThisFlow, nodesMap, statusPortSchemaMap, portConfigMap, edgeConfigMap, portSchemaMap, portExampleMap)
 			if err != nil {
 				continue
 			}
@@ -135,6 +148,8 @@ func buildEdge(
 	ctx context.Context,
 	node v1alpha1.TinyNode,
 	edge v1alpha1.TinyNodeEdge,
+	flowName string,
+	sharedWithThisFlow bool,
 	nodesMap map[string]v1alpha1.TinyNode,
 	statusPortSchemaMap map[string][]byte,
 	portConfigMap map[string][]v1alpha1.TinyNodePortConfig,
@@ -169,6 +184,13 @@ func buildEdge(
 	}
 
 	data := map[string]interface{}{"valid": false}
+	// An edge out of a shared-in node into a node that's neither in this layer
+	// nor shared into it is context — block it (dimmed, non-editable).
+	if sharedWithThisFlow &&
+		!utils.ContainsStr(flowName, strings.Split(targetNode.Annotations[v1alpha1.SharedWithFlowsAnnotation], ",")) &&
+		targetNode.Labels[v1alpha1.FlowNameLabel] != flowName {
+		data["blocked"] = true
+	}
 	if len(edgeConfiguration) > 0 {
 		data["configuration"] = json.RawMessage(edgeConfiguration)
 	}

@@ -10,6 +10,7 @@ package flow
 import (
 	"context"
 
+	"github.com/tiny-systems/module/api/v1alpha1"
 	"github.com/tiny-systems/module/pkg/resource"
 	platform "github.com/tiny-systems/platform-go"
 	"k8s.io/client-go/rest"
@@ -67,5 +68,43 @@ func (s *Service) AcquireFlowLock(ctx context.Context, req *platform.AcquireFlow
 
 // ReleaseFlowLock is a no-op locally.
 func (s *Service) ReleaseFlowLock(ctx context.Context, req *platform.ReleaseFlowLockRequest) (*platform.Nil, error) {
+	return &platform.Nil{}, nil
+}
+
+// GetFlowList lists the project's flows (the layers) for the flow switcher.
+func (s *Service) GetFlowList(ctx context.Context, req *platform.GetFlowListRequest) (*platform.GetFlowListResponse, error) {
+	mgr, err := s.manager()
+	if err != nil {
+		return nil, err
+	}
+	flows, err := mgr.GetFlowList(ctx, req.ProjectName)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]*platform.FlowListItem, 0, len(flows))
+	for _, f := range flows {
+		name := f.Annotations[v1alpha1.FlowDescriptionAnnotation]
+		if name == "" {
+			name = f.Name
+		}
+		items = append(items, &platform.FlowListItem{Flow: &platform.Flow{
+			ID:           f.Name,
+			ResourceName: f.Name,
+			Name:         name,
+			ProjectID:    req.ProjectName,
+		}})
+	}
+	return &platform.GetFlowListResponse{Flows: items}, nil
+}
+
+// CreateFlow adds a new flow (layer) to the project.
+func (s *Service) CreateFlow(ctx context.Context, req *platform.CreateFlowRequest) (*platform.Nil, error) {
+	mgr, err := s.manager()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := mgr.CreateFlow(ctx, s.namespace, req.ProjectID, req.Name); err != nil {
+		return nil, err
+	}
 	return &platform.Nil{}, nil
 }

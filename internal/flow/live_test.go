@@ -53,6 +53,19 @@ func TestFlowServiceLive(t *testing.T) {
 	}
 	t.Logf("GetFlow -> ResourceName=%q Name=%q", gf.Flow.GetResourceName(), gf.Flow.GetName())
 
+	fl, err := svc.GetFlowList(context.Background(), &platform.GetFlowListRequest{ProjectName: project})
+	if err != nil {
+		t.Fatalf("GetFlowList: %v", err)
+	}
+	names := make([]string, 0, len(fl.Flows))
+	for _, it := range fl.Flows {
+		names = append(names, it.Flow.GetResourceName())
+	}
+	t.Logf("GetFlowList -> %v", names)
+	if len(fl.Flows) == 0 {
+		t.Errorf("expected at least one flow in the project")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	ms := &mockStream{ctx: ctx}

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -15,6 +16,7 @@ import (
 	"github.com/tiny-systems/tiny/internal/installer"
 	"github.com/tiny-systems/tiny/internal/kube"
 	mcpsrv "github.com/tiny-systems/tiny/internal/mcp"
+	"github.com/tiny-systems/tiny/internal/project"
 	"github.com/tiny-systems/tiny/internal/prompt"
 )
 
@@ -26,7 +28,11 @@ func runMCP(cmd *cobra.Command) error {
 	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	bundle, cleanup, err := buildKubeBundle()
+	// A tiny session works inside one project: select or create it now so
+	// both the MCP endpoint and (soon) the editor are scoped to it.
+	activeProject := resolveActiveProject(ctx)
+
+	bundle, cleanup, err := buildKubeBundle(activeProject)
 	if err != nil {
 		return err
 	}
@@ -42,6 +48,9 @@ func runMCP(cmd *cobra.Command) error {
 	fmt.Printf("\n  %s %s   %s %s\n",
 		styleKey.Render("context"), styleTitle.Render(targetContext()),
 		styleKey.Render("namespace"), styleTitle.Render(flagNamespace))
+	if activeProject != "" {
+		fmt.Printf("  %s %s\n", styleKey.Render("project"), styleTitle.Render(activeProject))
+	}
 	fmt.Printf("  %s %s\n", styleKey.Render("serving"), styleURL.Render(url))
 
 	// Single-command connection: wire the endpoint into Claude Code for the
@@ -67,7 +76,26 @@ func runMCP(cmd *cobra.Command) error {
 // NATS + OTEL locations match what `tiny up` installs (tinysystems-nats /
 // tinysystems-otel-collector in the target namespace), not the platform's
 // defaults — otherwise signals and traces would look in the wrong place.
-func buildKubeBundle() (backend.Bundle, backend.Cleanup, error) {
+// resolveActiveProject turns the --project flag into a session project,
+// creating the TinyProject CR if it doesn't exist. Empty flag → no pinned
+// project (the agent picks per call, as before). Best-effort: a resolution
+// error just leaves the session unpinned rather than failing the serve.
+func resolveActiveProject(ctx context.Context) string {
+	if flagProject == "" {
+		return ""
+	}
+	cfg, err := kube.RestConfig(flagContext)
+	if err != nil {
+		return ""
+	}
+	name, err := project.Ensure(ctx, cfg, flagNamespace, flagProject)
+	if err != nil {
+		return ""
+	}
+	return name
+}
+
+func buildKubeBundle(activeProject string) (backend.Bundle, backend.Cleanup, error) {
 	bundle, cleanup, err := backendkube.New(backendkube.Options{
 		Context:       flagContext,
 		Namespace:     flagNamespace,
@@ -92,6 +120,13 @@ func buildKubeBundle() (backend.Bundle, backend.Cleanup, error) {
 	}
 	bundle.SolutionSearcher = solutionSearcher
 	bundle.PublicModuleCatalog = moduleCatalogPublic
+
+	// Pin the session project so the agent works inside it by default (tools
+	// that omit `project` inherit this) — the local mode's "one session, one
+	// project" model.
+	if activeProject != "" {
+		bundle.ProjectName = activeProject
+	}
 
 	// Install-on-the-fly: let the agent helm-install modules through the
 	// endpoint, the same path `tiny install` uses. Best-effort — if the

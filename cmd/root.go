@@ -20,6 +20,7 @@ var (
 	flagYes        bool
 	flagNoRegister bool
 	flagPrint      bool
+	flagProject    string
 )
 
 const defaultNamespace = "tinysystems"
@@ -47,6 +48,7 @@ Run with no command to start the dev server (MCP endpoint + editor).`,
 	root.PersistentFlags().StringVarP(&flagNamespace, "namespace", "n", defaultNamespace, "namespace to install the runtime into")
 	root.PersistentFlags().BoolVarP(&flagYes, "yes", "y", false, "skip the target confirmation prompt (for CI)")
 	root.PersistentFlags().BoolVar(&flagNoRegister, "no-register", false, "don't auto-add the MCP endpoint to Claude Code on serve")
+	root.PersistentFlags().StringVarP(&flagProject, "project", "p", "", "active project for this session (created if missing); scopes the MCP endpoint + editor")
 	// --print is local to bare `tiny` (the serve command): dump the client
 	// config and exit instead of serving.
 	root.Flags().BoolVar(&flagPrint, "print", false, "print the MCP client config and exit (don't serve)")
