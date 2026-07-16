@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
@@ -75,19 +76,13 @@ func runMCP(cmd *cobra.Command) error {
 	go func() { _ = flow.NewService(cfg, flagNamespace).ServeEditor(ctx, fmt.Sprintf("127.0.0.1:%d", editorPort), activeProject) }()
 	fmt.Printf("  %s %s%s\n", styleKey.Render("editor"), styleURL.Render(editorURL), styleSubtle.Render("   → open in your browser"))
 
-	// Single-command connection: wire the endpoint into Claude Code for the
-	// user unless they opted out. Falls back to the paste snippet when the
-	// claude CLI isn't installed (or for other MCP clients).
-	if flagNoRegister {
-		printMCPConfig()
-	} else if status, found := registerWithClaude(url); found {
-		fmt.Printf("  %s %s\n", styleOK.Render("✓"), status)
-		fmt.Println("  " + styleSubtle.Render("other MCP clients → "+url))
-	} else {
-		printMCPConfig()
-	}
+	printConnect()
 
-	fmt.Println("\n  " + styleSubtle.Render("Ctrl-C to stop."))
+	// Live activity: every tool call from an MCP client spins here, so you
+	// watch the agent work against your cluster in real time.
+	server.OnActivity = spinActivity
+
+	fmt.Println("\n  " + styleSubtle.Render("Ctrl-C to stop · tool calls stream below."))
 	fmt.Println()
 
 	return transport.Run(ctx)
@@ -272,8 +267,43 @@ func buildRegistry() *sdktools.Registry {
 	return r
 }
 
-func printMCPConfig() {
-	fmt.Print("\n  Add this to your MCP client (Claude Code / Cursor):\n\n")
-	snippet := fmt.Sprintf("\"tinysystems\": {\n  \"url\": \"http://localhost:%d/mcp\"\n}", mcpPort)
-	fmt.Println(styleBox.Render(snippet))
+// spinActivity renders a live spinner for one in-flight tool call and resolves
+// it to a timed ⚡ line — the "watch the agent work" view. Off a TTY it just
+// logs the call once, on completion.
+func spinActivity(tool string) func() {
+	start := time.Now()
+	done := func() {
+		fmt.Printf("\r\033[K  %s %s %s\n",
+			styleLogo.Render("⚡"), styleTitle.Render(tool),
+			styleSubtle.Render(time.Since(start).Round(time.Millisecond).String()))
+	}
+	if !isatty.IsTerminal(os.Stdout.Fd()) {
+		return func() {
+			fmt.Printf("  %s %s %s\n", styleLogo.Render("⚡"), styleTitle.Render(tool),
+				styleSubtle.Render(time.Since(start).Round(time.Millisecond).String()))
+		}
+	}
+	stop, stopped := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(stopped)
+		t := time.NewTicker(80 * time.Millisecond)
+		defer t.Stop()
+		i := 0
+		for {
+			select {
+			case <-stop:
+				return
+			case <-t.C:
+				fmt.Printf("\r\033[K  %s %s %s",
+					styleKey.Render(spinnerFrames[i%len(spinnerFrames)]),
+					styleTitle.Render(tool), styleSubtle.Render("working…"))
+				i++
+			}
+		}
+	}()
+	return func() {
+		close(stop)
+		<-stopped
+		done()
+	}
 }

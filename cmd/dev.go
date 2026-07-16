@@ -19,7 +19,7 @@ const (
 // run `tiny up` first on a fresh cluster.
 func runDev(cmd *cobra.Command, _ []string) error {
 	if flagPrint {
-		printMCPConfig()
+		printConnect()
 		return nil
 	}
 	return runMCP(cmd)

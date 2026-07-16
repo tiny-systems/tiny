@@ -34,10 +34,15 @@ const protocolVersion = "2024-11-05"
 // — transports can share a single Server across many concurrent
 // connections.
 type Server struct {
-	registry    *sdktools.Registry
-	execCtx     sdktools.ExecutionContext
-	serverName  string
-	serverVer   string
+	registry   *sdktools.Registry
+	execCtx    sdktools.ExecutionContext
+	serverName string
+	serverVer  string
+
+	// OnActivity, if set, is called at the start of each tool call with the
+	// tool name; it returns a function invoked when the call finishes. Lets a
+	// host render live activity (a spinner per call). Optional.
+	OnActivity func(tool string) (done func())
 }
 
 // NewServer returns a server bound to the given registry + execution
@@ -255,6 +260,11 @@ func (s *Server) callTool(ctx context.Context, raw json.RawMessage) toolCallResu
 	execCtx.ProjectName = projectName
 	execCtx.FlowName = flowName
 
+	if s.OnActivity != nil {
+		if done := s.OnActivity(params.Name); done != nil {
+			defer done()
+		}
+	}
 	result := s.registry.Execute(ctx, execCtx, params.Name, params.Arguments)
 
 	text, err := marshalToolOutput(result)

@@ -17,10 +17,9 @@ import (
 var (
 	flagContext    string
 	flagNamespace  string
-	flagYes        bool
-	flagNoRegister bool
-	flagPrint      bool
-	flagProject    string
+	flagYes     bool
+	flagPrint   bool
+	flagProject string
 
 	// Cluster install settings — properties of the target cluster, applied to
 	// module installs and persisted as tinysystems-namespace annotations.
@@ -54,7 +53,6 @@ Run with no command to start the dev server (MCP endpoint + editor).`,
 	root.PersistentFlags().StringVar(&flagContext, "context", "", "kubeconfig context to target (default: current-context)")
 	root.PersistentFlags().StringVarP(&flagNamespace, "namespace", "n", defaultNamespace, "namespace to install the runtime into")
 	root.PersistentFlags().BoolVarP(&flagYes, "yes", "y", false, "skip the target confirmation prompt (for CI)")
-	root.PersistentFlags().BoolVar(&flagNoRegister, "no-register", false, "don't auto-add the MCP endpoint to Claude Code on serve")
 	root.PersistentFlags().StringVarP(&flagProject, "project", "p", "", "active project for this session (created if missing); scopes the MCP endpoint + editor")
 	// Cluster install settings (persisted to the namespace; set once).
 	root.PersistentFlags().StringVar(&flagIngressClass, "ingress-class", "", "ingress controller class for modules that expose HTTP (e.g. nginx)")
