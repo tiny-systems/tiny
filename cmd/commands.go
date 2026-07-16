@@ -50,12 +50,13 @@ cluster or add something specific.`,
 				return err
 			}
 			brokerURL := provision.BrokerURL(ctx, cfg, flagNamespace)
+			settings := resolveSettings(ctx, cfg)
 
 			fmt.Println()
 			var release string
 			if err := step(fmt.Sprintf("module: %s %s", m.FullName, styleSubtle.Render(m.Tag)), func() error {
 				var e error
-				release, e = hc.InstallModule(ctx, m, brokerURL)
+				release, e = hc.InstallModule(ctx, m, brokerURL, settings)
 				return e
 			}); err != nil {
 				fmt.Println("  " + styleSubtle.Render("fresh cluster? run `tiny up` first to install the runtime, then retry."))

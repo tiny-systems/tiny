@@ -65,9 +65,12 @@ func (m *ModuleInstaller) InstallModule(ctx context.Context, moduleName, version
 		return &sdktools.InstallResult{Success: false, Error: fmt.Sprintf("helm client: %v", err)}, nil
 	}
 	broker := provision.BrokerURL(ctx, m.cfg, m.namespace)
+	// Inherit the cluster's saved install settings (ingress/storage/issuer)
+	// so an agent-installed module lands with the same config as `tiny install`.
+	settings, _ := provision.LoadSettings(ctx, m.cfg, m.namespace)
 
 	progress("install", "installing "+mod.FullName+" ("+mod.Tag+") — this can take a minute while the image pulls", "info")
-	release, err := hc.InstallModule(ctx, mod, broker)
+	release, err := hc.InstallModule(ctx, mod, broker, settings)
 	if err != nil {
 		return &sdktools.InstallResult{Success: false, Error: err.Error()}, nil
 	}

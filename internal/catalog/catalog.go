@@ -35,6 +35,10 @@ type Module struct {
 	// services, deployments, ingresses) for modules that manage cluster
 	// resources — http-module's port exposure, kubernetes-module's ops.
 	RequiresKubernetesAccess bool
+	// RequiresIngress / RequiresStorage tell us whether this module needs the
+	// cluster's ingress class / storage class wired at install time.
+	RequiresIngress bool
+	RequiresStorage bool
 }
 
 // apiModule mirrors the fields we consume from GET /v1/modules/{name}.
@@ -48,6 +52,10 @@ type apiModule struct {
 		Tag                      string `json:"tag"`
 		RequiresKubernetesAccess bool   `json:"requires_kubernetes_access"`
 	} `json:"latest_version"`
+	HelmInstall struct {
+		RequiresIngress bool `json:"requires_ingress"`
+		RequiresStorage bool `json:"requires_storage"`
+	} `json:"helm_install"`
 }
 
 // Resolve looks up a module by name against the public catalog. Public
@@ -118,6 +126,8 @@ func fetch(ctx context.Context, baseURL, name string) (*Module, error) {
 		Repo:                     am.LatestVersion.Repo,
 		Tag:                      am.LatestVersion.Tag,
 		RequiresKubernetesAccess: am.LatestVersion.RequiresKubernetesAccess,
+		RequiresIngress:          am.HelmInstall.RequiresIngress,
+		RequiresStorage:          am.HelmInstall.RequiresStorage,
 	}, nil
 }
 

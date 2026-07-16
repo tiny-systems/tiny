@@ -1,12 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
 
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
+	"k8s.io/client-go/rest"
 
 	"github.com/tiny-systems/tiny/internal/catalog"
 	"github.com/tiny-systems/tiny/internal/kube"
@@ -73,6 +75,7 @@ func runUp(cmd *cobra.Command, _ []string) error {
 	// Resolve the authenticated broker URL now that NATS is up, and wire it
 	// into every module so durable execution works on the first run.
 	brokerURL := provision.BrokerURL(ctx, cfg, flagNamespace)
+	settings := resolveSettings(ctx, cfg)
 
 	for _, name := range coreModules {
 		nm := name
@@ -81,7 +84,7 @@ func runUp(cmd *cobra.Command, _ []string) error {
 			if err != nil {
 				return err
 			}
-			_, err = hc.InstallModule(ctx, m, brokerURL)
+			_, err = hc.InstallModule(ctx, m, brokerURL, settings)
 			return err
 		}); err != nil {
 			return err
@@ -142,4 +145,31 @@ func step(label string, fn func() error) error {
 
 func elapsed(start time.Time) string {
 	return time.Since(start).Round(time.Second).String()
+}
+
+// flagSettings collects the cluster-install flags passed this invocation.
+func flagSettings() provision.Settings {
+	s := provision.Settings{
+		IngressClass: flagIngressClass,
+		DomainSuffix: flagDomain,
+		StorageClass: flagStorageClass,
+	}
+	if flagClusterIssuer != "" {
+		s.Issuer = flagClusterIssuer
+		s.ClusterIssuer = true
+	}
+	return s
+}
+
+// resolveSettings returns the effective cluster settings for a module install:
+// the namespace's saved settings overlaid with any flags passed this run — and
+// persists those flags so later installs (including the agent's on-the-fly
+// ones) inherit them. Set them once with `tiny up --ingress-class … …`.
+func resolveSettings(ctx context.Context, cfg *rest.Config) provision.Settings {
+	saved, _ := provision.LoadSettings(ctx, cfg, flagNamespace)
+	fs := flagSettings()
+	if !fs.Empty() {
+		_ = provision.SaveSettings(ctx, cfg, flagNamespace, fs)
+	}
+	return saved.Merge(fs)
 }

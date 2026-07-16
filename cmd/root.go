@@ -21,6 +21,13 @@ var (
 	flagNoRegister bool
 	flagPrint      bool
 	flagProject    string
+
+	// Cluster install settings — properties of the target cluster, applied to
+	// module installs and persisted as tinysystems-namespace annotations.
+	flagIngressClass  string
+	flagDomain        string
+	flagStorageClass  string
+	flagClusterIssuer string
 )
 
 const defaultNamespace = "tinysystems"
@@ -49,6 +56,11 @@ Run with no command to start the dev server (MCP endpoint + editor).`,
 	root.PersistentFlags().BoolVarP(&flagYes, "yes", "y", false, "skip the target confirmation prompt (for CI)")
 	root.PersistentFlags().BoolVar(&flagNoRegister, "no-register", false, "don't auto-add the MCP endpoint to Claude Code on serve")
 	root.PersistentFlags().StringVarP(&flagProject, "project", "p", "", "active project for this session (created if missing); scopes the MCP endpoint + editor")
+	// Cluster install settings (persisted to the namespace; set once).
+	root.PersistentFlags().StringVar(&flagIngressClass, "ingress-class", "", "ingress controller class for modules that expose HTTP (e.g. nginx)")
+	root.PersistentFlags().StringVar(&flagDomain, "domain", "", "base domain suffix for module ingress hostnames")
+	root.PersistentFlags().StringVar(&flagStorageClass, "storage-class", "", "storage class for modules that need a PVC")
+	root.PersistentFlags().StringVar(&flagClusterIssuer, "cluster-issuer", "", "cert-manager ClusterIssuer name to annotate ingresses for TLS")
 	// --print is local to bare `tiny` (the serve command): dump the client
 	// config and exit instead of serving.
 	root.Flags().BoolVar(&flagPrint, "print", false, "print the MCP client config and exit (don't serve)")
