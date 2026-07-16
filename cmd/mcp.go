@@ -1,14 +1,19 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 
+	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 	sdktools "github.com/tiny-systems/module/pkg/tools"
+	"k8s.io/client-go/rest"
 
 	"github.com/tiny-systems/tiny/internal/adapters"
 	"github.com/tiny-systems/tiny/internal/backend"
@@ -29,9 +34,19 @@ func runMCP(cmd *cobra.Command) error {
 	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	// Preflight: don't serve against a cluster we can't reach or authenticate
+	// to — stop with a clear message instead of endpoints that silently fail.
+	cfg, err := kube.RestConfig(flagContext)
+	if err != nil {
+		return err
+	}
+	if err := kube.Ping(cfg); err != nil {
+		return clusterUnreachable(err)
+	}
+
 	// A tiny session works inside one project: select or create it now so
-	// both the MCP endpoint and (soon) the editor are scoped to it.
-	activeProject := resolveActiveProject(ctx)
+	// both the MCP endpoint and the editor are scoped to it.
+	activeProject := chooseProject(ctx, cfg)
 
 	bundle, cleanup, err := buildKubeBundle(activeProject)
 	if err != nil {
@@ -85,23 +100,75 @@ func runMCP(cmd *cobra.Command) error {
 // NATS + OTEL locations match what `tiny up` installs (tinysystems-nats /
 // tinysystems-otel-collector in the target namespace), not the platform's
 // defaults — otherwise signals and traces would look in the wrong place.
-// resolveActiveProject turns the --project flag into a session project,
-// creating the TinyProject CR if it doesn't exist. Empty flag → no pinned
-// project (the agent picks per call, as before). Best-effort: a resolution
-// error just leaves the session unpinned rather than failing the serve.
-func resolveActiveProject(ctx context.Context) string {
-	if flagProject == "" {
+// clusterUnreachable turns a failed preflight into a one-line, actionable
+// error — special-casing the common expired-gcloud-token case.
+func clusterUnreachable(err error) error {
+	ctx := targetContext()
+	if strings.Contains(err.Error(), "gcloud") {
+		return fmt.Errorf("can't reach cluster %q — gcloud credentials expired; run: gcloud auth login", ctx)
+	}
+	msg := err.Error()
+	if i := strings.IndexByte(msg, '\n'); i > 0 {
+		msg = msg[:i]
+	}
+	return fmt.Errorf("can't reach cluster %q: %s", ctx, msg)
+}
+
+// chooseProject resolves the session project. With --project it selects or
+// creates that one, no prompt. Otherwise, on a terminal, it lists the
+// namespace's projects and lets you pick one or type a new name to create —
+// and if there are none, prompts to create the first. Non-interactive
+// (CI, piped, --yes) leaves the session unpinned.
+func chooseProject(ctx context.Context, cfg *rest.Config) string {
+	if flagProject != "" {
+		if name, err := project.Ensure(ctx, cfg, flagNamespace, flagProject); err == nil {
+			return name
+		}
 		return ""
 	}
-	cfg, err := kube.RestConfig(flagContext)
+	if flagYes || !isatty.IsTerminal(os.Stdin.Fd()) {
+		return ""
+	}
+
+	names, err := project.List(ctx, cfg, flagNamespace)
 	if err != nil {
 		return ""
 	}
-	name, err := project.Ensure(ctx, cfg, flagNamespace, flagProject)
-	if err != nil {
+	reader := bufio.NewReader(os.Stdin)
+
+	if len(names) == 0 {
+		fmt.Printf("\n  %s namespace %s has no projects yet.\n", styleKey.Render("project"), styleTitle.Render(flagNamespace))
+		fmt.Print("  Name one to create (Enter to skip): ")
+		line, _ := reader.ReadString('\n')
+		return ensureTyped(ctx, cfg, strings.TrimSpace(line))
+	}
+
+	fmt.Printf("\n  %s in %s:\n", styleKey.Render("projects"), styleTitle.Render(flagNamespace))
+	for i, n := range names {
+		fmt.Printf("    %s %s\n", styleSubtle.Render(fmt.Sprintf("%d)", i+1)), n)
+	}
+	fmt.Print("  Pick a number, or type a new name to create (Enter to skip): ")
+	line, _ := reader.ReadString('\n')
+	line = strings.TrimSpace(line)
+	if line == "" {
 		return ""
 	}
-	return name
+	if idx, err := strconv.Atoi(line); err == nil && idx >= 1 && idx <= len(names) {
+		return names[idx-1]
+	}
+	return ensureTyped(ctx, cfg, line)
+}
+
+func ensureTyped(ctx context.Context, cfg *rest.Config, name string) string {
+	if name == "" {
+		return ""
+	}
+	rn, err := project.Ensure(ctx, cfg, flagNamespace, name)
+	if err != nil {
+		fmt.Printf("  %s %v\n", styleWarn.Render("couldn't create project:"), err)
+		return ""
+	}
+	return rn
 }
 
 func buildKubeBundle(activeProject string) (backend.Bundle, backend.Cleanup, error) {

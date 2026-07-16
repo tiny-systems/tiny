@@ -1,20 +1,35 @@
 package cmd
 
 import (
+	"flag"
+	"io"
 	"os"
 	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"k8s.io/klog/v2"
 )
 
-// The MCP-server internals we lifted (the kube backend and adapters) log
-// plumbing events — NATS connect, port-forward fallbacks, trace reads —
-// through zerolog's global logger. As raw JSON on stderr they're noise on
-// top of tiny's styled output (the "nats: connected via port-forward" line
-// users see before the banner). Silence them by default; TINY_DEBUG=1 brings
-// them back as readable console lines when something needs diagnosing.
+// Two noisy loggers ride in on our dependencies and don't belong in a polished
+// CLI's output:
+//
+//   - zerolog: the MCP-server internals we lifted (kube backend, adapters) log
+//     plumbing events (NATS connect, port-forward fallbacks) as raw JSON.
+//   - klog: client-go's credential plugins print raw glog-style lines to
+//     stderr — e.g. a gcloud token-refresh failure (F0716 ... cred.go).
+//
+// Silence both by default; TINY_DEBUG=1 brings zerolog back as readable
+// console lines when something needs diagnosing.
 func init() {
+	// Route klog to discard regardless of debug mode — we surface cluster
+	// auth/connectivity problems ourselves, cleanly, via the preflight.
+	var kfs flag.FlagSet
+	klog.InitFlags(&kfs)
+	_ = kfs.Set("logtostderr", "false")
+	_ = kfs.Set("alsologtostderr", "false")
+	klog.SetOutput(io.Discard)
+
 	if os.Getenv("TINY_DEBUG") != "" {
 		log.Logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen}).
 			With().Timestamp().Logger()

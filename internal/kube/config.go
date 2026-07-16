@@ -7,7 +7,9 @@ package kube
 
 import (
 	"fmt"
+	"time"
 
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -30,4 +32,21 @@ func RestConfig(contextName string) (*rest.Config, error) {
 		return nil, fmt.Errorf("load kubeconfig: %w", err)
 	}
 	return cfg, nil
+}
+
+// Ping verifies the cluster is actually reachable and the credentials work —
+// a real round-trip to the API server (which also exercises any exec
+// credential plugin, e.g. gcloud). Returns the underlying error so callers can
+// stop with a clear message instead of serving against a dead connection.
+func Ping(cfg *rest.Config) error {
+	c := rest.CopyConfig(cfg)
+	c.Timeout = 8 * time.Second
+	cs, err := kubernetes.NewForConfig(c)
+	if err != nil {
+		return err
+	}
+	if _, err := cs.Discovery().ServerVersion(); err != nil {
+		return err
+	}
+	return nil
 }
