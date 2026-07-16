@@ -12,6 +12,8 @@ import (
 	"github.com/tiny-systems/tiny/internal/adapters"
 	"github.com/tiny-systems/tiny/internal/backend"
 	backendkube "github.com/tiny-systems/tiny/internal/backend/kube"
+	"github.com/tiny-systems/tiny/internal/installer"
+	"github.com/tiny-systems/tiny/internal/kube"
 	mcpsrv "github.com/tiny-systems/tiny/internal/mcp"
 	"github.com/tiny-systems/tiny/internal/prompt"
 )
@@ -115,6 +117,15 @@ func buildKubeBundle() (backend.Bundle, backend.Cleanup, error) {
 	}
 	bundle.SolutionSearcher = solutionSearcher
 	bundle.PublicModuleCatalog = moduleCatalogPublic
+
+	// Install-on-the-fly: let the agent helm-install modules through the
+	// endpoint, the same path `tiny install` uses. Best-effort — if the
+	// kubeconfig can't be resolved here, install_module falls back to telling
+	// the agent to run `tiny install` by hand.
+	if cfg, err := kube.RestConfig(flagContext); err == nil {
+		bundle.ModuleInstaller = installer.New(cfg, flagNamespace)
+	}
+
 	return bundle, cleanup, nil
 }
 
