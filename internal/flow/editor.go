@@ -18,9 +18,14 @@ var editorHTML []byte
 // the first live editor — a project picker, a flow (layer) switcher, and a
 // canvas that renders the active flow's nodes and edges, polled from the
 // cluster. The full gRPC-web FlowService (Serve) backs the richer canvas next.
-func (s *Service) ServeEditor(ctx context.Context, addr string) error {
+func (s *Service) ServeEditor(ctx context.Context, addr, activeProject string) error {
 	mux := http.NewServeMux()
 
+	// The session's project is fixed (one project per session), so the editor
+	// shows it as a label — no switcher — and only flows (layers) switch.
+	mux.HandleFunc("/api/session", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]interface{}{"project": activeProject, "namespace": s.namespace}, nil)
+	})
 	mux.HandleFunc("/api/projects", func(w http.ResponseWriter, r *http.Request) {
 		names, err := s.projectNames(r.Context())
 		writeJSON(w, map[string]interface{}{"projects": names}, err)

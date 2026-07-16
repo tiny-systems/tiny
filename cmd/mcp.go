@@ -1,15 +1,15 @@
 package cmd
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"syscall"
 
+	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 	sdktools "github.com/tiny-systems/module/pkg/tools"
@@ -72,10 +72,8 @@ func runMCP(cmd *cobra.Command) error {
 	// Start the browser editor alongside the MCP endpoint (best-effort — it
 	// needs the same cluster). Prompt in Claude Code, watch it here.
 	editorURL := fmt.Sprintf("http://localhost:%d", editorPort)
-	if cfg, err := kube.RestConfig(flagContext); err == nil {
-		go func() { _ = flow.NewService(cfg, flagNamespace).ServeEditor(ctx, fmt.Sprintf("127.0.0.1:%d", editorPort)) }()
-		fmt.Printf("  %s %s%s\n", styleKey.Render("editor"), styleURL.Render(editorURL), styleSubtle.Render("   → open in your browser"))
-	}
+	go func() { _ = flow.NewService(cfg, flagNamespace).ServeEditor(ctx, fmt.Sprintf("127.0.0.1:%d", editorPort), activeProject) }()
+	fmt.Printf("  %s %s%s\n", styleKey.Render("editor"), styleURL.Render(editorURL), styleSubtle.Render("   → open in your browser"))
 
 	// Single-command connection: wire the endpoint into Claude Code for the
 	// user unless they opted out. Falls back to the paste snippet when the
@@ -115,10 +113,11 @@ func clusterUnreachable(err error) error {
 }
 
 // chooseProject resolves the session project. With --project it selects or
-// creates that one, no prompt. Otherwise, on a terminal, it lists the
-// namespace's projects and lets you pick one or type a new name to create —
-// and if there are none, prompts to create the first. Non-interactive
-// (CI, piped, --yes) leaves the session unpinned.
+// creates that one. Otherwise it prompts ONLY to bootstrap the first project
+// when the namespace is empty — because nothing works without at least one,
+// and the editor's picker would have nothing to show. When projects already
+// exist it doesn't nag: it serves unpinned and you pick in the editor.
+// Non-interactive (CI, piped, --yes) never prompts.
 func chooseProject(ctx context.Context, cfg *rest.Config) string {
 	if flagProject != "" {
 		if name, err := project.Ensure(ctx, cfg, flagNamespace, flagProject); err == nil {
@@ -134,29 +133,60 @@ func chooseProject(ctx context.Context, cfg *rest.Config) string {
 	if err != nil {
 		return ""
 	}
-	reader := bufio.NewReader(os.Stdin)
+	// Exactly one project → it's the session's, no prompt.
+	if len(names) == 1 {
+		return names[0]
+	}
 
+	const newSentinel = "\x00new"
+	var choice string
 	if len(names) == 0 {
-		fmt.Printf("\n  %s namespace %s has no projects yet.\n", styleKey.Render("project"), styleTitle.Render(flagNamespace))
-		fmt.Print("  Name one to create (Enter to skip): ")
-		line, _ := reader.ReadString('\n')
-		return ensureTyped(ctx, cfg, strings.TrimSpace(line))
+		choice = newSentinel // nothing to pick — go straight to create
+	} else {
+		opts := make([]huh.Option[string], 0, len(names)+1)
+		for _, n := range names {
+			opts = append(opts, huh.NewOption(n, n))
+		}
+		opts = append(opts, huh.NewOption("＋ Create a new project", newSentinel))
+		if err := huh.NewSelect[string]().
+			Title("Project for this session").
+			Description("one project per session · ↑↓ to move, ↵ to select").
+			Options(opts...).
+			Value(&choice).
+			WithTheme(tinyHuhTheme()).
+			Run(); err != nil {
+			return "" // ctrl-c / error → serve unpinned
+		}
 	}
 
-	fmt.Printf("\n  %s in %s:\n", styleKey.Render("projects"), styleTitle.Render(flagNamespace))
-	for i, n := range names {
-		fmt.Printf("    %s %s\n", styleSubtle.Render(fmt.Sprintf("%d)", i+1)), n)
+	if choice == newSentinel {
+		var name string
+		if err := huh.NewInput().
+			Title("New project").
+			Description("in namespace " + flagNamespace).
+			Placeholder("my-project").
+			Value(&name).
+			WithTheme(tinyHuhTheme()).
+			Run(); err != nil {
+			return ""
+		}
+		return ensureTyped(ctx, cfg, strings.TrimSpace(name))
 	}
-	fmt.Print("  Pick a number, or type a new name to create (Enter to skip): ")
-	line, _ := reader.ReadString('\n')
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return ""
-	}
-	if idx, err := strconv.Atoi(line); err == nil && idx >= 1 && idx <= len(names) {
-		return names[idx-1]
-	}
-	return ensureTyped(ctx, cfg, line)
+	return choice
+}
+
+// tinyHuhTheme is the charm form theme in tiny's indigo.
+func tinyHuhTheme() *huh.Theme {
+	t := huh.ThemeBase()
+	indigo := lipgloss.Color("#6366f1")
+	subtle := lipgloss.Color("#6b7280")
+	t.Focused.Title = t.Focused.Title.Foreground(indigo).Bold(true)
+	t.Focused.Description = t.Focused.Description.Foreground(subtle)
+	t.Focused.SelectedOption = t.Focused.SelectedOption.Foreground(indigo).Bold(true)
+	t.Focused.SelectSelector = t.Focused.SelectSelector.Foreground(indigo)
+	t.Focused.TextInput.Cursor = t.Focused.TextInput.Cursor.Foreground(indigo)
+	t.Focused.TextInput.Prompt = t.Focused.TextInput.Prompt.Foreground(indigo)
+	return t
 }
 
 func ensureTyped(ctx context.Context, cfg *rest.Config, name string) string {
