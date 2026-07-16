@@ -13,6 +13,7 @@ import (
 	"github.com/tiny-systems/tiny/internal/adapters"
 	"github.com/tiny-systems/tiny/internal/backend"
 	backendkube "github.com/tiny-systems/tiny/internal/backend/kube"
+	"github.com/tiny-systems/tiny/internal/flow"
 	"github.com/tiny-systems/tiny/internal/installer"
 	"github.com/tiny-systems/tiny/internal/kube"
 	mcpsrv "github.com/tiny-systems/tiny/internal/mcp"
@@ -52,6 +53,14 @@ func runMCP(cmd *cobra.Command) error {
 		fmt.Printf("  %s %s\n", styleKey.Render("project"), styleTitle.Render(activeProject))
 	}
 	fmt.Printf("  %s %s\n", styleKey.Render("serving"), styleURL.Render(url))
+
+	// Start the browser editor alongside the MCP endpoint (best-effort — it
+	// needs the same cluster). Prompt in Claude Code, watch it here.
+	editorURL := fmt.Sprintf("http://localhost:%d", editorPort)
+	if cfg, err := kube.RestConfig(flagContext); err == nil {
+		go func() { _ = flow.NewService(cfg, flagNamespace).ServeEditor(ctx, fmt.Sprintf("127.0.0.1:%d", editorPort)) }()
+		fmt.Printf("  %s %s%s\n", styleKey.Render("editor"), styleURL.Render(editorURL), styleSubtle.Render("   → open in your browser"))
+	}
 
 	// Single-command connection: wire the endpoint into Claude Code for the
 	// user unless they opted out. Falls back to the paste snippet when the
