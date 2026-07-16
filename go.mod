@@ -10,6 +10,7 @@ require (
 	github.com/nats-io/nats.go v1.52.0
 	github.com/rs/zerolog v1.34.0
 	github.com/spf13/cobra v1.10.2
+	github.com/tiny-systems/ajson v0.1.6
 	github.com/tiny-systems/module v0.13.29
 	github.com/tiny-systems/platform-api v0.5.6
 	github.com/tiny-systems/platform-go v0.2.4
@@ -130,7 +131,6 @@ require (
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/swaggest/jsonschema-go v0.3.79 // indirect
 	github.com/swaggest/refl v1.4.0 // indirect
-	github.com/tiny-systems/ajson v0.1.6 // indirect
 	github.com/tiny-systems/otel-collector v0.5.1 // indirect
 	github.com/vmware-labs/yaml-jsonpath v0.3.2 // indirect
 	github.com/woodsbury/decimal128 v1.3.0 // indirect

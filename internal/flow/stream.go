@@ -1,0 +1,215 @@
+package flow
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/tiny-systems/ajson"
+	"github.com/tiny-systems/module/api/v1alpha1"
+	"github.com/tiny-systems/module/pkg/resource"
+	"github.com/tiny-systems/module/pkg/schema"
+	"github.com/tiny-systems/module/pkg/utils"
+	platform "github.com/tiny-systems/platform-go"
+	"google.golang.org/grpc"
+	"k8s.io/apimachinery/pkg/watch"
+)
+
+// GetFlowStream is the render path: it streams the flow's nodes and edges to
+// the canvas, then keeps the graph live as the cluster changes.
+//
+// This is a stripped buildGraphEvents — the hosted platform overlays otel
+// stats, redis logs, revision notices, and lock state onto the same stream;
+// all of those degrade gracefully, so locally we ship just the graph:
+// WatchNodes → SDK graph maps → node/edge upserts (ADDED/MODIFIED), delete
+// events for elements that disappear, and a 2s heartbeat. The heavy work —
+// schema overlay and edge validation — is the SDK's, identical to the platform.
+func (s *Service) GetFlowStream(req *platform.GetFlowStreamRequest, stream grpc.ServerStreamingServer[platform.GetFlowStreamResponse]) error {
+	ctx := stream.Context()
+	mgr, err := s.manager()
+	if err != nil {
+		return err
+	}
+
+	// sent tracks element IDs already on the canvas so a re-render can emit
+	// DELETED for anything that vanished from the cluster.
+	sent := map[string]bool{}
+	render := func() error {
+		events, ids, err := s.buildFlowEvents(ctx, mgr, req)
+		if err != nil {
+			return err
+		}
+		for id := range sent {
+			if !ids[id] {
+				events = append(events, &platform.NodeEvent{ID: id, Type: string(watch.Deleted)})
+				delete(sent, id)
+			}
+		}
+		for id := range ids {
+			sent[id] = true
+		}
+		if len(events) == 0 {
+			return nil
+		}
+		return stream.Send(&platform.GetFlowStreamResponse{Events: events})
+	}
+
+	if err := render(); err != nil {
+		return err
+	}
+
+	w, err := mgr.WatchNodes(ctx, req.ProjectName)
+	if err != nil {
+		// No watch — the snapshot is already on the canvas; just heartbeat.
+		return heartbeat(ctx, stream)
+	}
+	defer w.Stop()
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case _, ok := <-w.ResultChan():
+			if !ok {
+				return heartbeat(ctx, stream)
+			}
+			// A node in the project changed — re-render this flow. The FE
+			// upserts by element ID, so re-emitting current state is safe.
+			_ = render()
+		case <-ticker.C:
+			if err := tick(stream); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// buildFlowEvents turns the flow's current TinyNodes into node + edge canvas
+// events, and returns the set of element IDs present (for delete-diffing).
+func (s *Service) buildFlowEvents(ctx context.Context, mgr *resource.Manager, req *platform.GetFlowStreamRequest) ([]*platform.NodeEvent, map[string]bool, error) {
+	nodes, err := mgr.GetProjectFlowNodes(ctx, req.ProjectName, req.FlowName)
+	if err != nil {
+		return nil, nil, err
+	}
+	nodesMap := make(map[string]v1alpha1.TinyNode, len(nodes))
+	for _, n := range nodes {
+		nodesMap[n.Name] = n
+	}
+
+	statusPortSchemaMap, portConfigMap, edgeConfigMap, portSchemaMap, _, err := utils.GetFlowMaps(nodesMap)
+	if err != nil {
+		return nil, nil, err
+	}
+	portExampleMap := utils.GetPortExampleMap(nodesMap)
+
+	events := make([]*platform.NodeEvent, 0, len(nodesMap)*2)
+	ids := make(map[string]bool)
+
+	for name, node := range nodesMap {
+		nodeAsMap := utils.ApiNodeToMap(node, map[string]interface{}{"blocked": false}, false)
+		graph, _ := json.Marshal(nodeAsMap)
+		events = append(events, &platform.NodeEvent{ID: name, Type: string(watch.Added), Graph: graph})
+		ids[name] = true
+
+		for _, edge := range node.Spec.Edges {
+			ids[edge.ID] = true
+			edgeMap, err := buildEdge(ctx, node, edge, nodesMap, statusPortSchemaMap, portConfigMap, edgeConfigMap, portSchemaMap, portExampleMap)
+			if err != nil {
+				continue
+			}
+			graph, _ := json.Marshal(edgeMap)
+			events = append(events, &platform.NodeEvent{ID: edge.ID, Type: string(watch.Added), Graph: graph})
+		}
+	}
+	return events, ids, nil
+}
+
+// buildEdge resolves an edge's configuration + overlaid schema, validates it
+// against the source port (all SDK work — the same functions the platform
+// calls), and renders it to the canvas map. Missing target → a broken edge the
+// UI draws red.
+func buildEdge(
+	ctx context.Context,
+	node v1alpha1.TinyNode,
+	edge v1alpha1.TinyNodeEdge,
+	nodesMap map[string]v1alpha1.TinyNode,
+	statusPortSchemaMap map[string][]byte,
+	portConfigMap map[string][]v1alpha1.TinyNodePortConfig,
+	edgeConfigMap map[string][]utils.Destination,
+	portSchemaMap map[string]*ajson.Node,
+	portExampleMap map[string][]byte,
+) (map[string]interface{}, error) {
+	n := node.Name
+	targetNodeName, targetPort := utils.ParseFullPortName(edge.To)
+	targetNode, ok := nodesMap[targetNodeName]
+	if !ok {
+		return utils.ApiEdgeToProtoMap(&node, &edge, map[string]interface{}{
+			"valid": false,
+			"error": fmt.Sprintf("Target node %s does not exist", targetNodeName),
+		})
+	}
+
+	from := utils.GetPortFullName(n, edge.Port)
+	defs := utils.GetConfigurableDefinitions(targetNode, &from)
+	defs = utils.MergeConfigurableDefinitions(defs, utils.GetConfigurableDefinitions(node, nil))
+
+	var edgeConfiguration, edgeSchema []byte
+	for _, pc := range portConfigMap[edge.To] {
+		if pc.From == from && pc.Port == targetPort {
+			edgeConfiguration = pc.Configuration
+			edgeSchema = statusPortSchemaMap[edge.To]
+			if updated, uerr := schema.UpdateWithDefinitions(edgeSchema, defs); uerr == nil {
+				edgeSchema = updated
+			}
+			break
+		}
+	}
+
+	data := map[string]interface{}{"valid": false}
+	if len(edgeConfiguration) > 0 {
+		data["configuration"] = json.RawMessage(edgeConfiguration)
+	}
+	if len(edgeSchema) > 0 {
+		data["schema"] = json.RawMessage(edgeSchema)
+	}
+
+	if verr := utils.ValidateEdgeWithPrecomputedMaps(ctx, portSchemaMap, edgeConfigMap, from, edgeConfiguration, edgeSchema, nil, portExampleMap); verr != nil {
+		if utils.IsUnverifiable(verr) {
+			data["valid"] = true
+			data["warning"] = verr.Error()
+		} else {
+			data["error"] = verr.Error()
+		}
+	} else {
+		data["valid"] = true
+	}
+
+	return utils.ApiEdgeToProtoMap(&node, &edge, data)
+}
+
+// tick sends a heartbeat so the client knows the stream is alive.
+func tick(stream grpc.ServerStreamingServer[platform.GetFlowStreamResponse]) error {
+	return stream.Send(&platform.GetFlowStreamResponse{
+		Events: []*platform.NodeEvent{{ID: "tick", Type: "TICK"}},
+	})
+}
+
+// heartbeat runs a tick-only loop until the client disconnects (used when a
+// cluster watch isn't available).
+func heartbeat(ctx context.Context, stream grpc.ServerStreamingServer[platform.GetFlowStreamResponse]) error {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if err := tick(stream); err != nil {
+				return err
+			}
+		}
+	}
+}
