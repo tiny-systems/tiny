@@ -49,6 +49,20 @@ func (s *Service) InspectNode(ctx context.Context, req *platform.InspectRequest)
 	return &platform.InspectResponse{Data: string(b)}, nil
 }
 
+// UndeployFlow deletes a flow (layer) and all the TinyNodes that belong to it —
+// the editor's flow delete/undeploy action. Locally undeploy IS delete: there's
+// no separate deployed/undeployed state, so it removes the flow outright.
+func (s *Service) UndeployFlow(ctx context.Context, req *platform.UndeployFlowRequest) (*platform.Nil, error) {
+	kc, err := s.kubeClient()
+	if err != nil {
+		return nil, err
+	}
+	if err := adapters.NewFlowLifecycle(kc).DeleteFlow(ctx, "", req.FlowID); err != nil {
+		return nil, err
+	}
+	return &platform.Nil{}, nil
+}
+
 // RunExpression evaluates an ajson expression against sample data and validates
 // the result against a schema — the expression testing + edge-mapping checks in
 // the editor's config panel. Pure SDK evaluation, no cluster access, so it's a
