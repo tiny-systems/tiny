@@ -20,7 +20,7 @@
     </header>
 
     <main class="stage">
-      <FlowEditor
+      <FlowWorkspace
         v-if="project && selectedFlow"
         :key="project + '::' + selectedFlow"
         :client="client"
@@ -44,7 +44,7 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { FlowEditor } from '@tinysystems/editor'
+import { FlowWorkspace } from '@tinysystems/editor'
 import type { EditorClient } from '@tinysystems/editor'
 
 const props = defineProps<{ client: EditorClient }>()

@@ -6,6 +6,9 @@ import type { EditorClient } from '@tinysystems/editor'
 import '@tinysystems/editor/style.css'
 
 import { FlowService } from './grpc/flow.service_connect'
+import { RunsService } from './grpc/runs.service_connect'
+import { StatisticsService } from './grpc/statistics.service_connect'
+import { ProjectService } from './grpc/project.service_connect'
 import App from './App.vue'
 import './style.css'
 
@@ -20,6 +23,9 @@ const transport = createGrpcWebTransport({
 
 const client: EditorClient = {
   flow: createClient(FlowService, transport),
+  runs: createClient(RunsService, transport),
+  statistics: createClient(StatisticsService, transport),
+  project: createClient(ProjectService, transport),
 }
 
 const app = createApp(App, { client })
