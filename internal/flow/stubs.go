@@ -88,13 +88,25 @@ func (p projectService) GetStream(req *platform.GetProjectStreamRequest, stream 
 		}})
 	}
 
+	pages, widgetEvents := buildDashboard(ctx, mgr, req.ProjectName)
+
+	// The shell skips DashboardEvent on any message carrying ClusterInfo, so
+	// send the cluster snapshot (flows/counts/pages) first...
 	if err := stream.Send(&platform.GetProjectStreamEvent{
 		ClusterInfo: &platform.ProjectClusterInfo{
 			Stat:  &platform.ProjectStat{FlowsAmount: int32(len(items)), NodesAmount: int32(totalNodes)},
 			Flows: items,
+			Pages: pages,
 		},
 	}); err != nil {
 		return err
+	}
+
+	// ...then the widgets in their own message.
+	if len(widgetEvents) > 0 {
+		if err := stream.Send(&platform.GetProjectStreamEvent{DashboardEvent: widgetEvents}); err != nil {
+			return err
+		}
 	}
 
 	// Hold the stream open until the client disconnects; a one-shot snapshot is
