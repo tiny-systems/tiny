@@ -3,6 +3,7 @@ import { createPinia } from 'pinia'
 import { createGrpcWebTransport } from '@connectrpc/connect-web'
 import { createClient } from '@connectrpc/connect'
 import type { EditorClient } from '@tinysystems/editor'
+import { setNavigator } from '@tinysystems/editor'
 import '@tinysystems/editor/style.css'
 
 import { FlowService } from './grpc/flow.service_connect'
@@ -31,6 +32,18 @@ const client: EditorClient = {
 }
 
 loadSession()
+
+// Route the editor's platform-style navigation (back-to-project, flow switch)
+// through our router: a `.../flow-<id>` path opens that flow; anything else
+// (project-level, e.g. the back button) returns to the dashboard.
+setNavigator((to: string) => {
+  const m = to.match(/\/flow-([^/?#]+)/)
+  if (m) {
+    router.push({ name: 'flow', params: { id: m[1] } })
+  } else {
+    router.push({ name: 'project' })
+  }
+})
 
 const app = createApp(App)
 app.provide('editorClient', client)

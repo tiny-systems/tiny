@@ -2,12 +2,48 @@ package flow
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/tiny-systems/module/api/v1alpha1"
 	"github.com/tiny-systems/module/pkg/resource"
 	platform "github.com/tiny-systems/platform-go"
 )
+
+// flowGraphJSON builds a flow's { nodes, edges } graph as JSON — the shape the
+// editor's FlowPreview renders for thumbnails. Returns the bytes and the node
+// count. "{}" on any error (preview just shows nothing).
+func flowGraphJSON(ctx context.Context, svc *Service, mgr *resource.Manager, projectName, flowName string) ([]byte, int) {
+	events, _, err := svc.buildFlowEvents(ctx, mgr, &platform.GetFlowStreamRequest{
+		ProjectName: projectName,
+		FlowName:    flowName,
+	})
+	if err != nil {
+		return []byte("{}"), 0
+	}
+	graph := map[string][]json.RawMessage{"nodes": {}, "edges": {}}
+	nodes := 0
+	for _, e := range events {
+		if len(e.Graph) == 0 {
+			continue
+		}
+		var probe map[string]json.RawMessage
+		if json.Unmarshal(e.Graph, &probe) != nil {
+			continue
+		}
+		if _, isEdge := probe["source"]; isEdge {
+			graph["edges"] = append(graph["edges"], e.Graph)
+		} else {
+			graph["nodes"] = append(graph["nodes"], e.Graph)
+			nodes++
+		}
+	}
+	b, err := json.Marshal(graph)
+	if err != nil {
+		return []byte("{}"), nodes
+	}
+	return b, nodes
+}
 
 // buildDashboard reads the project's widget pages and turns each exposed
 // node-port widget into a platform.Widget, resolving its schema + data from the

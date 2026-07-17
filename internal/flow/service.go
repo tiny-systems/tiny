@@ -87,11 +87,13 @@ func (s *Service) GetFlowList(ctx context.Context, req *platform.GetFlowListRequ
 		if name == "" {
 			name = f.Name
 		}
+		graph, _ := flowGraphJSON(ctx, s, mgr, req.ProjectName, f.Name)
 		items = append(items, &platform.FlowListItem{Flow: &platform.Flow{
 			ID:           f.Name,
 			ResourceName: f.Name,
 			Name:         name,
 			ProjectID:    req.ProjectName,
+			Graph:        graph,
 		}})
 	}
 	return &platform.GetFlowListResponse{Flows: items}, nil
