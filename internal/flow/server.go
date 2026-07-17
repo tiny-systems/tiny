@@ -48,6 +48,10 @@ func Serve(ctx context.Context, addr string, svc *Service, activeProject string,
 func editorHandler(svc *Service, activeProject string, staticFS http.Handler) http.Handler {
 	grpcServer := grpc.NewServer()
 	platform.RegisterFlowServiceServer(grpcServer, svc)
+	// The editor also reaches for project + statistics; register minimal
+	// backings so those calls return empty rather than "unknown service".
+	platform.RegisterProjectServiceServer(grpcServer, projectService{})
+	platform.RegisterStatisticsServiceServer(grpcServer, statisticsService{})
 	wrapped := grpcweb.WrapServer(grpcServer)
 
 	mux := http.NewServeMux()

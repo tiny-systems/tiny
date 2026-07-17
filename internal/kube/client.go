@@ -55,6 +55,16 @@ func NewClient(opts Options) (*Client, error) {
 	if ns == "" {
 		ns = "default"
 	}
+	return NewClientFromConfig(restCfg, ns)
+}
+
+// NewClientFromConfig builds a Client from an already-resolved rest.Config —
+// for callers (like the FlowService) that resolved the config themselves and
+// just need the typed, scheme-aware client over it.
+func NewClientFromConfig(restCfg *rest.Config, namespace string) (*Client, error) {
+	if namespace == "" {
+		namespace = "default"
+	}
 
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
@@ -68,7 +78,7 @@ func NewClient(opts Options) (*Client, error) {
 	return &Client{
 		Client:     c,
 		RESTConfig: restCfg,
-		Namespace:  ns,
+		Namespace:  namespace,
 	}, nil
 }
 
