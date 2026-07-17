@@ -25,6 +25,7 @@ import (
 	mcpsrv "github.com/tiny-systems/tiny/internal/mcp"
 	"github.com/tiny-systems/tiny/internal/project"
 	"github.com/tiny-systems/tiny/internal/prompt"
+	"github.com/tiny-systems/tiny/web"
 )
 
 // publicAPIURL is the anonymous catalog the MCP server reads to discover
@@ -71,9 +72,19 @@ func runMCP(cmd *cobra.Command) error {
 	fmt.Printf("  %s %s\n", styleKey.Render("serving"), styleURL.Render(url))
 
 	// Start the browser editor alongside the MCP endpoint (best-effort — it
-	// needs the same cluster). Prompt in Claude Code, watch it here.
+	// needs the same cluster). Prompt in Claude Code, watch it here. This is
+	// the real shared editor: the tiny SPA (a thin host around
+	// @tinysystems/editor) served off the same origin as the gRPC-web
+	// FlowService it streams from — same canvas the platform runs.
 	editorURL := fmt.Sprintf("http://localhost:%d", editorPort)
-	go func() { _ = flow.NewService(cfg, flagNamespace).ServeEditor(ctx, fmt.Sprintf("127.0.0.1:%d", editorPort), activeProject) }()
+	go func() {
+		spa, err := web.Handler()
+		if err != nil {
+			return
+		}
+		svc := flow.NewService(cfg, flagNamespace)
+		_ = flow.Serve(ctx, fmt.Sprintf("127.0.0.1:%d", editorPort), svc, activeProject, spa)
+	}()
 	fmt.Printf("  %s %s%s\n", styleKey.Render("editor"), styleURL.Render(editorURL), styleSubtle.Render("   → open in your browser"))
 
 	printConnect()

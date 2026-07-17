@@ -1,0 +1,121 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── app chrome ─────────────────────────────────────────────────────────── */
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: #111827;
+  background: #f9fafb;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  height: 48px;
+  padding: 0 16px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #ffffff;
+  flex: 0 0 auto;
+}
+
+.brand {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.brand-sub {
+  margin-left: 6px;
+  font-weight: 500;
+  color: #9ca3af;
+}
+
+.ctx {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.ctx .k {
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: #9ca3af;
+}
+
+.ctx .v {
+  font-weight: 600;
+}
+
+.flow-select {
+  font: inherit;
+  font-size: 13px;
+  padding: 3px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.spacer {
+  flex: 1 1 auto;
+}
+
+.hint {
+  font-size: 11px;
+  color: #9ca3af;
+  text-decoration: none;
+}
+
+.stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  background: #f3f4f6;
+}
+
+.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #6b7280;
+  text-align: center;
+}
+
+.empty-inner {
+  max-width: 360px;
+  line-height: 1.6;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    color: #e5e7eb;
+    background: #0b0f17;
+  }
+  .topbar {
+    background: #111827;
+    border-color: #1f2937;
+  }
+  .stage {
+    background: #0b0f17;
+  }
+  .flow-select {
+    background: #1f2937;
+    border-color: #374151;
+    color: #e5e7eb;
+  }
+}

@@ -1,0 +1,5 @@
+node_modules
+*.log
+.DS_Store
+.vite
+# dist/ is committed so `go build` can embed it without a Node toolchain.
