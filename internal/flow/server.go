@@ -50,7 +50,7 @@ func editorHandler(svc *Service, activeProject string, staticFS http.Handler) ht
 	platform.RegisterFlowServiceServer(grpcServer, svc)
 	// The editor also reaches for project + statistics; register minimal
 	// backings so those calls return empty rather than "unknown service".
-	platform.RegisterProjectServiceServer(grpcServer, projectService{})
+	platform.RegisterProjectServiceServer(grpcServer, projectService{svc: svc})
 	platform.RegisterStatisticsServiceServer(grpcServer, statisticsService{})
 	wrapped := grpcweb.WrapServer(grpcServer)
 

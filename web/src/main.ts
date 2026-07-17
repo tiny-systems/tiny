@@ -10,6 +10,8 @@ import { RunsService } from './grpc/runs.service_connect'
 import { StatisticsService } from './grpc/statistics.service_connect'
 import { ProjectService } from './grpc/project.service_connect'
 import App from './App.vue'
+import { router } from './router'
+import { loadSession } from './session'
 import './style.css'
 
 // The tiny CLI serves this SPA and the gRPC-web FlowService off the same
@@ -28,6 +30,10 @@ const client: EditorClient = {
   project: createClient(ProjectService, transport),
 }
 
-const app = createApp(App, { client })
+loadSession()
+
+const app = createApp(App)
+app.provide('editorClient', client)
 app.use(createPinia())
+app.use(router)
 app.mount('#app')

@@ -22,6 +22,7 @@
     "@vue-flow/minimap": "^1.5.2",
     "@vueuse/core": "^13.0.0",
     "echarts": "^6.0.0",
+    "gridstack": "^12.4.2",
     "js-base64": "^3.7.8",
     "lodash": "^4.17.21",
     "notiwind": "^2.1.0",
@@ -29,7 +30,8 @@
     "vue": "^3.4.15",
     "vue-debounce": "^5.0.1",
     "vue-echarts": "^8.0.1",
-    "vue-json-pretty": "^2.6.0"
+    "vue-json-pretty": "^2.6.0",
+    "vue-router": "^4.4.5"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.1",
