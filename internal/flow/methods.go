@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/tiny-systems/module/pkg/utils"
 	platform "github.com/tiny-systems/platform-go"
 
 	"github.com/tiny-systems/tiny/internal/adapters"
@@ -46,4 +47,41 @@ func (s *Service) InspectNode(ctx context.Context, req *platform.InspectRequest)
 		return nil, err
 	}
 	return &platform.InspectResponse{Data: string(b)}, nil
+}
+
+// RunExpression evaluates an ajson expression against sample data and validates
+// the result against a schema — the expression testing + edge-mapping checks in
+// the editor's config panel. Pure SDK evaluation, no cluster access, so it's a
+// direct passthrough to the shared evaluator the platform uses.
+func (s *Service) RunExpression(ctx context.Context, req *platform.RunExpressionRequest) (*platform.RunExpressionResponse, error) {
+	res, err := utils.RunExpression(&utils.RunExpressionRequest{
+		Expression: req.Expression,
+		Data:       req.Data,
+		Schema:     req.Schema,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &platform.RunExpressionResponse{
+		Result:          res.Result,
+		ValidSchema:     res.ValidSchema,
+		ValidationError: res.ValidationError,
+	}, nil
+}
+
+// PreviewEdgeMapping applies an edge's configuration mapping to sample source
+// data and returns the mapped result — the live preview in the edge-config
+// panel as you type a mapping. Also pure SDK evaluation.
+func (s *Service) PreviewEdgeMapping(ctx context.Context, req *platform.PreviewEdgeMappingRequest) (*platform.PreviewEdgeMappingResponse, error) {
+	res, err := utils.PreviewEdgeMapping(&utils.PreviewEdgeMappingRequest{
+		Configuration: req.Configuration,
+		SourceData:    req.SourceData,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &platform.PreviewEdgeMappingResponse{
+		Result: res.Result,
+		Errors: res.Errors,
+	}, nil
 }
