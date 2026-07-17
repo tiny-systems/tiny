@@ -90,9 +90,25 @@ func (p projectService) GetStream(req *platform.GetProjectStreamRequest, stream 
 
 	pages, widgetEvents := buildDashboard(ctx, mgr, req.ProjectName)
 
-	// The shell skips DashboardEvent on any message carrying ClusterInfo, so
-	// send the cluster snapshot (flows/counts/pages) first...
+	// The shell branches on event Type. First the project configuration — this
+	// is what sets project.value and clears the "Loading…" header.
 	if err := stream.Send(&platform.GetProjectStreamEvent{
+		Type: "INIT_PROJECT_CONFIGURATION",
+		Configuration: &platform.GetProjectConfigurationResponse{
+			Project: &platform.Project{
+				ID:           req.ProjectName,
+				Name:         req.ProjectName,
+				ResourceName: req.ProjectName,
+			},
+		},
+	}); err != nil {
+		return err
+	}
+
+	// Then the cluster snapshot (flows/counts/pages) — this clears loading and
+	// fills the Flows/Nodes tab.
+	if err := stream.Send(&platform.GetProjectStreamEvent{
+		Type: "INIT_PROJECT",
 		ClusterInfo: &platform.ProjectClusterInfo{
 			Stat:  &platform.ProjectStat{FlowsAmount: int32(len(items)), NodesAmount: int32(totalNodes)},
 			Flows: items,
@@ -102,7 +118,8 @@ func (p projectService) GetStream(req *platform.GetProjectStreamRequest, stream 
 		return err
 	}
 
-	// ...then the widgets in their own message.
+	// Finally the widgets, in their own message (the shell skips DashboardEvent
+	// on any message that also carries ClusterInfo).
 	if len(widgetEvents) > 0 {
 		if err := stream.Send(&platform.GetProjectStreamEvent{DashboardEvent: widgetEvents}); err != nil {
 			return err
