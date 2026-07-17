@@ -6,7 +6,11 @@ import vue from '@vitejs/plugin-vue'
 // (base './') and everything is bundled into a self-contained dist/.
 export default defineConfig({
   plugins: [vue()],
-  base: './',
+  // Absolute base: the SPA is served from the origin root with history routing,
+  // so assets must resolve to /assets/… regardless of route depth. A relative
+  // base ('./') breaks nested routes like /flow/:id — the browser requests
+  // /flow/assets/… which 404s to the index.html fallback (blank page).
+  base: '/',
   build: {
     outDir: 'dist',
     emptyOutDir: true,
