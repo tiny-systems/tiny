@@ -12,6 +12,7 @@ import (
 
 	"github.com/tiny-systems/module/api/v1alpha1"
 	"github.com/tiny-systems/module/pkg/resource"
+	sdktools "github.com/tiny-systems/module/pkg/tools"
 	platform "github.com/tiny-systems/platform-go"
 	"k8s.io/client-go/rest"
 )
@@ -21,11 +22,20 @@ type Service struct {
 	platform.UnimplementedFlowServiceServer
 	cfg       *rest.Config
 	namespace string
+	// signal, when set, fires data into a node port (RunAction). Injected by
+	// the host with a NATS-backed sender; nil means RunAction is unavailable.
+	signal sdktools.SignalSender
 }
 
 // NewService binds the service to one cluster + namespace.
 func NewService(cfg *rest.Config, namespace string) *Service {
 	return &Service{cfg: cfg, namespace: namespace}
+}
+
+// SetSignalSender wires the node-fire capability (RunAction). The host passes
+// the same NATS-backed sender the MCP tools use.
+func (s *Service) SetSignalSender(sig sdktools.SignalSender) {
+	s.signal = sig
 }
 
 // manager builds a fresh resource.Manager per call — cheap (a typed client

@@ -3,6 +3,7 @@ package flow
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/tiny-systems/module/pkg/utils"
 	platform "github.com/tiny-systems/platform-go"
@@ -47,6 +48,59 @@ func (s *Service) InspectNode(ctx context.Context, req *platform.InspectRequest)
 		return nil, err
 	}
 	return &platform.InspectResponse{Data: string(b)}, nil
+}
+
+// RunAction fires data into a node's port — the editor's "run"/test action on
+// a control widget. Delegates to the injected NATS-backed signal sender.
+func (s *Service) RunAction(ctx context.Context, req *platform.RunActionRequest) (*platform.Nil, error) {
+	if s.signal == nil {
+		return nil, fmt.Errorf("node-fire unavailable: signal sender not configured")
+	}
+	if err := s.signal.SendSignal(ctx, req.ProjectName, req.NodeID, req.PortName, req.Data, ""); err != nil {
+		return nil, err
+	}
+	return &platform.Nil{}, nil
+}
+
+// GetComponents lists the installed modules' components for the editor's
+// add-component palette. Each item carries a minimal node graph (module +
+// component); the operator fills in ports on reconcile after the node is
+// created, and the stream updates the editor.
+func (s *Service) GetComponents(ctx context.Context, req *platform.GetComponentsRequest) (*platform.GetComponentsResponse, error) {
+	mgr, err := s.manager()
+	if err != nil {
+		return nil, err
+	}
+	mods, err := mgr.GetInstalledComponents(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]*platform.ComponentNodeItem, 0)
+	for _, m := range mods {
+		for _, c := range m.Components {
+			graph, _ := json.Marshal(map[string]interface{}{
+				"type": "tinyNode",
+				"data": map[string]interface{}{
+					"module":    m.Name,
+					"component": c.Name,
+					"label":     c.Name,
+				},
+			})
+			items = append(items, &platform.ComponentNodeItem{
+				Component: &platform.Component{
+					Name:        c.Name,
+					Description: c.Description,
+					Info:        c.Info,
+					Tags:        c.Tags,
+				},
+				Module:    &platform.ModuleVersion{ID: m.Name, Version: m.Version},
+				Installed: true,
+				Graph:     graph,
+			})
+		}
+	}
+	return &platform.GetComponentsResponse{Components: items}, nil
 }
 
 // ListScenarios returns the flow's scenarios for the editor's scenario

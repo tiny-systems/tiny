@@ -83,6 +83,9 @@ func runMCP(cmd *cobra.Command) error {
 			return
 		}
 		svc := flow.NewService(cfg, flagNamespace)
+		// Share the MCP bundle's NATS-backed signal sender so the editor's
+		// node-fire (RunAction) works against the same cluster.
+		svc.SetSignalSender(bundle.SignalSender)
 		_ = flow.Serve(ctx, fmt.Sprintf("127.0.0.1:%d", editorPort), svc, activeProject, spa)
 	}()
 	fmt.Printf("  %s %s%s\n", styleKey.Render("editor"), styleURL.Render(editorURL), styleSubtle.Render("   → open in your browser"))
