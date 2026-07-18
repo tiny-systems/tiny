@@ -76,6 +76,10 @@ func runMCP(cmd *cobra.Command) error {
 	// the real shared editor: the tiny SPA (a thin host around
 	// @tinysystems/editor) served off the same origin as the gRPC-web
 	// FlowService it streams from — same canvas the platform runs.
+	// Shared activity bus: the MCP server publishes a tool-call event, the
+	// editor's Activity feed streams it.
+	activityBus := flow.NewActivityBus()
+
 	editorURL := fmt.Sprintf("http://localhost:%d", editorPort)
 	go func() {
 		spa, err := web.Handler()
@@ -86,15 +90,24 @@ func runMCP(cmd *cobra.Command) error {
 		// Share the MCP bundle's NATS-backed signal sender so the editor's
 		// node-fire (RunAction) works against the same cluster.
 		svc.SetSignalSender(bundle.SignalSender)
-		_ = flow.Serve(ctx, fmt.Sprintf("127.0.0.1:%d", editorPort), svc, activeProject, spa)
+		_ = flow.Serve(ctx, fmt.Sprintf("127.0.0.1:%d", editorPort), svc, activeProject, activityBus, spa)
 	}()
 	fmt.Printf("  %s %s%s\n", styleKey.Render("editor"), styleURL.Render(editorURL), styleSubtle.Render("   → open in your browser"))
 
 	printConnect()
 
-	// Live activity: every tool call from an MCP client spins here, so you
-	// watch the agent work against your cluster in real time.
-	server.OnActivity = spinActivity
+	// Live activity: every tool call spins here AND streams to the editor's
+	// Activity feed via the bus, so you watch the agent work in real time.
+	server.OnActivity = func(tool string) func() {
+		activityBus.Publish("tool.call.started")
+		done := spinActivity(tool)
+		return func() {
+			if done != nil {
+				done()
+			}
+			activityBus.Publish("tool.call.ended")
+		}
+	}
 
 	fmt.Println("\n  " + styleSubtle.Render("Ctrl-C to stop · tool calls stream below."))
 	fmt.Println()

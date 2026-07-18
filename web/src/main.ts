@@ -10,6 +10,7 @@ import { FlowService } from './grpc/flow.service_connect'
 import { RunsService } from './grpc/runs.service_connect'
 import { StatisticsService } from './grpc/statistics.service_connect'
 import { ProjectService } from './grpc/project.service_connect'
+import { WorkspaceActivityService } from './grpc/mcp/v1/mcp_service_connect'
 import App from './App.vue'
 import { router } from './router'
 import { loadSession } from './session'
@@ -29,6 +30,7 @@ const client: EditorClient = {
   runs: createClient(RunsService, transport),
   statistics: createClient(StatisticsService, transport),
   project: createClient(ProjectService, transport),
+  workspaceActivity: createClient(WorkspaceActivityService, transport),
 }
 
 loadSession()

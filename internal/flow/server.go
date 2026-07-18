@@ -8,6 +8,7 @@ import (
 
 	"github.com/improbable-eng/grpc-web/go/grpcweb"
 	platform "github.com/tiny-systems/platform-go"
+	mcpv1 "github.com/tiny-systems/platform-go/mcp/v1"
 	"google.golang.org/grpc"
 )
 
@@ -21,8 +22,8 @@ import (
 //
 // staticFS, when non-nil, serves the editor SPA for any non-gRPC request; nil
 // leaves the endpoint gRPC-web-only.
-func Serve(ctx context.Context, addr string, svc *Service, activeProject string, staticFS http.Handler) error {
-	srv := &http.Server{Addr: addr, Handler: editorHandler(svc, activeProject, staticFS), WriteTimeout: 10 * time.Minute}
+func Serve(ctx context.Context, addr string, svc *Service, activeProject string, bus *ActivityBus, staticFS http.Handler) error {
+	srv := &http.Server{Addr: addr, Handler: editorHandler(svc, activeProject, bus, staticFS), WriteTimeout: 10 * time.Minute}
 	errCh := make(chan error, 1)
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -45,13 +46,16 @@ func Serve(ctx context.Context, addr string, svc *Service, activeProject string,
 // FlowService and the editor SPA. Split out from Serve so it can be exercised
 // in tests without binding a port or touching a cluster (the SPA and session
 // routes need neither).
-func editorHandler(svc *Service, activeProject string, staticFS http.Handler) http.Handler {
+func editorHandler(svc *Service, activeProject string, bus *ActivityBus, staticFS http.Handler) http.Handler {
 	grpcServer := grpc.NewServer()
 	platform.RegisterFlowServiceServer(grpcServer, svc)
 	// The editor also reaches for project + statistics; register minimal
 	// backings so those calls return empty rather than "unknown service".
 	platform.RegisterProjectServiceServer(grpcServer, projectService{svc: svc})
 	platform.RegisterStatisticsServiceServer(grpcServer, statisticsService{})
+	// The dashboard's Activity feed streams agent tool-call events from tiny's
+	// MCP server via the shared bus.
+	mcpv1.RegisterWorkspaceActivityServiceServer(grpcServer, workspaceActivityService{bus: bus})
 	wrapped := grpcweb.WrapServer(grpcServer)
 
 	mux := http.NewServeMux()

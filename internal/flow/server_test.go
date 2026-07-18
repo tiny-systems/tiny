@@ -19,7 +19,7 @@ func TestEditorHandler(t *testing.T) {
 		w.Header().Set("Content-Type", "text/html")
 		_, _ = w.Write([]byte(spaMarker))
 	})
-	h := editorHandler(NewService(nil, "test-ns"), "demo", spa)
+	h := editorHandler(NewService(nil, "test-ns"), "demo", nil, spa)
 
 	t.Run("root serves the SPA", func(t *testing.T) {
 		rr := httptest.NewRecorder()
