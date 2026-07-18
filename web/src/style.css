@@ -10,6 +10,16 @@ body,
   margin: 0;
 }
 
+/* The mounted views fill the viewport: ProjectWorkspace's root is `flex-1`
+   (needs a flex parent) and FlowWorkspace's is `h-full`. Making #app a flex
+   column satisfies both, so neither collapses to content height (which clipped
+   the dashboard cards / menus and left dead space below). */
+#app {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 body {
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color: #111827;

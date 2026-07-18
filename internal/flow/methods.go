@@ -49,6 +49,13 @@ func (s *Service) InspectNode(ctx context.Context, req *platform.InspectRequest)
 	return &platform.InspectResponse{Data: string(b)}, nil
 }
 
+// ListScenarios returns the flow's scenarios for the editor's scenario
+// switcher. Local flows have none beyond the implicit Default, so this returns
+// empty — enough to stop the switcher's on-mount call from erroring.
+func (s *Service) ListScenarios(ctx context.Context, req *platform.ListScenariosRequest) (*platform.ListScenariosResponse, error) {
+	return &platform.ListScenariosResponse{}, nil
+}
+
 // UndeployFlow deletes a flow (layer) and all the TinyNodes that belong to it —
 // the editor's flow delete/undeploy action. Locally undeploy IS delete: there's
 // no separate deployed/undeployed state, so it removes the flow outright.
