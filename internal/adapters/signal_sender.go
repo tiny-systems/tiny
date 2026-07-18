@@ -46,7 +46,11 @@ func (s *SignalSender) SendSignal(ctx context.Context, projectName, nodeID, port
 		return fmt.Errorf("signal_sender: NATS not configured; cluster's nats service must be reachable")
 	}
 
-	if _, err := wire.Publish(ctx, s.nc, nodeID, portName, data, wire.Options{}); err != nil {
+	// Mark the message as an external signal (From = FromSignal) so the runner
+	// decodes the payload directly (json.Unmarshal into the port type) instead
+	// of treating it as an edge config-merge — the latter drops fields like the
+	// signal's `send: true`, so the flow never fires.
+	if _, err := wire.Publish(ctx, s.nc, nodeID, portName, data, wire.Options{From: wire.FromSignal}); err != nil {
 		return fmt.Errorf("publish signal to %s:%s: %w", nodeID, portName, err)
 	}
 	return nil
