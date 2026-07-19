@@ -92,6 +92,15 @@ func runMCP(cmd *cobra.Command) error {
 		svc.SetSignalSender(bundle.SignalSender)
 		_ = flow.Serve(ctx, fmt.Sprintf("127.0.0.1:%d", editorPort), svc, activeProject, activityBus, spa)
 	}()
+
+	// Auto-forward cluster servers to localhost. A server component (e.g.
+	// http_server) binds a port inside its module's pod and reports it as
+	// http://localhost:<port>; that address is the pod's loopback, unreachable
+	// from here. The tunnel port-forwards each such pod:<port> to this machine's
+	// 127.0.0.1:<port>, so the URL the editor shows is actually reachable.
+	if tunnel, err := flow.NewTunnel(cfg, flagNamespace); err == nil {
+		go tunnel.Run(ctx)
+	}
 	fmt.Printf("  %s %s%s\n", styleKey.Render("editor"), styleURL.Render(editorURL), styleSubtle.Render("   → open in your browser"))
 
 	printConnect()
