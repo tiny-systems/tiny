@@ -41,6 +41,7 @@ type tunnelEntry struct {
 	module string
 	pod    string
 	stop   func()
+	done   <-chan struct{} // closed when the forward exits (stopped or dropped)
 }
 
 var errNoRunningPod = errors.New("no running controller-manager pod")
@@ -90,7 +91,10 @@ func (t *Tunnel) reconcile(ctx context.Context) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	// Start (or rebuild, if the pod was replaced) forwards for live servers.
+	// Start (or rebuild) forwards for live servers. A forward is rebuilt when
+	// its pod was replaced (restart) or its stream dropped — the latter is what
+	// keeps the tunnel alive against a remote cluster, where port-forwards die
+	// on idle timeouts and API-server rollouts.
 	for port, module := range desired {
 		pod, err := t.findPod(ctx, module)
 		if err != nil {
@@ -98,18 +102,22 @@ func (t *Tunnel) reconcile(ctx context.Context) {
 			continue
 		}
 		if e, ok := t.active[port]; ok {
-			if e.pod == pod {
-				continue // already forwarded to the right pod
+			dropped := isClosed(e.done)
+			if e.pod == pod && !dropped {
+				continue // already forwarded to the right pod, still alive
 			}
-			e.stop() // pod was replaced (restart) — rebuild against the new one
+			e.stop()
 			delete(t.active, port)
+			if dropped {
+				log.Printf("tunnel: localhost:%d dropped, reconnecting", port)
+			}
 		}
-		stop, err := kube.ForwardPodPort(ctx, t.cfg, t.namespace, pod, port, port)
+		stop, done, err := kube.ForwardPodPort(ctx, t.cfg, t.namespace, pod, port, port)
 		if err != nil {
 			t.warn(port, "forward :"+strconv.Itoa(port)+": "+err.Error())
 			continue
 		}
-		t.active[port] = tunnelEntry{module: module, pod: pod, stop: stop}
+		t.active[port] = tunnelEntry{module: module, pod: pod, stop: stop, done: done}
 		delete(t.warned, port)
 		log.Printf("tunnel: localhost:%d → %s (%s)", port, pod, module)
 	}
@@ -180,6 +188,20 @@ func (t *Tunnel) warn(port int, msg string) {
 	}
 	t.warned[port] = msg
 	log.Printf("tunnel: %s", msg)
+}
+
+// isClosed reports whether a done channel has fired (the forward exited),
+// without blocking.
+func isClosed(done <-chan struct{}) bool {
+	if done == nil {
+		return false
+	}
+	select {
+	case <-done:
+		return true
+	default:
+		return false
+	}
 }
 
 func (t *Tunnel) stopAll() {

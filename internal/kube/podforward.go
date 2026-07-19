@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -14,12 +15,17 @@ import (
 // ForwardPodPort opens an SPDY port-forward from 127.0.0.1:localPort on this
 // machine to podPort inside the named pod — the same mechanism as `kubectl
 // port-forward pod/…`. It blocks until the tunnel is ready, then returns a stop
-// func that tears it down. Reaches loopback-bound ports in the pod too (the
+// func and a done channel. Reaches loopback-bound ports in the pod too (the
 // forward tunnels into the pod's network namespace).
-func ForwardPodPort(ctx context.Context, cfg *rest.Config, namespace, podName string, localPort, podPort int) (func(), error) {
+//
+// done closes when the forward exits — either because stop was called or,
+// crucially for remote clusters, because the SPDY stream dropped (idle timeout,
+// API-server rollout, network blip). Callers watch done to know a forward went
+// dead and needs re-establishing. stop is safe to call more than once.
+func ForwardPodPort(ctx context.Context, cfg *rest.Config, namespace, podName string, localPort, podPort int) (stop func(), done <-chan struct{}, err error) {
 	cs, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("clientset: %w", err)
+		return nil, nil, fmt.Errorf("clientset: %w", err)
 	}
 
 	reqURL := cs.CoreV1().RESTClient().Post().
@@ -30,7 +36,7 @@ func ForwardPodPort(ctx context.Context, cfg *rest.Config, namespace, podName st
 
 	transport, upgrader, err := spdy.RoundTripperFor(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("round tripper: %w", err)
+		return nil, nil, fmt.Errorf("round tripper: %w", err)
 	}
 	dialer := spdy.NewDialer(upgrader, &http.Client{Transport: transport}, "POST", reqURL)
 
@@ -40,10 +46,16 @@ func ForwardPodPort(ctx context.Context, cfg *rest.Config, namespace, podName st
 
 	fw, err := portforward.New(dialer, []string{fmt.Sprintf("%d:%d", localPort, podPort)}, stopChan, readyChan, nil, nil)
 	if err != nil {
-		return nil, fmt.Errorf("port-forwarder: %w", err)
+		return nil, nil, fmt.Errorf("port-forwarder: %w", err)
 	}
 
+	var once sync.Once
+	stopFn := func() { once.Do(func() { close(stopChan) }) }
+
+	// exited closes when ForwardPorts returns — on stop OR on a dropped stream.
+	exited := make(chan struct{})
 	go func() {
+		defer close(exited)
 		if err := fw.ForwardPorts(); err != nil {
 			select {
 			case errChan <- err:
@@ -54,11 +66,11 @@ func ForwardPodPort(ctx context.Context, cfg *rest.Config, namespace, podName st
 
 	select {
 	case <-readyChan:
-		return func() { close(stopChan) }, nil
+		return stopFn, exited, nil
 	case err := <-errChan:
-		return nil, fmt.Errorf("forward: %w", err)
+		return nil, nil, fmt.Errorf("forward: %w", err)
 	case <-ctx.Done():
-		close(stopChan)
-		return nil, ctx.Err()
+		stopFn()
+		return nil, nil, ctx.Err()
 	}
 }
