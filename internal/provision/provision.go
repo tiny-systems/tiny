@@ -249,7 +249,13 @@ func (c *Client) moduleValues(m *catalog.Module, release, natsURL string, settin
 	if natsURL != "" {
 		v = append(v, "natsURL="+natsURL)
 	}
-	if m.RequiresKubernetesAccess {
+	// Baseline RBAC (pods, services, ingresses) is needed both by modules that
+	// manage cluster resources (RequiresKubernetesAccess) AND by any module
+	// that exposes a port (RequiresIngress) — the port-manager must `get pods`
+	// to find its own pod before it can expose/route the port. Without this,
+	// http_server starts listening but logs "failed to expose port" and gets
+	// no address.
+	if m.RequiresKubernetesAccess || m.RequiresIngress {
 		v = append(v, "rbac.enableKubernetesResourceAccess=true")
 	}
 
