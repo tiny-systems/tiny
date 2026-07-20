@@ -25,7 +25,7 @@ This is the same thing the (now-retired) `mcp-server` binary did, and it's what 
 Turn an empty cluster into a running runtime from the terminal.
 
 - `tiny up` — install the NATS/JetStream broker, the operator + CRDs, and a core set of modules (common, http, llm, kubernetes) onto the confirmed context/namespace.
-- `tiny install <workspace>/<module>` — resolve one module's chart and install it (names are workspace-qualified, e.g. `tinysystems/http-module`; tinysystems is one provider among others). Also the path an agent uses to install capabilities on the fly through the MCP endpoint.
+- `tiny install <module>` — resolve one module's chart and install it (the public catalog is a flat namespace, e.g. `http-module`; a `workspace/` prefix is tolerated but not part of the lookup yet). Also the path an agent uses to install capabilities on the fly through the MCP endpoint.
 - `tiny status` — grow from "list modules" to node health, module versions, and broker reachability.
 
 Two pieces to build:

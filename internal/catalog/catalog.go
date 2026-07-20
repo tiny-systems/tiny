@@ -58,24 +58,35 @@ type apiModule struct {
 	} `json:"helm_install"`
 }
 
-// Resolve looks up a module by name against the public catalog. Names must be
-// workspace-qualified (`<workspace>/<module>`, e.g. `tinysystems/http-module`) —
-// tinysystems is not the only module provider, so a bare name is ambiguous and
-// rejected rather than silently defaulting to the tinysystems workspace. The
-// version suffix ("-v0") is still optional: `tinysystems/http-module` resolves
-// the same as `tinysystems/http-module-v0`.
+// Resolve looks up a module by name against the public catalog. The catalog is
+// a FLAT namespace keyed by the bare module id (`<module>-v0`) — the workspace
+// prefix in a name's `full_name` (e.g. `tinysystems/http-module-v0`) is a
+// display label, not part of the lookup (GET /v1/modules/tinysystems/… 404s).
+// So a workspace-qualified name is accepted for readability but resolved by its
+// module part, and the version suffix ("-v0") stays optional. (True per-
+// workspace lookup has to start at the catalog API, not here.)
 func Resolve(ctx context.Context, name string) (*Module, error) {
 	return resolve(ctx, DefaultBaseURL, name)
 }
 
+// moduleKey maps a possibly workspace-qualified name to the flat catalog key by
+// dropping any `<workspace>/` prefix. `tinysystems/http-module` → `http-module`.
+func moduleKey(name string) string {
+	if i := strings.LastIndex(name, "/"); i >= 0 {
+		return name[i+1:]
+	}
+	return name
+}
+
 func resolve(ctx context.Context, baseURL, name string) (*Module, error) {
-	if !strings.Contains(name, "/") {
-		return nil, fmt.Errorf("module name must be workspace-qualified, e.g. tinysystems/http-module (got %q)", name)
+	key := moduleKey(name)
+	if key == "" {
+		return nil, fmt.Errorf("module name required")
 	}
 
-	candidates := []string{name}
-	if !strings.HasSuffix(name, "-v0") {
-		candidates = append(candidates, name+"-v0")
+	candidates := []string{key}
+	if !strings.HasSuffix(key, "-v0") {
+		candidates = append(candidates, key+"-v0")
 	}
 
 	var lastErr error

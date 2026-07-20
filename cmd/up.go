@@ -18,13 +18,13 @@ import (
 // coreModules are installed by `tiny up` so a fresh cluster is immediately
 // useful. Everything else installs on demand — by name, or automatically
 // when a prompt-built agent needs a capability it doesn't have yet.
-// coreModules are workspace-qualified — module names always are (tinysystems is
-// just one provider). These happen to be the tinysystems-published core set.
+// coreModules are the flat catalog keys (the catalog is a flat namespace; a
+// `workspace/` prefix is tolerated by Resolve but isn't part of the lookup).
 var coreModules = []string{
-	"tinysystems/common-module",
-	"tinysystems/http-module",
-	"tinysystems/llm-module",
-	"tinysystems/kubernetes-module",
+	"common-module",
+	"http-module",
+	"llm-module",
+	"kubernetes-module",
 }
 
 func newUpCmd() *cobra.Command {

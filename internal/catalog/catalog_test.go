@@ -1,22 +1,23 @@
 package catalog
 
-import (
-	"context"
-	"strings"
-	"testing"
-)
+import "testing"
 
-// TestResolveRejectsUnqualified proves a bare (non-workspace-qualified) module
-// name is rejected before any network call — tinysystems is one provider among
-// others, so a bare name is ambiguous.
-func TestResolveRejectsUnqualified(t *testing.T) {
-	for _, name := range []string{"http-module", "http-module-v0", "common-module", ""} {
-		_, err := resolve(context.Background(), "http://catalog.invalid", name)
-		if err == nil {
-			t.Fatalf("resolve(%q) = nil error, want workspace-qualified rejection", name)
-		}
-		if !strings.Contains(err.Error(), "workspace-qualified") {
-			t.Fatalf("resolve(%q) error = %q, want workspace-qualified message", name, err)
+// TestModuleKey covers the flat-catalog lookup key derivation: a workspace
+// prefix is dropped (the catalog is keyed by the bare module id), a bare name
+// passes through, and the -v0 suffix is left alone (the resolve step adds it as
+// a fallback).
+func TestModuleKey(t *testing.T) {
+	cases := map[string]string{
+		"http-module":                 "http-module",
+		"http-module-v0":              "http-module-v0",
+		"tinysystems/http-module":     "http-module",
+		"tinysystems/http-module-v0":  "http-module-v0",
+		"acme/some-module-v0":         "some-module-v0",
+		"":                            "",
+	}
+	for in, want := range cases {
+		if got := moduleKey(in); got != want {
+			t.Errorf("moduleKey(%q) = %q, want %q", in, got, want)
 		}
 	}
 }
