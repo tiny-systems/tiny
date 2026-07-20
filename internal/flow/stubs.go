@@ -132,17 +132,5 @@ func (p projectService) GetStream(req *platform.GetProjectStreamRequest, stream 
 	return nil
 }
 
-// statisticsService stubs traces/telemetry. There's no local OTel trace store
-// wired into the editor yet, so traces come back empty and the stream closes
-// immediately rather than erroring the Telemetry panel.
-type statisticsService struct {
-	platform.UnimplementedStatisticsServiceServer
-}
-
-func (statisticsService) GetTraces(context.Context, *platform.StatisticsGetTracesRequest) (*platform.StatisticsGetTracesResponse, error) {
-	return &platform.StatisticsGetTracesResponse{}, nil
-}
-
-func (statisticsService) GetStream(_ *platform.StatisticsStreamRequest, _ grpc.ServerStreamingServer[platform.StatisticsStreamResponse]) error {
-	return nil
-}
+// statisticsService (traces) moved to statistics.go, now backed by the
+// otel-collector trace reader.

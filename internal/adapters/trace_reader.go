@@ -107,6 +107,21 @@ func (r *TraceReader) ReadTraceDetail(ctx context.Context, projectName, traceID 
 	return out, nil
 }
 
+// ReadTraceSpans returns the trace's raw spans (with absolute timing and
+// attributes intact), for callers that render a waterfall rather than the
+// tool-facing summary. The editor's Statistics service uses this so span
+// start/end times survive the mapping.
+func (r *TraceReader) ReadTraceSpans(ctx context.Context, projectName, traceID string) ([]utils.Span, error) {
+	trace, err := r.svc.GetTraceByID(ctx, r.namespace, projectName, traceID)
+	if err != nil {
+		return nil, fmt.Errorf("get trace %s: %w", traceID, err)
+	}
+	if trace == nil {
+		return nil, nil
+	}
+	return trace.Spans, nil
+}
+
 // spanToInfo converts an SDK utils.Span to the tool-facing TraceSpanInfo.
 // Some fields (from/to/port) live in span attributes rather than as
 // first-class fields; we pull them out here.

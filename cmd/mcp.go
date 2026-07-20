@@ -90,6 +90,13 @@ func runMCP(cmd *cobra.Command) error {
 		// Share the MCP bundle's NATS-backed signal sender so the editor's
 		// node-fire (RunAction) works against the same cluster.
 		svc.SetSignalSender(bundle.SignalSender)
+		// Same otel-collector trace reader the MCP get_traces tools use — backs
+		// the editor's Executions/Traces tab so users and agents see identical
+		// data. The bundle holds it as the SDK interface; the editor needs the
+		// concrete reader's raw-span method for accurate waterfall timing.
+		if tr, ok := bundle.TraceReader.(*adapters.TraceReader); ok {
+			svc.SetTraceReader(tr)
+		}
 		_ = flow.Serve(ctx, fmt.Sprintf("127.0.0.1:%d", editorPort), svc, activeProject, activityBus, spa)
 	}()
 

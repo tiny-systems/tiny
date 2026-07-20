@@ -52,7 +52,7 @@ func editorHandler(svc *Service, activeProject string, bus *ActivityBus, staticF
 	// The editor also reaches for project + statistics; register minimal
 	// backings so those calls return empty rather than "unknown service".
 	platform.RegisterProjectServiceServer(grpcServer, projectService{svc: svc})
-	platform.RegisterStatisticsServiceServer(grpcServer, statisticsService{})
+	platform.RegisterStatisticsServiceServer(grpcServer, statisticsService{trace: svc.trace})
 	// The dashboard's Activity feed streams agent tool-call events from tiny's
 	// MCP server via the shared bus.
 	mcpv1.RegisterWorkspaceActivityServiceServer(grpcServer, workspaceActivityService{bus: bus})

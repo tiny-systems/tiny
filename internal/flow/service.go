@@ -25,6 +25,9 @@ type Service struct {
 	// signal, when set, fires data into a node port (RunAction). Injected by
 	// the host with a NATS-backed sender; nil means RunAction is unavailable.
 	signal sdktools.SignalSender
+	// trace, when set, backs the editor's Statistics (Executions/Traces) tab
+	// off the otel-collector. nil means traces come back empty.
+	trace traceSource
 }
 
 // NewService binds the service to one cluster + namespace.
@@ -36,6 +39,12 @@ func NewService(cfg *rest.Config, namespace string) *Service {
 // the same NATS-backed sender the MCP tools use.
 func (s *Service) SetSignalSender(sig sdktools.SignalSender) {
 	s.signal = sig
+}
+
+// SetTraceReader wires the Statistics (traces) capability. The host passes the
+// same otel-collector trace reader the MCP get_traces tools use.
+func (s *Service) SetTraceReader(t traceSource) {
+	s.trace = t
 }
 
 // manager builds a fresh resource.Manager per call — cheap (a typed client
