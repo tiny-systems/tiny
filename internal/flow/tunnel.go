@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/url"
 	"strconv"
@@ -35,6 +36,24 @@ type Tunnel struct {
 	mu     sync.Mutex
 	active map[int]tunnelEntry // local port -> live forward
 	warned map[int]string      // local port -> last error logged (dedupes noise)
+
+	// logLine, when set, renders one status line the CLI's way. nil falls back
+	// to the stdlib logger (timestamped) so the tunnel still speaks when run
+	// headless or in tests.
+	logLine func(string)
+}
+
+// SetLogger routes the tunnel's status lines through the host's printer so they
+// match the CLI's style instead of the stdlib log format.
+func (t *Tunnel) SetLogger(fn func(string)) { t.logLine = fn }
+
+func (t *Tunnel) logf(format string, a ...any) {
+	msg := fmt.Sprintf(format, a...)
+	if t.logLine != nil {
+		t.logLine(msg)
+		return
+	}
+	log.Printf("tunnel: %s", msg)
 }
 
 type tunnelEntry struct {
@@ -109,7 +128,7 @@ func (t *Tunnel) reconcile(ctx context.Context) {
 			e.stop()
 			delete(t.active, port)
 			if dropped {
-				log.Printf("tunnel: localhost:%d dropped, reconnecting", port)
+				t.logf("localhost:%d dropped, reconnecting", port)
 			}
 		}
 		stop, done, err := kube.ForwardPodPort(ctx, t.cfg, t.namespace, pod, port, port)
@@ -119,7 +138,7 @@ func (t *Tunnel) reconcile(ctx context.Context) {
 		}
 		t.active[port] = tunnelEntry{module: module, pod: pod, stop: stop, done: done}
 		delete(t.warned, port)
-		log.Printf("tunnel: localhost:%d → %s (%s)", port, pod, module)
+		t.logf("localhost:%d → %s (%s)", port, pod, module)
 	}
 
 	// Stop forwards whose server is gone.
@@ -128,7 +147,7 @@ func (t *Tunnel) reconcile(ctx context.Context) {
 			e.stop()
 			delete(t.active, port)
 			delete(t.warned, port)
-			log.Printf("tunnel: stopped localhost:%d (%s)", port, e.module)
+			t.logf("stopped localhost:%d (%s)", port, e.module)
 		}
 	}
 }
@@ -187,7 +206,7 @@ func (t *Tunnel) warn(port int, msg string) {
 		return
 	}
 	t.warned[port] = msg
-	log.Printf("tunnel: %s", msg)
+	t.logf("%s", msg)
 }
 
 // isClosed reports whether a done channel has fired (the forward exited),

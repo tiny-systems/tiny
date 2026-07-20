@@ -99,6 +99,9 @@ func runMCP(cmd *cobra.Command) error {
 	// from here. The tunnel port-forwards each such pod:<port> to this machine's
 	// 127.0.0.1:<port>, so the URL the editor shows is actually reachable.
 	if tunnel, err := flow.NewTunnel(cfg, flagNamespace); err == nil {
+		tunnel.SetLogger(func(msg string) {
+			fmt.Printf("  %s %s\n", styleKey.Render("tunnel"), styleSubtle.Render(msg))
+		})
 		go tunnel.Run(ctx)
 	}
 	fmt.Printf("  %s %s%s\n", styleKey.Render("editor"), styleURL.Render(editorURL), styleSubtle.Render("   → open in your browser"))
