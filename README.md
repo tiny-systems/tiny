@@ -64,7 +64,7 @@ Then, in your editor: *"an HTTP endpoint that summarizes the JSON I POST and ale
 |---|---|
 | `tiny` | serve the local MCP endpoint (+ browser editor, soon) and auto-connect Claude Code |
 | `tiny up` | provision the runtime (NATS/JetStream broker + operator + core modules) |
-| `tiny install <module>` | add a capability module from the public catalog |
+| `tiny install <workspace>/<module>` | add a capability module from the public catalog (e.g. `tiny install tinysystems/http-module`) |
 | `tiny status` | show the runtime + installed modules on the target cluster |
 | `tiny --print` | print the MCP client config and exit (don't serve) |
 | `tiny edit [flow]` | open the web canvas against your cluster |

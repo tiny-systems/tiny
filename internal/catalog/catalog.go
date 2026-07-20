@@ -58,15 +58,21 @@ type apiModule struct {
 	} `json:"helm_install"`
 }
 
-// Resolve looks up a module by name against the public catalog. Public
-// module names carry a version suffix ("-v0"); as a convenience we accept
-// the bare name and retry with the suffix so `tiny install http-module`
-// works as well as `tiny install http-module-v0`.
+// Resolve looks up a module by name against the public catalog. Names must be
+// workspace-qualified (`<workspace>/<module>`, e.g. `tinysystems/http-module`) —
+// tinysystems is not the only module provider, so a bare name is ambiguous and
+// rejected rather than silently defaulting to the tinysystems workspace. The
+// version suffix ("-v0") is still optional: `tinysystems/http-module` resolves
+// the same as `tinysystems/http-module-v0`.
 func Resolve(ctx context.Context, name string) (*Module, error) {
 	return resolve(ctx, DefaultBaseURL, name)
 }
 
 func resolve(ctx context.Context, baseURL, name string) (*Module, error) {
+	if !strings.Contains(name, "/") {
+		return nil, fmt.Errorf("module name must be workspace-qualified, e.g. tinysystems/http-module (got %q)", name)
+	}
+
 	candidates := []string{name}
 	if !strings.HasSuffix(name, "-v0") {
 		candidates = append(candidates, name+"-v0")
