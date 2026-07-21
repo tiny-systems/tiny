@@ -3,6 +3,7 @@ package repo
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -59,6 +60,30 @@ func TestParseManifestRejectsEmpty(t *testing.T) {
 	}
 	if _, err := ParseManifest([]byte("name: x\n")); err == nil {
 		t.Fatal("expected error for manifest with no versions")
+	}
+}
+
+func TestGenerateInlinesSiblingValues(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "common")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, ManifestFile), []byte(manifestCommon), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "values.yaml"),
+		[]byte("ingress:\n  className: \"${cluster.ingressClass}\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	idx, err := GenerateFromDir(dir)
+	if err != nil {
+		t.Fatalf("GenerateFromDir: %v", err)
+	}
+	v := idx.Modules["common-module"].Versions[0]
+	if !strings.Contains(v.Values, "className") {
+		t.Fatalf("sibling values.yaml not inlined: %q", v.Values)
 	}
 }
 

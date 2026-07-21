@@ -76,6 +76,15 @@ func GenerateFromDir(dir string) (*Index, error) {
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
+		// Inline a sibling values.yaml so authors keep the overlay in a real
+		// file — applied to any version that doesn't carry its own inline block.
+		if vals, err := os.ReadFile(filepath.Join(filepath.Dir(path), "values.yaml")); err == nil {
+			for _, v := range m.Versions {
+				if v.Values == "" {
+					v.Values = string(vals)
+				}
+			}
+		}
 		manifests = append(manifests, *m)
 		return nil
 	})

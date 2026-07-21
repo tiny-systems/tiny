@@ -10,18 +10,15 @@ import "context"
 //	apply    → helm-install the module release + each bundle
 //
 // It returns the plan (for reporting) and performs the helm side through the
-// given backend. rawValues is the module's values.yaml (with ${cluster.*}
-// holes); where that comes from — inlined in the index vs fetched from the repo
-// — is the next step, deliberately kept out of here so this stays the pure
-// orchestration seam. Nothing calls it yet; the `install` command flip is a
-// later step.
+// given backend. The module's values.yaml is inlined in the index entry
+// (Version.Values) — self-contained, so install works offline off the cache.
+// Nothing calls it yet; the `install` command flip is a later step.
 func Install(
 	ctx context.Context,
 	merged *Merged,
 	ref, namespace string,
 	clusterSettings map[string]string,
 	selectedBundles []string,
-	rawValues []byte,
 	helm Helm,
 ) (*InstallPlan, error) {
 	resolved, err := merged.Resolve(ref)
@@ -32,7 +29,7 @@ func Install(
 	if err != nil {
 		return nil, err
 	}
-	values, err := RenderValues(rawValues, plan.Fills)
+	values, err := RenderValues([]byte(resolved.Version.Values), plan.Fills)
 	if err != nil {
 		return nil, err
 	}

@@ -44,7 +44,7 @@ type Version struct {
 	Digest       string   `json:"digest,omitempty"`
 	Chart        string   `json:"chart,omitempty"`        // harness chart name
 	ChartVersion string   `json:"chartVersion,omitempty"` // compatible range
-	ValuesRef    string   `json:"valuesRef,omitempty"`    // in-repo path or URL
+	Values       string   `json:"values,omitempty"`       // inline values.yaml (with ${cluster.*} holes)
 	ClusterFills []string `json:"clusterFills,omitempty"` // holes tiny fills
 	Bundles      []Bundle `json:"bundles,omitempty"`
 	Cosign       bool     `json:"cosign,omitempty"` // image + entry are signed
