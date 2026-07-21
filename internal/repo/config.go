@@ -29,22 +29,37 @@ type Config struct {
 	Repos []Repo `json:"repos"`
 }
 
-// configPath returns the repos.yaml location.
-func configPath() (string, error) {
-	dir, err := os.UserConfigDir()
+// tinyHome is tiny's single local-state folder: $TINY_HOME, else ~/.tiny — one
+// discoverable place (repos, cache, prefs), like ~/.kube or ~/.docker, rather
+// than scattering across the OS config/cache dirs. Cluster config
+// (ingressClass, storage, broker) is NOT here — that lives in the cluster.
+func tinyHome() (string, error) {
+	if h := os.Getenv("TINY_HOME"); h != "" {
+		return h, nil
+	}
+	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "tiny", "repos.yaml"), nil
+	return filepath.Join(home, ".tiny"), nil
 }
 
-// cacheDir returns the per-repo index cache directory.
-func cacheDir() (string, error) {
-	dir, err := os.UserCacheDir()
+// configPath returns the repos.yaml location (~/.tiny/repos.yaml).
+func configPath() (string, error) {
+	h, err := tinyHome()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "tiny", "repos"), nil
+	return filepath.Join(h, "repos.yaml"), nil
+}
+
+// cacheDir returns the index cache directory (~/.tiny/cache).
+func cacheDir() (string, error) {
+	h, err := tinyHome()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(h, "cache"), nil
 }
 
 // defaultConfig is the config seeded on first run: just the default repo.

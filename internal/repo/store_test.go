@@ -4,19 +4,14 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 )
 
-// isolateHome points config + cache at a temp dir so tests never touch the real
-// home. os.UserConfigDir/UserCacheDir derive from HOME on darwin and from the
-// XDG_* vars (then HOME) on linux — set all three.
+// isolateHome points tiny's state at a temp dir so tests never touch the real
+// ~/.tiny. TINY_HOME is the single override for both repos.yaml and the cache.
 func isolateHome(t *testing.T) {
 	t.Helper()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
-	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, "cache"))
+	t.Setenv("TINY_HOME", t.TempDir())
 }
 
 func TestStoreAddUpdateResolve(t *testing.T) {
