@@ -11,9 +11,10 @@ import (
 const (
 	// DefaultRepoName is the baked-in repo added on first run. Removable.
 	DefaultRepoName = "tinysystems"
-	// DefaultRepoURL is the baked-in default index. Placeholder until hosting
-	// is decided (design §9.2) — a static index on GitHub Pages / GHCR OCI.
-	DefaultRepoURL = "https://tinysystems.github.io/modules/index.yaml"
+	// DefaultRepoURL is the baked-in default index — the tiny-systems/modules
+	// repo, served raw off main. (A prettier GitHub Pages URL can replace this
+	// once Pages is enabled; the raw URL is a plain-GET static file either way.)
+	DefaultRepoURL = "https://raw.githubusercontent.com/tiny-systems/modules/main/index.yaml"
 )
 
 // Repo is a configured repo: a unique name and its index URL.
