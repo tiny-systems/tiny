@@ -134,6 +134,29 @@ values.yaml (repo) ────────────────────�
 `tiny` installs off the index for speed but **verifies against the signed image
 annotations**, so the index can never quietly lie.
 
+### 3.7 Build & publish with no platform
+
+A module must be buildable and publishable with **zero platform involvement** —
+otherwise the platform is still a gate. Today's build uses
+`tools build --devkey <TINY_DEV_SECRET>`; that devkey is the last platform
+dependency in the build path and **must go**. Decentralized publish is:
+
+```
+container build → push to GHCR → emit self-description as OCI annotations
+→ cosign sign → `tiny repo index` → host index.yaml (static)
+```
+
+No devkey, no platform call. The author owns their image (GHCR) and their index
+(a static file they host anywhere).
+
+**The platform discovers passively — pull, never push.** It crawls registered
+repo indexes (plus a `tinysystems-module` GitHub-topic convention and an "add
+your repo URL" submission, à la Artifact Hub / Homebrew taps) and merges them
+into its search index. The module author does nothing platform-specific; the
+platform just notices. "Passive" means pull-from-a-registered-set + a discovery
+convention — not magic whole-internet crawling — but registration is open to
+anyone and gates nothing.
+
 ## 4. Schemas
 
 ### 4.1 `index.yaml` (repo)
