@@ -296,6 +296,10 @@ func buildRegistry() *sdktools.Registry {
 	// repo index for installable modules, then read a candidate's README.
 	r.Register(listAvailableModulesTool{})
 	r.Register(getModuleReadmeTool{})
+	// Trigger/run a flow (fire a Signal). The SDK has no send_signal tool, but
+	// the instructions tell the model to use it — without this it can build a
+	// flow but never start it.
+	r.Register(sendSignalTool{})
 	r.Register(sdktools.NewListProjectsTool())
 	r.Register(sdktools.NewReadProjectTool())
 	r.Register(sdktools.NewCreateFlowTool())
