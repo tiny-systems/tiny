@@ -10,9 +10,9 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/rest"
 
-	"github.com/tiny-systems/tiny/internal/catalog"
 	"github.com/tiny-systems/tiny/internal/kube"
 	"github.com/tiny-systems/tiny/internal/provision"
+	"github.com/tiny-systems/tiny/internal/repo"
 )
 
 // coreModules are installed by `tiny up` so a fresh cluster is immediately
@@ -79,15 +79,31 @@ func runUp(cmd *cobra.Command, _ []string) error {
 	brokerURL := provision.BrokerURL(ctx, cfg, flagNamespace)
 	settings := resolveSettings(ctx, cfg)
 
+	// Core modules come from the configured repos (default: the public index) —
+	// no platform, GHCR images. This is the same path as `tiny install`.
+	store, err := repo.Open()
+	if err != nil {
+		return err
+	}
+	if err := store.Update(ctx); err != nil {
+		fmt.Printf("  %s %v\n", styleWarn.Render("repo update:"), err)
+	}
+	merged, err := store.Merged()
+	if err != nil {
+		return err
+	}
+	cluster := map[string]string{"brokerURL": brokerURL}
+	if settings.IngressClass != "" {
+		cluster["ingressClass"] = settings.IngressClass
+	}
+	if settings.StorageClass != "" {
+		cluster["storageClass"] = settings.StorageClass
+	}
 	for _, name := range coreModules {
 		nm := name
 		if err := step("module: "+nm, func() error {
-			m, err := catalog.Resolve(ctx, nm)
-			if err != nil {
-				return err
-			}
-			_, err = hc.InstallModule(ctx, m, brokerURL, settings)
-			return err
+			_, e := repo.Install(ctx, merged, nm, flagNamespace, cluster, nil, provision.BaseValues, hc)
+			return e
 		}); err != nil {
 			return err
 		}
