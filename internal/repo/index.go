@@ -131,6 +131,47 @@ type Resolved struct {
 	Version *Version
 }
 
+// ModuleSummary is the limited, cheap-to-scan info an agent uses to shortlist a
+// module before fetching its full README. No versions/values/schemas — just
+// enough to decide "is this worth a closer look?".
+type ModuleSummary struct {
+	Repo          string `json:"repo"`
+	Name          string `json:"name"`
+	Description   string `json:"description,omitempty"`
+	Category      string `json:"category,omitempty"`
+	Source        string `json:"source,omitempty"`
+	LatestVersion string `json:"latestVersion,omitempty"`
+	ReadmeURL     string `json:"readmeURL,omitempty"`
+}
+
+// List returns every available module across the merged indexes, sorted by
+// name — the discovery scan layer (get_module_readme pulls the detail).
+func (m *Merged) List() []ModuleSummary {
+	var out []ModuleSummary
+	for _, rn := range m.order {
+		idx := m.byRepo[rn]
+		if idx == nil {
+			continue
+		}
+		for name, mod := range idx.Modules {
+			s := ModuleSummary{
+				Repo:        rn,
+				Name:        name,
+				Description: mod.Description,
+				Category:    mod.Category,
+				Source:      mod.Source,
+				ReadmeURL:   mod.ReadmeURL(),
+			}
+			if v := mod.latest(); v != nil {
+				s.LatestVersion = v.Version
+			}
+			out = append(out, s)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
 // Resolve finds a module version across the merged indexes. Accepted forms:
 //
 //	module                 module[@version] searched across all repos
