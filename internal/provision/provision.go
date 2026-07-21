@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"sigs.k8s.io/yaml"
 
 	"github.com/tiny-systems/tiny/internal/catalog"
 )
@@ -293,6 +294,37 @@ func (c *Client) moduleValues(m *catalog.Module, release, natsURL string, settin
 		)
 	}
 	return v
+}
+
+// UpgradeInstall installs or upgrades an arbitrary chart with a full values
+// map — the generic helm primitive the repo-model installer drives. It makes
+// *Client structurally satisfy repo.Helm (no import of the repo package needed;
+// Go interfaces are structural). Mirrors the install flags used elsewhere
+// (create-namespace, wait, atomic, cleanup-on-fail). Nothing calls it until the
+// install/up cutover; adding it is non-breaking.
+func (c *Client) UpgradeInstall(ctx context.Context, release, namespace, chart, version string, vals map[string]any) error {
+	var valuesYaml string
+	if len(vals) > 0 {
+		b, err := yaml.Marshal(vals)
+		if err != nil {
+			return fmt.Errorf("marshal values for %s: %w", release, err)
+		}
+		valuesYaml = string(b)
+	}
+	return c.install(ctx, &helmclient.ChartSpec{
+		ReleaseName:     release,
+		ChartName:       chart,
+		Version:         version,
+		Namespace:       namespace,
+		CreateNamespace: true,
+		Wait:            true,
+		Timeout:         5 * time.Minute,
+		Atomic:          true,
+		Force:           true,
+		Replace:         true,
+		CleanupOnFail:   true,
+		ValuesYaml:      valuesYaml,
+	})
 }
 
 func (c *Client) install(ctx context.Context, spec *helmclient.ChartSpec) error {
