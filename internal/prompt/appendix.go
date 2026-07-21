@@ -24,8 +24,10 @@ hosted backend, no accounts, no workspaces.
   startup via ` + "`--namespace`" + ` or taken from the current kubectl context.
 - **No virtual servers.** Projects and flows exist only as CRDs in the
   current namespace.
-- **No background job tracking.** Module installation is done by the user
-  running ` + "`helm install`" + ` themselves — there is no ` + "`install_module`" + ` tool.
+- **Decentralized modules — no platform.** Modules resolve from static repo
+  indexes (default: the public ` + "`tiny-systems/modules`" + ` index), and images
+  come from GHCR. You install them yourself with ` + "`install_module`" + ` — no
+  hosted catalog, no account, nothing to run by hand.
 - **Public solutions catalog.** ` + "`search_solutions`" + ` and
   ` + "`get_solution`" + ` hit the Tiny Systems public REST API at
   ` + "`/v1/solutions`" + ` and return only solutions marked public. Use them
@@ -37,24 +39,20 @@ hosted backend, no accounts, no workspaces.
 
 ### Module discovery
 
-Two discovery paths, and you will often need both:
+Work outward from what's cheapest, and only fetch detail for real candidates:
 
-- **` + "`list_modules`" + ` / ` + "`get_component_info`" + `** — cluster-scoped.
-  Lists modules already installed in the caller's namespace. Use this
-  first: if the module you need is here, skip the catalog.
-- **` + "`search_modules`" + ` / ` + "`get_module_info`" + `** — catalog-scoped.
-  Queries the public Tiny Systems catalog (same slice the website
-  https://tinysystems.io/modules shows). Use this when ` + "`list_modules`" + `
-  is empty or missing something a solution needs. The catalog returns
-  components, port schemas, RBAC requirements, and the helm install
-  command the user can run to add the module to their cluster.
-
-When ` + "`list_modules`" + ` comes up short, the right move is to
-` + "`search_modules`" + ` for the capability, then ` + "`get_module_info`" + `
-for the winning module and quote its ` + "`helm_install.command`" + ` (with
-prerequisites and warnings) to the user so they can install it. Do NOT
-attempt to install modules yourself — module install is a user action
-in local mode.
+1. **Installed first** — ` + "`list_modules`" + ` + ` + "`get_component_info`" + `
+   list the modules already in the namespace and their component/port schemas.
+   If the capability is already here, use it and stop.
+2. **Scan what's available** — ` + "`list_available_modules`" + ` returns every
+   installable module from the repo index: name, one-line description,
+   category, source. This is the cheap scan — read the descriptions and
+   shortlist 1–3 candidates. Do NOT fetch details for all of them.
+3. **Read the candidates** — ` + "`get_module_readme`" + ` fetches a module's
+   full README (from its source repo) so you understand its components and how
+   to wire them. Read it for each shortlisted candidate before deciding.
+4. **Install the winner** — ` + "`install_module`" + ` with its name. After it
+   installs, ` + "`get_component_info`" + ` gives its live component/port schemas.
 
 If a port's schema appears empty from ` + "`get_component_info`" + ` for an
 installed module, place a test node with ` + "`add_node`" + ` and then call

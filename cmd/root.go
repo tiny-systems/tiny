@@ -66,6 +66,7 @@ Run with no command to start the dev server (MCP endpoint + editor).`,
 	root.AddCommand(
 		newUpCmd(),
 		newInstallCmd(),
+		newRepoCmd(),
 		newStatusCmd(),
 		newEditCmd(),
 		newUpgradeCmd(),

@@ -292,6 +292,10 @@ func buildRegistry() *sdktools.Registry {
 	r.Register(sdktools.NewGetInstructionsTool(sdktools.CorePrompt + "\n\n" + prompt.PublicAppendix))
 	r.Register(sdktools.NewListModulesTool())
 	r.Register(sdktools.NewGetComponentInfoTool())
+	// Decentralized discovery (replaces the platform's search_modules): scan the
+	// repo index for installable modules, then read a candidate's README.
+	r.Register(listAvailableModulesTool{})
+	r.Register(getModuleReadmeTool{})
 	r.Register(sdktools.NewListProjectsTool())
 	r.Register(sdktools.NewReadProjectTool())
 	r.Register(sdktools.NewCreateFlowTool())

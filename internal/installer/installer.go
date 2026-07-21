@@ -1,20 +1,20 @@
 // Package installer implements sdktools.ModuleInstaller for kubeconfig mode:
 // it lets an agent install a capability module on the fly, mid-build, through
-// the MCP endpoint — resolving the module from the public catalog and
-// helm-installing it via the exact same path `tiny install` uses. Without
-// this, install_module tells the agent to go run helm itself.
+// the MCP endpoint — resolving from the configured repos (default: the public
+// index) and helm-installing via the exact same repo-model path as
+// `tiny install`. No platform. Without this, install_module tells the agent to
+// go run helm itself.
 package installer
 
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	sdktools "github.com/tiny-systems/module/pkg/tools"
 	"k8s.io/client-go/rest"
 
-	"github.com/tiny-systems/tiny/internal/catalog"
 	"github.com/tiny-systems/tiny/internal/provision"
+	"github.com/tiny-systems/tiny/internal/repo"
 )
 
 // ModuleInstaller resolves + helm-installs modules onto the local cluster.
@@ -30,27 +30,31 @@ func New(cfg *rest.Config, namespace string) *ModuleInstaller {
 
 var _ sdktools.ModuleInstaller = (*ModuleInstaller)(nil)
 
-// InstallModule resolves moduleName from the public catalog and installs it.
-// version is currently ignored (always the catalog's latest); bundles aren't
-// supported by the local path yet and are surfaced as a warning. Install
-// failures come back as InstallResult{Success:false} (not a Go error) so the
-// agent gets a clean message plus the progress transcript.
+// InstallModule resolves moduleName from the configured repos and installs it
+// via the repo model (resolve → plan → harness base ⊕ overlay → helm) — the
+// same path as `tiny install`, no platform. version pins a version (empty =
+// latest); bundles select optional bundles (nil = module defaults, ["none"] =
+// zero). Install failures come back as InstallResult{Success:false} (not a Go
+// error) so the agent gets a clean message plus the progress transcript.
 func (m *ModuleInstaller) InstallModule(ctx context.Context, moduleName, version string, bundles []string, onProgress func(sdktools.InstallProgress)) (*sdktools.InstallResult, error) {
 	progress := func(stage, msg, logType string) {
 		if onProgress != nil {
 			onProgress(sdktools.InstallProgress{Stage: stage, Message: msg, LogType: logType})
 		}
 	}
-
 	if moduleName == "" {
 		return nil, fmt.Errorf("module_name required")
 	}
-	if len(bundles) > 0 {
-		progress("resolve", "bundles are not supported by local install yet — ignoring: "+strings.Join(bundles, ", "), "warning")
-	}
 
-	progress("resolve", "resolving "+moduleName+" from the public catalog", "info")
-	mod, err := catalog.Resolve(ctx, moduleName)
+	progress("resolve", "resolving "+moduleName+" from the configured repos", "info")
+	store, err := repo.Open()
+	if err != nil {
+		return &sdktools.InstallResult{Success: false, Error: err.Error()}, nil
+	}
+	if err := store.Update(ctx); err != nil {
+		progress("resolve", "repo update: "+err.Error(), "warning") // resolve can still run off cache
+	}
+	merged, err := store.Merged()
 	if err != nil {
 		return &sdktools.InstallResult{Success: false, Error: err.Error()}, nil
 	}
@@ -59,22 +63,32 @@ func (m *ModuleInstaller) InstallModule(ctx context.Context, moduleName, version
 	if err := provision.EnsureNamespace(ctx, m.cfg, m.namespace); err != nil {
 		return &sdktools.InstallResult{Success: false, Error: fmt.Sprintf("prepare namespace: %v", err)}, nil
 	}
-
 	hc, err := provision.NewClient(m.cfg, m.namespace, nil)
 	if err != nil {
 		return &sdktools.InstallResult{Success: false, Error: fmt.Sprintf("helm client: %v", err)}, nil
 	}
-	broker := provision.BrokerURL(ctx, m.cfg, m.namespace)
-	// Inherit the cluster's saved install settings (ingress/storage/issuer)
-	// so an agent-installed module lands with the same config as `tiny install`.
-	settings, _ := provision.LoadSettings(ctx, m.cfg, m.namespace)
 
-	progress("install", "installing "+mod.FullName+" ("+mod.Tag+") — this can take a minute while the image pulls", "info")
-	release, err := hc.InstallModule(ctx, mod, broker, settings)
+	// Cluster-provided values (ingress/storage/broker) — same holes `tiny
+	// install` fills, from the namespace's saved settings.
+	settings, _ := provision.LoadSettings(ctx, m.cfg, m.namespace)
+	cluster := map[string]string{"brokerURL": provision.BrokerURL(ctx, m.cfg, m.namespace)}
+	if settings.IngressClass != "" {
+		cluster["ingressClass"] = settings.IngressClass
+	}
+	if settings.StorageClass != "" {
+		cluster["storageClass"] = settings.StorageClass
+	}
+
+	ref := moduleName
+	if version != "" {
+		ref = moduleName + "@" + version
+	}
+	progress("install", "installing "+ref+" — this can take a minute while the image pulls", "info")
+	plan, err := repo.Install(ctx, merged, ref, m.namespace, cluster, bundles, provision.BaseValues, hc)
 	if err != nil {
 		return &sdktools.InstallResult{Success: false, Error: err.Error()}, nil
 	}
 
-	progress("done", "installed "+mod.FullName, "success")
-	return &sdktools.InstallResult{Success: true, ReleaseName: release}, nil
+	progress("done", "installed "+ref+" (release "+plan.ReleaseName+")", "success")
+	return &sdktools.InstallResult{Success: true, ReleaseName: plan.ReleaseName}, nil
 }
