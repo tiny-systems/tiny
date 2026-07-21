@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -15,7 +17,7 @@ func newRepoCmd() *cobra.Command {
 		Use:   "repo",
 		Short: "Manage module repos (Helm-style: static indexes, add your own)",
 	}
-	cmd.AddCommand(newRepoListCmd(), newRepoAddCmd(), newRepoRemoveCmd(), newRepoUpdateCmd())
+	cmd.AddCommand(newRepoListCmd(), newRepoAddCmd(), newRepoRemoveCmd(), newRepoUpdateCmd(), newRepoIndexCmd())
 	return cmd
 }
 
@@ -82,6 +84,39 @@ func newRepoRemoveCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func newRepoIndexCmd() *cobra.Command {
+	var out string
+	c := &cobra.Command{
+		Use:   "index <dir>",
+		Short: "Generate an index.yaml from module.yaml manifests (like `helm repo index`)",
+		Long: `Build a repo index from the module.yaml files under <dir>. This is how a
+repo is published with zero platform involvement: author your module.yaml,
+run this, and host the result as a static file.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			idx, err := repo.GenerateFromDir(args[0])
+			if err != nil {
+				return err
+			}
+			data, err := repo.MarshalIndex(idx, time.Now().UTC().Format(time.RFC3339))
+			if err != nil {
+				return err
+			}
+			if out == "" {
+				fmt.Print(string(data))
+				return nil
+			}
+			if err := os.WriteFile(out, data, 0o644); err != nil {
+				return err
+			}
+			fmt.Printf("\n  %s wrote %s %s\n", styleOK.Render("✓"), styleTitle.Render(out), styleSubtle.Render(fmt.Sprintf("(%d module(s))", len(idx.Modules))))
+			return nil
+		},
+	}
+	c.Flags().StringVarP(&out, "output", "o", "", "write to a file instead of stdout")
+	return c
 }
 
 func newRepoUpdateCmd() *cobra.Command {
