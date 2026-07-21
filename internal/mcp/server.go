@@ -34,10 +34,11 @@ const protocolVersion = "2024-11-05"
 // — transports can share a single Server across many concurrent
 // connections.
 type Server struct {
-	registry   *sdktools.Registry
-	execCtx    sdktools.ExecutionContext
-	serverName string
-	serverVer  string
+	registry     *sdktools.Registry
+	execCtx      sdktools.ExecutionContext
+	serverName   string
+	serverVer    string
+	instructions string
 
 	// OnActivity, if set, is called at the start of each tool call with the
 	// tool name; it returns a function invoked when the call finishes. Lets a
@@ -54,6 +55,18 @@ func NewServer(registry *sdktools.Registry, execCtx sdktools.ExecutionContext) *
 		execCtx:    execCtx,
 		serverName: "tinysystems",
 		serverVer:  "0.1.0",
+		// Server-level steer returned on `initialize` so the client/model knows
+		// what this is and reaches for these tools (instead of writing code or
+		// kubectl) the moment the user asks to build/run something on a cluster.
+		instructions: "You are connected to a local Tiny Systems runtime that talks directly to the user's Kubernetes cluster. When the user asks to build, install, or run an agent/flow/endpoint on their cluster, DO IT WITH THESE TOOLS — assemble flows as real workloads — do not write code, YAML, or kubectl yourself. Call get_instructions first for the full workflow (projects, flows, module discovery + install, running + tracing). Modules install decentrally from configured repos: discover installables with list_available_modules, read a candidate with get_module_readme, then install_module.",
+	}
+}
+
+// SetInstructions overrides the server-level instructions returned on
+// `initialize` (the model's first steer about what this server is for).
+func (s *Server) SetInstructions(text string) {
+	if text != "" {
+		s.instructions = text
 	}
 }
 
@@ -95,6 +108,7 @@ func (s *Server) HandleFrame(ctx context.Context, frame []byte) ([]byte, error) 
 				ProtocolVersion: protocolVersion,
 				Capabilities:    capabilities{Tools: toolsCapability{ListChanged: false}},
 				ServerInfo:      serverInfo{Name: s.serverName, Version: s.serverVer},
+				Instructions:    s.instructions,
 			},
 		})
 
@@ -173,6 +187,7 @@ type initializeResult struct {
 	ProtocolVersion string       `json:"protocolVersion"`
 	Capabilities    capabilities `json:"capabilities"`
 	ServerInfo      serverInfo   `json:"serverInfo"`
+	Instructions    string       `json:"instructions,omitempty"`
 }
 
 // capabilities advertises what this server supports. The "tools" key
