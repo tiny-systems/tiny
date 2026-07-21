@@ -14,6 +14,7 @@ import (
 type InstallPlan struct {
 	ReleaseName  string            // <module>-v<major> — coexistence-safe
 	Namespace    string            //
+	Version      string            // SemVer (for the operator's --version)
 	Image        string            // ghcr ref
 	Digest       string            // for cosign/digest verification
 	Chart        string            // harness chart name
@@ -74,6 +75,7 @@ func (r *Resolved) Plan(namespace string, clusterSettings map[string]string, sel
 	return &InstallPlan{
 		ReleaseName:  release,
 		Namespace:    namespace,
+		Version:      v.Version,
 		Image:        v.Image,
 		Digest:       v.Digest,
 		Chart:        v.Chart,

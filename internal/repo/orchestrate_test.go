@@ -21,6 +21,17 @@ modules:
             className: "${cluster.ingressClass}"
 `
 
+// fakeBase stands in for provision.BaseValues — records that it was called with
+// the plan's identity fields and returns a small harness base to merge.
+func fakeBase(image, release, version, namespace, natsURL string) map[string]any {
+	return map[string]any{
+		"fullnameOverride": release,
+		"controllerManager": map[string]any{
+			"manager": map[string]any{"image": image, "version": version},
+		},
+	}
+}
+
 func TestInstallFullPipeline(t *testing.T) {
 	merged := NewMerged([]string{"r"}, map[string]*Index{"r": mustParse(t, fixtureWithFills)})
 	h := &fakeHelm{}
@@ -30,7 +41,7 @@ func TestInstallFullPipeline(t *testing.T) {
 		"http-module", "tinysystems",
 		map[string]string{"ingressClass": "nginx"},
 		[]string{"none"},
-		h,
+		fakeBase, h,
 	)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
@@ -48,10 +59,14 @@ func TestInstallFullPipeline(t *testing.T) {
 	if c.release != "http-module-v2" || c.chart != "tinysystems-operator" || c.namespace != "tinysystems" {
 		t.Errorf("helm call wrong: %+v", c)
 	}
-	// The inline values' cluster hole was filled before reaching helm.
+	// Merged values carry the OVERLAY (inline values' filled cluster hole)…
 	ingress, _ := c.values["ingress"].(map[string]any)
 	if ingress == nil || ingress["className"] != "nginx" {
-		t.Errorf("rendered values missing filled className: %#v", c.values)
+		t.Errorf("merged values missing filled className: %#v", c.values)
+	}
+	// …AND the harness BASE (from fakeBase).
+	if c.values["fullnameOverride"] != "http-module-v2" {
+		t.Errorf("merged values missing base fullnameOverride: %#v", c.values)
 	}
 }
 
@@ -60,7 +75,7 @@ func TestInstallRefusesMissingClusterValue(t *testing.T) {
 	h := &fakeHelm{}
 
 	// No ingressClass provided → refuse before touching helm.
-	if _, err := Install(context.Background(), merged, "http-module", "tinysystems", nil, []string{"none"}, h); err == nil {
+	if _, err := Install(context.Background(), merged, "http-module", "tinysystems", nil, []string{"none"}, fakeBase, h); err == nil {
 		t.Fatal("expected refusal for missing cluster value")
 	}
 	if len(h.calls) != 0 {
