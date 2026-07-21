@@ -29,11 +29,27 @@ type Index struct {
 }
 
 // Module is one module's entry: identity, presentation, and its versions.
+// Description is the one-line summary (lists). The full markdown doc is NOT
+// inlined — it's the module repo's own README, fetched on demand from Source
+// (which is the doc's source of truth). See ReadmeURL.
 type Module struct {
-	Source      string     `json:"source,omitempty"` // github.com/org/repo
+	Source      string     `json:"source,omitempty"` // github.com/org/repo — also where the README lives
 	Description string     `json:"description,omitempty"`
 	Category    string     `json:"category,omitempty"`
 	Versions    []*Version `json:"versions"`
+}
+
+// ReadmeURL derives the raw README URL from a module's Source
+// (github.com/org/repo → raw.githubusercontent.com/org/repo/HEAD/README.md).
+// Returns "" if Source isn't a github.com coordinate. The platform/agent fetches
+// this on demand for detail views — install never needs it, so it stays online-
+// only while install data stays offline-cached.
+func (m *Module) ReadmeURL() string {
+	const gh = "github.com/"
+	if !strings.HasPrefix(m.Source, gh) {
+		return ""
+	}
+	return "https://raw.githubusercontent.com/" + strings.TrimPrefix(m.Source, gh) + "/HEAD/README.md"
 }
 
 // Version is one installable release: the image + the values/chart coordinates

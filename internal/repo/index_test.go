@@ -37,6 +37,21 @@ func mustParse(t *testing.T, s string) *Index {
 	return idx
 }
 
+func TestReadmeURL(t *testing.T) {
+	m := &Module{Source: "github.com/tiny-systems/http-module"}
+	want := "https://raw.githubusercontent.com/tiny-systems/http-module/HEAD/README.md"
+	if got := m.ReadmeURL(); got != want {
+		t.Errorf("ReadmeURL() = %q, want %q", got, want)
+	}
+	// non-github (or empty) source → no derivable readme
+	if got := (&Module{Source: "gitlab.com/x/y"}).ReadmeURL(); got != "" {
+		t.Errorf("ReadmeURL(non-github) = %q, want empty", got)
+	}
+	if got := (&Module{}).ReadmeURL(); got != "" {
+		t.Errorf("ReadmeURL(empty) = %q, want empty", got)
+	}
+}
+
 func TestParseIndexRejectsWrongAPIVersion(t *testing.T) {
 	if _, err := ParseIndex([]byte("apiVersion: tiny/v1\nmodules: {}\n")); err == nil {
 		t.Fatal("expected error on unsupported apiVersion")
