@@ -206,12 +206,33 @@ tiny up                          # runtime + default module set (from default re
 
 ## 7. Versioning
 
-- **SemVer** on repo tags; image tag = the version.
-- **No suffix for the first major** (`http-module`, not `http-module-v0`). This
-  is the Go-modules rule: only add `/v2` (or `-v2`) when a genuinely
-  incompatible major must **coexist** in one cluster (nodes bind to a major).
-- The major-as-identity is correct *only* for coexistence; if two majors never
-  coexist, pure SemVer is enough. **Open decision** (§9).
+**Decided:** two majors of a module must coexist **in the same cluster and even
+the same namespace** (a flow can bind nodes to both). So the major is part of
+**runtime identity** — and unlike Go modules (whose majors only coexist at build
+time), you cannot omit the suffix for the first major or retro-add it later:
+every version's K8s resources need the major in their names from day one.
+
+The clean split keeps that property without polluting the human-facing name:
+
+- **Repo / module name** stays plain — `github.com/tiny-systems/http-module`, no
+  suffix. (Transparency.)
+- **Image** is one repo, SemVer-tagged — `ghcr.io/tiny-systems/http-module:2.3.1`.
+  The major *is* the SemVer major.
+- **Coexistence coordinate = `<module>-v<major>`, DERIVED from the SemVer major**
+  at install time — used for the helm release name, every K8s resource
+  name/label (`app.kubernetes.io/instance=http-module-v2`), and node refs
+  (`…http-module-v2.http-server-…`). It is **not** stored in the repo name or the
+  image repo.
+
+So `tiny install http-module@2.3.1` → release `http-module-v2`, image
+`…/http-module:2.3.1`, coexisting with `http-module-v1` in the same namespace.
+Within a major, upgrades replace in place (minor/patch); across majors, separate
+releases.
+
+This is exactly what `-v0` was reaching for — the mistake was baking it into the
+name/image repo instead of deriving it. It becomes a runtime detail that equals
+the SemVer major (so today's `-v0` just means "still 0.x"). Install-name
+derivation: `releaseName = "<module>-v" + semverMajor(version)`.
 
 ## 8. Migration
 
@@ -235,8 +256,10 @@ Keep everything working at each step; nothing is a flag-day.
    (co-located with images, signable in one place). Lean: start `index.yaml`.
 2. **Default-repo hosting:** GitHub Pages vs GHCR OCI. Both durable; GHCR keeps
    it next to images.
-3. **Coexistence:** do two majors of a module ever run in one cluster? Decides
-   §7 (suffix vs pure SemVer). Node refs suggest yes; confirm.
+3. ~~Coexistence~~ — **DECIDED (2026-07): yes**, two majors coexist in the same
+   cluster *and namespace*. The major is a derived runtime coordinate
+   (`<module>-v<major>` from the SemVer major); repo name + image repo stay
+   plain. See §7.
 4. **Signing:** cosign **keyless** via GitHub OIDC (no key management) — confirm
    the verification story for third-party repos.
 5. **Harness chart source:** confirm it ships in the default repo and modules
