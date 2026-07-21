@@ -8,23 +8,25 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tiny-systems/tiny/internal/catalog"
 	"github.com/tiny-systems/tiny/internal/kube"
 	"github.com/tiny-systems/tiny/internal/provision"
+	"github.com/tiny-systems/tiny/internal/repo"
 )
 
 // ----- install -----
 
 func newInstallCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "install <module>",
-		Short: "Install a capability module onto the cluster",
-		Long: `Install a module (a capability an agent can use) from the public
-catalog — e.g. database-module, communication-module, googleapis-module.
+	var bundles []string
+	c := &cobra.Command{
+		Use:   "install <module>[@version]",
+		Short: "Install a capability module from the configured repos",
+		Long: `Install a module (a capability an agent can use) from the module repos
+tiny is configured with (see 'tiny repo'). It resolves the module from the
+index and installs it via Helm — no platform required.
 
-You rarely need this by hand: a prompt-built agent installs the modules
-it needs on the fly through the MCP endpoint. Use it to pre-warm a
-cluster or add something specific.`,
+You rarely need this by hand: a prompt-built agent installs the modules it
+needs on the fly through the MCP endpoint. Use it to pre-warm a cluster or
+add something specific.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
@@ -41,31 +43,47 @@ cluster or add something specific.`,
 			if err != nil {
 				return err
 			}
-
-			m, err := catalog.Resolve(ctx, name)
+			store, err := repo.Open()
+			if err != nil {
+				return err
+			}
+			// Refresh indexes (best-effort — resolve can still run off cache).
+			if err := store.Update(ctx); err != nil {
+				fmt.Printf("  %s %v\n", styleWarn.Render("repo update:"), err)
+			}
+			merged, err := store.Merged()
 			if err != nil {
 				return err
 			}
 			if err := provision.EnsureNamespace(ctx, cfg, flagNamespace); err != nil {
 				return err
 			}
-			brokerURL := provision.BrokerURL(ctx, cfg, flagNamespace)
+
 			settings := resolveSettings(ctx, cfg)
+			cluster := map[string]string{"brokerURL": provision.BrokerURL(ctx, cfg, flagNamespace)}
+			if settings.IngressClass != "" {
+				cluster["ingressClass"] = settings.IngressClass
+			}
+			if settings.StorageClass != "" {
+				cluster["storageClass"] = settings.StorageClass
+			}
 
 			fmt.Println()
-			var release string
-			if err := step(fmt.Sprintf("module: %s %s", m.FullName, styleSubtle.Render(m.Tag)), func() error {
+			var plan *repo.InstallPlan
+			if err := step("installing "+name, func() error {
 				var e error
-				release, e = hc.InstallModule(ctx, m, brokerURL, settings)
+				plan, e = repo.Install(ctx, merged, name, flagNamespace, cluster, bundles, provision.BaseValues, hc)
 				return e
 			}); err != nil {
-				fmt.Println("  " + styleSubtle.Render("fresh cluster? run `tiny up` first to install the runtime, then retry."))
+				fmt.Println("  " + styleSubtle.Render("fresh cluster? run `tiny up` first. not in any repo? see `tiny repo add`."))
 				return err
 			}
-			fmt.Printf("\n  %s %s %s\n\n", styleOK.Render("✓ installed"), styleTitle.Render(m.FullName), styleSubtle.Render("· release "+release))
+			fmt.Printf("\n  %s %s %s\n\n", styleOK.Render("✓ installed"), styleTitle.Render(name), styleSubtle.Render("· release "+plan.ReleaseName))
 			return nil
 		},
 	}
+	c.Flags().StringSliceVar(&bundles, "bundle", nil, `bundles to enable (default: module defaults; "--bundle none" for zero)`)
+	return c
 }
 
 // ----- status -----

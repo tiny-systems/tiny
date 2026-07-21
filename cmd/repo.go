@@ -7,8 +7,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tiny-systems/tiny/internal/kube"
-	"github.com/tiny-systems/tiny/internal/provision"
 	"github.com/tiny-systems/tiny/internal/repo"
 )
 
@@ -19,75 +17,10 @@ func newRepoCmd() *cobra.Command {
 		Use:   "repo",
 		Short: "Manage module repos (Helm-style: static indexes, add your own)",
 	}
-	cmd.AddCommand(newRepoListCmd(), newRepoAddCmd(), newRepoRemoveCmd(), newRepoUpdateCmd(), newRepoIndexCmd(), newRepoInstallCmd())
+	// Install lives at the top level as `tiny install` (the repo model is now
+	// the real install path); `tiny repo` is just repo management.
+	cmd.AddCommand(newRepoListCmd(), newRepoAddCmd(), newRepoRemoveCmd(), newRepoUpdateCmd(), newRepoIndexCmd())
 	return cmd
-}
-
-// newRepoInstallCmd installs a module through the repo model (resolve from the
-// index → plan → harness base ⊕ overlay → helm), the decentralized replacement
-// for `tiny install`. Experimental while the model is proven out; the classic
-// `tiny install` (platform catalog) is untouched.
-func newRepoInstallCmd() *cobra.Command {
-	var bundles []string
-	c := &cobra.Command{
-		Use:   "install <module>[@version]",
-		Short: "Install a module from the configured repos (experimental repo model)",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			name := args[0]
-			if err := confirmTarget(fmt.Sprintf("Install module %q (repo model) into:", name)); err != nil {
-				return err
-			}
-			ctx := cmd.Context()
-
-			cfg, err := kube.RestConfig(flagContext)
-			if err != nil {
-				return err
-			}
-			hc, err := provision.NewClient(cfg, flagNamespace, nil)
-			if err != nil {
-				return err
-			}
-			store, err := repo.Open()
-			if err != nil {
-				return err
-			}
-			// Refresh indexes (best-effort — resolve can still run off cache).
-			if err := store.Update(ctx); err != nil {
-				fmt.Printf("  %s %v\n", styleWarn.Render("repo update:"), err)
-			}
-			merged, err := store.Merged()
-			if err != nil {
-				return err
-			}
-			if err := provision.EnsureNamespace(ctx, cfg, flagNamespace); err != nil {
-				return err
-			}
-
-			settings := resolveSettings(ctx, cfg)
-			cluster := map[string]string{"brokerURL": provision.BrokerURL(ctx, cfg, flagNamespace)}
-			if settings.IngressClass != "" {
-				cluster["ingressClass"] = settings.IngressClass
-			}
-			if settings.StorageClass != "" {
-				cluster["storageClass"] = settings.StorageClass
-			}
-
-			fmt.Println()
-			var plan *repo.InstallPlan
-			if err := step("installing "+name, func() error {
-				var e error
-				plan, e = repo.Install(ctx, merged, name, flagNamespace, cluster, bundles, provision.BaseValues, hc)
-				return e
-			}); err != nil {
-				return err
-			}
-			fmt.Printf("\n  %s %s %s\n\n", styleOK.Render("✓ installed"), styleTitle.Render(name), styleSubtle.Render("· release "+plan.ReleaseName))
-			return nil
-		},
-	}
-	c.Flags().StringSliceVar(&bundles, "bundle", nil, `bundles to enable (default: module defaults; "--bundle none" for zero)`)
-	return c
 }
 
 func newRepoListCmd() *cobra.Command {
