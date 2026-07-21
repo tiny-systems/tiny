@@ -442,7 +442,7 @@ func (e *NodeEditor) applyOne(ctx context.Context, flowName string, op sdktools.
 
 	switch op.Op {
 	case "delete":
-		if err := e.deleteByID(ctx, op.ID); err != nil {
+		if err := e.deleteByID(ctx, flowName, op.ID); err != nil {
 			result.Success = false
 			result.Error = err.Error()
 		}
@@ -456,14 +456,14 @@ func (e *NodeEditor) applyOne(ctx context.Context, flowName string, op sdktools.
 // deleteByID deletes either a node or an edge. The distinction is made by
 // the ID format: node IDs never contain underscore-separated port
 // segments, edge IDs do ("node_port-node_port").
-func (e *NodeEditor) deleteByID(ctx context.Context, id string) error {
+func (e *NodeEditor) deleteByID(ctx context.Context, flowName, id string) error {
 	if looksLikeEdgeID(id) {
 		return e.deleteEdge(ctx, id)
 	}
-	return e.deleteNode(ctx, id)
+	return e.deleteNode(ctx, flowName, id)
 }
 
-func (e *NodeEditor) deleteNode(ctx context.Context, nodeID string) error {
+func (e *NodeEditor) deleteNode(ctx context.Context, flowName, nodeID string) error {
 	node := &v1alpha1.TinyNode{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      nodeID,
@@ -473,39 +473,140 @@ func (e *NodeEditor) deleteNode(ctx context.Context, nodeID string) error {
 	if err := e.kube.Client.Delete(ctx, node); err != nil && !k8serrors.IsNotFound(err) {
 		return fmt.Errorf("delete node: %w", err)
 	}
-	return nil
+	// Deleting the node's own CRD drops its Ports and Edges, but every edge it
+	// took part in also has a half on a sibling node: a target keeps a
+	// Ports[].From pointing back here, a source keeps an Edges[].To pointing
+	// here. Left behind, those become dangling edges to a node that no longer
+	// exists — prune them so the flow stays consistent.
+	return e.pruneNodeReferences(ctx, flowName, nodeID)
 }
 
 func (e *NodeEditor) deleteEdge(ctx context.Context, edgeID string) error {
-	fromNode, _, _, _, err := parseEdgeID(edgeID)
+	fromNode, fromPort, toNode, toPort, err := parseEdgeID(edgeID)
 	if err != nil {
 		return fmt.Errorf("parse edge id: %w", err)
 	}
-
-	source := &v1alpha1.TinyNode{}
-	err = e.kube.Client.Get(ctx, types.NamespacedName{
-		Namespace: e.kube.Namespace,
-		Name:      fromNode,
-	}, source)
-	if k8serrors.IsNotFound(err) {
-		return nil
+	// An edge is recorded on BOTH ends: the source node's Spec.Edges (routing,
+	// keyed by edge ID) and the target node's Spec.Ports (receive config, keyed
+	// by From). Drop both halves or a dangling reference survives.
+	sourceFull := fromNode + ":" + fromPort
+	if err := e.updateNode(ctx, fromNode, func(n *v1alpha1.TinyNode) bool {
+		return removeEdgeByID(n, edgeID)
+	}); err != nil {
+		return fmt.Errorf("prune source edge: %w", err)
 	}
-	if err != nil {
-		return fmt.Errorf("get source node: %w", err)
-	}
-
-	edges := source.Spec.Edges[:0]
-	for _, ed := range source.Spec.Edges {
-		if ed.ID != edgeID {
-			edges = append(edges, ed)
-		}
-	}
-	source.Spec.Edges = edges
-
-	if err := e.kube.Client.Update(ctx, source); err != nil {
-		return fmt.Errorf("update source node: %w", err)
+	if err := e.updateNode(ctx, toNode, func(n *v1alpha1.TinyNode) bool {
+		return removePortFrom(n, sourceFull, toPort)
+	}); err != nil {
+		return fmt.Errorf("prune target port: %w", err)
 	}
 	return nil
+}
+
+// pruneNodeReferences removes every edge half in the flow that points at
+// deletedNodeID — Ports[].From on targets and Edges[].To on sources. The full
+// node id (with its flowID prefix) is embedded in both, so this can never match
+// a node in another flow.
+func (e *NodeEditor) pruneNodeReferences(ctx context.Context, flowName, deletedNodeID string) error {
+	list := &v1alpha1.TinyNodeList{}
+	if err := e.kube.Client.List(ctx, list,
+		client.InNamespace(e.kube.Namespace),
+		client.MatchingLabels{v1alpha1.FlowNameLabel: flowName},
+	); err != nil {
+		return fmt.Errorf("list flow nodes: %w", err)
+	}
+	prefix := deletedNodeID + ":"
+	for i := range list.Items {
+		name := list.Items[i].Name
+		if name == deletedNodeID {
+			continue // already deleted
+		}
+		if err := e.updateNode(ctx, name, func(n *v1alpha1.TinyNode) bool {
+			return removeRefs(n, prefix)
+		}); err != nil {
+			return fmt.Errorf("prune references on %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// updateNode applies mutate to the named node and writes it back if mutate
+// reports a change, retrying on write conflicts. A missing node is a no-op
+// (nothing to update). mutate may run more than once, so it must be idempotent.
+func (e *NodeEditor) updateNode(ctx context.Context, name string, mutate func(*v1alpha1.TinyNode) bool) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		node := &v1alpha1.TinyNode{}
+		if err := e.kube.Client.Get(ctx, types.NamespacedName{
+			Namespace: e.kube.Namespace,
+			Name:      name,
+		}, node); err != nil {
+			if k8serrors.IsNotFound(err) {
+				return nil
+			}
+			return err
+		}
+		if !mutate(node) {
+			return nil
+		}
+		return e.kube.Client.Update(ctx, node)
+	})
+}
+
+// removeRefs drops every Ports[].From and Edges[].To on n that points at the
+// deleted node (prefix "<nodeID>:"). Reports whether anything changed.
+func removeRefs(n *v1alpha1.TinyNode, prefix string) bool {
+	changed := false
+	ports := n.Spec.Ports[:0]
+	for _, p := range n.Spec.Ports {
+		if strings.HasPrefix(p.From, prefix) {
+			changed = true
+			continue
+		}
+		ports = append(ports, p)
+	}
+	n.Spec.Ports = ports
+	edges := n.Spec.Edges[:0]
+	for _, ed := range n.Spec.Edges {
+		if strings.HasPrefix(ed.To, prefix) {
+			changed = true
+			continue
+		}
+		edges = append(edges, ed)
+	}
+	n.Spec.Edges = edges
+	return changed
+}
+
+// removeEdgeByID drops the Spec.Edges entry with the given id. Reports whether
+// anything changed.
+func removeEdgeByID(n *v1alpha1.TinyNode, edgeID string) bool {
+	kept := n.Spec.Edges[:0]
+	changed := false
+	for _, ed := range n.Spec.Edges {
+		if ed.ID == edgeID {
+			changed = true
+			continue
+		}
+		kept = append(kept, ed)
+	}
+	n.Spec.Edges = kept
+	return changed
+}
+
+// removePortFrom drops the Spec.Ports entry fed by sourceFull ("node:port")
+// into the given target port. Reports whether anything changed.
+func removePortFrom(n *v1alpha1.TinyNode, sourceFull, toPort string) bool {
+	kept := n.Spec.Ports[:0]
+	changed := false
+	for _, p := range n.Spec.Ports {
+		if p.From == sourceFull && p.Port == toPort {
+			changed = true
+			continue
+		}
+		kept = append(kept, p)
+	}
+	n.Spec.Ports = kept
+	return changed
 }
 
 // ---------- helpers ----------
