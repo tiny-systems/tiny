@@ -54,6 +54,15 @@ func (e *NodeEditor) AddNode(ctx context.Context, projectName, flowName, compone
 		return nil, fmt.Errorf("component and module required")
 	}
 
+	// Store the module's CANONICAL name, not whatever spelling the caller
+	// used. A node's identity encodes the module in two places — metadata.name
+	// and spec.module — and the module operator claims nodes by matching it.
+	// Writing "tinysystems/http-module-v0" when the installed module publishes
+	// "http-module-v0" produces a node no operator ever reconciles: the flow
+	// builds green and then silently does nothing, which is far worse than a
+	// loud "module not found".
+	moduleName = e.canonicalModuleName(ctx, moduleName)
+
 	flowPrefix, err := e.flowPrefix(ctx, flowName)
 	if err != nil {
 		return nil, fmt.Errorf("compute flow prefix: %w", err)
@@ -610,6 +619,30 @@ func removePortFrom(n *v1alpha1.TinyNode, sourceFull, toPort string) bool {
 }
 
 // ---------- helpers ----------
+
+// canonicalModuleName resolves whatever spelling the caller used
+// ("tinysystems/http-module-v0", "tinysystems-http-module-v0",
+// "http-module-v0") to the name the installed module actually publishes.
+//
+// Returns the input unchanged when nothing matches, so an unknown module still
+// fails the way it always did (loudly, upstream) rather than being silently
+// rewritten into something else.
+func (e *NodeEditor) canonicalModuleName(ctx context.Context, wanted string) string {
+	list := &v1alpha1.TinyModuleList{}
+	if err := e.kube.Client.List(ctx, list, client.InNamespace(e.kube.Namespace)); err != nil {
+		return wanted // lenient: a transient kube read shouldn't block node creation
+	}
+	for i := range list.Items {
+		if !moduleNameMatches(wanted, &list.Items[i]) {
+			continue
+		}
+		if name := list.Items[i].Status.Name; name != "" {
+			return name
+		}
+		return list.Items[i].Name
+	}
+	return wanted
+}
 
 // flowPrefix returns the first 8 chars of the TinyFlow's metadata.UID.
 // Falls back to a stable hash-like string derived from the flow name if
