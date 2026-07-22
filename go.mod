@@ -12,7 +12,7 @@ require (
 	github.com/rs/zerolog v1.34.0
 	github.com/spf13/cobra v1.10.2
 	github.com/tiny-systems/ajson v0.1.6
-	github.com/tiny-systems/module v0.13.30
+	github.com/tiny-systems/module v0.13.31
 	github.com/tiny-systems/platform-api v0.5.6
 	github.com/tiny-systems/platform-go v0.2.4
 	google.golang.org/grpc v1.81.1
