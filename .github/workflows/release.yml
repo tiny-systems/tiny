@@ -20,6 +20,29 @@ jobs:
         with:
           go-version: "1.25"
 
+      # web/dist is committed AND go:embed-ed, so the binary ships whatever
+      # bundle happens to be in the tree. Nothing used to rebuild it, which
+      # meant a change to @tinysystems/editor silently did not reach users
+      # until someone remembered to rebuild and commit the bundle by hand.
+      #
+      # Rebuild it here so the release always embeds the editor the lockfile
+      # pins. --frozen-lockfile keeps this deterministic: picking up a newer
+      # editor is an explicit `pnpm update @tinysystems/editor` + committed
+      # lockfile, not a surprise that varies per release run.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Rebuild embedded editor SPA
+        working-directory: web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
