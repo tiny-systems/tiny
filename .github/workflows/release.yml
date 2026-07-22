@@ -29,9 +29,15 @@ jobs:
       # pins. --frozen-lockfile keeps this deterministic: picking up a newer
       # editor is an explicit `pnpm update @tinysystems/editor` + committed
       # lockfile, not a surprise that varies per release run.
+      # Pinned, not "10". Newer 10.x releases tightened how git-hosted deps are
+      # matched in the onlyBuiltDependencies allowlist: they want the full
+      # "name@https://codeload.github.com/.../<sha>" spec, which embeds a commit
+      # SHA and would therefore have to be edited every time the editor moves.
+      # 10.27.0 matches on the package name, which is what web/pnpm-workspace.yaml
+      # declares and what a cold-store install was verified against locally.
       - uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 10.27.0
 
       - uses: actions/setup-node@v4
         with:
