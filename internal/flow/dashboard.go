@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/tiny-systems/module/api/v1alpha1"
 	"github.com/tiny-systems/module/pkg/resource"
@@ -76,15 +77,21 @@ func buildDashboard(ctx context.Context, mgr *resource.Manager, projectName stri
 		})
 
 		for _, w := range page.Spec.Widgets {
-			port := w.Port
-			if port == "" {
-				port = "_control"
+			// TinyWidget.Port is a REF — "<nodeName>:<portName>" — while
+			// TinyWidget.Name is the widget's display title. Reading Port as a
+			// bare port name and Name as the node meant this lookup always
+			// missed, so Schema and Data went out nil and every widget rendered
+			// as an empty "{}" with no controls (no Send button, no fields).
+			nodeName, portName := splitWidgetRef(w.Port)
+			if portName == "" {
+				portName = "_control"
 			}
 
 			var schemaBytes, dataBytes []byte
-			if node, ok := nodeByName[w.Name]; ok {
+			node, ok := nodeByName[nodeName]
+			if ok {
 				for _, ps := range node.Status.Ports {
-					if ps.Name == port {
+					if ps.Name == portName {
 						schemaBytes = ps.Schema
 						dataBytes = ps.Configuration
 						break
@@ -92,13 +99,23 @@ func buildDashboard(ctx context.Context, mgr *resource.Manager, projectName stri
 				}
 			}
 
+			// Fall back to the component description, then the node name, so a
+			// widget pinned without an explicit title still reads sensibly.
+			title := w.Name
+			if title == "" && ok {
+				title = node.Status.Component.Description
+			}
+			if title == "" {
+				title = nodeName
+			}
+
 			events = append(events, &platform.DashboardEvent{
 				Type: "UPDATE_WIDGET",
 				Widget: &platform.Widget{
-					ID:            fmt.Sprintf("%s-%s-%s", page.Name, w.Name, port),
-					Node:          w.Name,
-					Port:          port,
-					Title:         w.Name,
+					ID:            fmt.Sprintf("%s-%s-%s", page.Name, nodeName, portName),
+					Node:          nodeName,
+					Port:          portName,
+					Title:         title,
 					DefaultSchema: schemaBytes,
 					Schema:        schemaBytes,
 					Data:          dataBytes,
@@ -115,4 +132,14 @@ func buildDashboard(ctx context.Context, mgr *resource.Manager, projectName stri
 	}
 
 	return pages, events
+}
+
+// splitWidgetRef splits a TinyWidget.Port ref ("<nodeName>:<portName>") into
+// its parts. A ref with no colon is treated as a bare node name, leaving the
+// port empty so the caller applies its default.
+func splitWidgetRef(ref string) (node, port string) {
+	if i := strings.LastIndex(ref, ":"); i >= 0 {
+		return ref[:i], ref[i+1:]
+	}
+	return ref, ""
 }

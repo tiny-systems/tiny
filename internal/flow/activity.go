@@ -24,13 +24,47 @@ func NewActivityBus() *ActivityBus {
 	return &ActivityBus{subs: map[chan mcpv1.WorkspaceActivityEvent]struct{}{}}
 }
 
-// Publish records an event (kind = e.g. "tool.call.started") and fans it out to
-// live subscribers. Never blocks: a slow subscriber just drops the event.
+// PublishToolStarted announces a tool call beginning.
+func (b *ActivityBus) PublishToolStarted(tool string) {
+	b.publish(mcpv1.WorkspaceActivityEvent{
+		Kind: "tool.call.started",
+		Payload: &mcpv1.WorkspaceActivityEvent_ToolCallStarted{
+			ToolCallStarted: &mcpv1.ToolCallStartedPayload{Tool: tool},
+		},
+	})
+}
+
+// PublishToolEnded announces a tool call finishing, WITH its outcome.
+//
+// The payload matters: the feed reads success/tool off it, so publishing a bare
+// kind made every finished call render as an unnamed "tool failed" — the events
+// were fine, the verdict was missing.
+func (b *ActivityBus) PublishToolEnded(tool string, success bool, errMsg string, duration time.Duration) {
+	b.publish(mcpv1.WorkspaceActivityEvent{
+		Kind: "tool.call.ended",
+		Payload: &mcpv1.WorkspaceActivityEvent_ToolCallEnded{
+			ToolCallEnded: &mcpv1.ToolCallEndedPayload{
+				Tool:       tool,
+				Success:    success,
+				Error:      errMsg,
+				DurationMs: duration.Milliseconds(),
+			},
+		},
+	})
+}
+
+// Publish records a bare event by kind, for activity that carries no payload.
 func (b *ActivityBus) Publish(kind string) {
+	b.publish(mcpv1.WorkspaceActivityEvent{Kind: kind})
+}
+
+// publish stamps the event and fans it out to live subscribers. Never blocks: a
+// slow subscriber just drops the event.
+func (b *ActivityBus) publish(evt mcpv1.WorkspaceActivityEvent) {
 	if b == nil {
 		return
 	}
-	evt := mcpv1.WorkspaceActivityEvent{At: time.Now().Format(time.RFC3339), Kind: kind}
+	evt.At = time.Now().Format(time.RFC3339)
 	b.mu.Lock()
 	b.recent = append(b.recent, evt)
 	if len(b.recent) > activityBacklog {

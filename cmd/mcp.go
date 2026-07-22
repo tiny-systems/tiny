@@ -117,14 +117,15 @@ func runMCP(cmd *cobra.Command) error {
 
 	// Live activity: every tool call spins here AND streams to the editor's
 	// Activity feed via the bus, so you watch the agent work in real time.
-	server.OnActivity = func(tool string) func() {
-		activityBus.Publish("tool.call.started")
+	server.OnActivity = func(tool string) func(bool, string) {
+		started := time.Now()
+		activityBus.PublishToolStarted(tool)
 		done := spinActivity(tool)
-		return func() {
+		return func(success bool, errMsg string) {
 			if done != nil {
 				done()
 			}
-			activityBus.Publish("tool.call.ended")
+			activityBus.PublishToolEnded(tool, success, errMsg, time.Since(started))
 		}
 	}
 

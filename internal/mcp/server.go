@@ -41,9 +41,15 @@ type Server struct {
 	instructions string
 
 	// OnActivity, if set, is called at the start of each tool call with the
-	// tool name; it returns a function invoked when the call finishes. Lets a
-	// host render live activity (a spinner per call). Optional.
-	OnActivity func(tool string) (done func())
+	// tool name; it returns a function invoked when the call finishes, carrying
+	// that call's outcome. Lets a host render live activity — a spinner per
+	// call, and whether it actually worked. Optional.
+	//
+	// The outcome is passed because the host cannot infer it: a failing tool
+	// still returns normally here, so a host given no result reports every
+	// finished call identically. That is how the Activity feed came to paint
+	// every completed call red.
+	OnActivity func(tool string) (done func(success bool, errMsg string))
 }
 
 // NewServer returns a server bound to the given registry + execution
@@ -275,12 +281,14 @@ func (s *Server) callTool(ctx context.Context, raw json.RawMessage) toolCallResu
 	execCtx.ProjectName = projectName
 	execCtx.FlowName = flowName
 
+	var finish func(success bool, errMsg string)
 	if s.OnActivity != nil {
-		if done := s.OnActivity(params.Name); done != nil {
-			defer done()
-		}
+		finish = s.OnActivity(params.Name)
 	}
 	result := s.registry.Execute(ctx, execCtx, params.Name, params.Arguments)
+	if finish != nil {
+		finish(result.Success, result.Error)
+	}
 
 	text, err := marshalToolOutput(result)
 	if err != nil {
