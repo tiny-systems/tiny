@@ -1,0 +1,12 @@
+# pnpm 10 reads build-script permissions from here, not from package.json's
+# `pnpm` field. Without this, a COLD install (CI, or any machine whose store
+# hasn't already prepared the package) fails with
+# ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED: @tinysystems/editor is a git-hosted
+# dependency whose `prepare` script (vite build) must run to produce its dist
+# before this SPA can bundle it.
+#
+# It passes locally without this only because a warm store skips `prepare` —
+# so verify changes here with `--store-dir` pointed at an empty directory.
+onlyBuiltDependencies:
+  - "@tinysystems/editor"
+  - esbuild
