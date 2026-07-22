@@ -119,6 +119,7 @@ func New(opts Options) (backend.Bundle, backend.Cleanup, error) {
 	scenarioManager := adapters.NewScenarioManager(kubeClient)
 	portInspector := adapters.NewPortInspector(kubeClient)
 	dashboardReader := adapters.NewDashboardReader(kubeClient)
+	dashboardWriter := adapters.NewDashboardWriter(kubeClient)
 
 	traceReader, err := adapters.NewTraceReader(adapters.TraceReaderOptions{
 		KubeClient:  kubeClient,
@@ -145,6 +146,7 @@ func New(opts Options) (backend.Bundle, backend.Cleanup, error) {
 		TraceReader:            traceReader,
 		ScenarioManager:        scenarioManager,
 		DashboardReader:        dashboardReader,
+		DashboardWriter:        dashboardWriter,
 		PositionTracker:        sdktools.NewPositionTracker(),
 	}
 
