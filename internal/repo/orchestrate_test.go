@@ -41,7 +41,7 @@ func TestInstallFullPipeline(t *testing.T) {
 		"http-module", "tinysystems",
 		map[string]string{"ingressClass": "nginx"},
 		[]string{"none"},
-		fakeBase, h,
+		fakeBase, h, nil,
 	)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
@@ -76,7 +76,7 @@ func TestInstallRefusesMissingClusterValue(t *testing.T) {
 	h := &fakeHelm{}
 
 	// No ingressClass provided → refuse before touching helm.
-	if _, err := Install(context.Background(), merged, "http-module", "tinysystems", nil, []string{"none"}, fakeBase, h); err == nil {
+	if _, err := Install(context.Background(), merged, "http-module", "tinysystems", nil, []string{"none"}, fakeBase, h, nil); err == nil {
 		t.Fatal("expected refusal for missing cluster value")
 	}
 	if len(h.calls) != 0 {

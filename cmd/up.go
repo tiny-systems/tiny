@@ -102,7 +102,7 @@ func runUp(cmd *cobra.Command, _ []string) error {
 	for _, name := range coreModules {
 		nm := name
 		if err := step("module: "+nm, func() error {
-			_, e := repo.Install(ctx, merged, nm, flagNamespace, cluster, nil, provision.BaseValues, hc)
+			_, e := repo.Install(ctx, merged, nm, flagNamespace, cluster, nil, provision.BaseValues, hc, hc)
 			return e
 		}); err != nil {
 			return err
