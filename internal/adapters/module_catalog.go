@@ -119,9 +119,10 @@ func portDetailFromCRD(p v1alpha1.TinyModuleComponentPort) sdktools.PortDetail {
 
 // moduleNameMatches reports whether `wanted` (as supplied by the caller)
 // identifies the given TinyModule. Slashes and dashes are treated as
-// equivalent workspace separators, comparison is case-insensitive, and a
-// bare name without workspace prefix matches any module whose name ends
-// with that bare form.
+// equivalent workspace separators and comparison is case-insensitive. The
+// workspace prefix is optional in BOTH directions: a bare wanted name
+// matches a qualified module, and a qualified wanted name matches a bare
+// module (what decentralized installs produce).
 func moduleNameMatches(wanted string, m *v1alpha1.TinyModule) bool {
 	w := normalizeSeparators(wanted)
 	if w == "" {
@@ -140,9 +141,17 @@ func moduleNameMatches(wanted string, m *v1alpha1.TinyModule) bool {
 		if c == w {
 			return true
 		}
-		// Bare name: "common-module-v0" should match CRD
-		// "tinysystems-common-module-v0".
+		// Bare name wanted, qualified module installed: "common-module-v0"
+		// should match CRD "tinysystems-common-module-v0".
 		if strings.HasSuffix(c, "-"+w) {
+			return true
+		}
+		// Qualified name wanted, bare module installed: decentralized
+		// installs name modules bare ("http-module-v0"), while the platform's
+		// docs and examples use "tinysystems/http-module-v0". Both must
+		// resolve, or an agent following get_instructions verbatim gets a
+		// spurious "module not found".
+		if strings.HasSuffix(w, "-"+c) {
 			return true
 		}
 	}
