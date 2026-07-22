@@ -12,6 +12,7 @@ package kube
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -84,12 +85,37 @@ func New(opts Options) (backend.Bundle, backend.Cleanup, error) {
 	if natsPort == 0 {
 		natsPort = 4222
 	}
+	// Dial lazily. tiny is routinely started against a cluster whose NATS
+	// isn't up yet (a fresh `tiny up` provisions it moments later), and
+	// binding once at boot left send_signal dead until the process was
+	// restarted. connectNATS re-dials on demand and caches the live
+	// connection, so a boot-time miss heals itself on the next signal.
+	//
 	// The tinysystems-nats chart runs with token auth; connect with the
-	// generated token or the broker rejects us (auth violation) and signals
-	// silently fall back to the slower CRD path.
-	natsTok := natsToken(kubeClient, natsNs)
-	natsPF, natsConn := dialNATS(kubeClient.RESTConfig, natsNs, natsSvc, natsPort, natsTok)
-	signalSender := adapters.NewSignalSender(kubeClient, natsConn)
+	// generated token or the broker rejects us (auth violation). The token is
+	// read per dial so a Secret created after boot is picked up too.
+	var (
+		natsMu   sync.Mutex
+		natsPF   *resource.PortForwarder
+		natsConn *nats.Conn
+	)
+	connectNATS := func() *nats.Conn {
+		natsMu.Lock()
+		defer natsMu.Unlock()
+
+		if natsConn != nil && !natsConn.IsClosed() {
+			return natsConn
+		}
+		if natsPF != nil { // drop the forwarder behind a dead connection
+			natsPF.StopAll()
+			natsPF = nil
+		}
+		natsPF, natsConn = dialNATS(kubeClient.RESTConfig, natsNs, natsSvc, natsPort, natsToken(kubeClient, natsNs))
+		return natsConn
+	}
+
+	// Warm the happy path at boot; a failure here is no longer terminal.
+	signalSender := adapters.NewSignalSender(kubeClient, connectNATS(), connectNATS)
 	scenarioManager := adapters.NewScenarioManager(kubeClient)
 	portInspector := adapters.NewPortInspector(kubeClient)
 	dashboardReader := adapters.NewDashboardReader(kubeClient)
@@ -124,6 +150,8 @@ func New(opts Options) (backend.Bundle, backend.Cleanup, error) {
 
 	cleanup := func() {
 		traceReader.Close()
+		natsMu.Lock()
+		defer natsMu.Unlock()
 		if natsConn != nil {
 			natsConn.Close()
 		}
