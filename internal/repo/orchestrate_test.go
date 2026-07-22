@@ -47,16 +47,17 @@ func TestInstallFullPipeline(t *testing.T) {
 		t.Fatalf("Install: %v", err)
 	}
 
-	// Coexistence-safe release name derived from the SemVer major.
-	if plan.ReleaseName != "http-module-v2" {
-		t.Errorf("release = %q, want http-module-v2", plan.ReleaseName)
+	// Coexistence-safe identity: <repo>-<module>-v<major>. The fixture repo is
+	// named "r", so the publisher coordinate (design Â§7.1) prefixes the name.
+	if plan.ReleaseName != "r-http-module-v2" {
+		t.Errorf("release = %q, want r-http-module-v2", plan.ReleaseName)
 	}
 	// Exactly one helm call (module; no bundles), against the harness chart.
 	if len(h.calls) != 1 {
 		t.Fatalf("got %d helm calls, want 1", len(h.calls))
 	}
 	c := h.calls[0]
-	if c.release != "http-module-v2" || c.chart != "tinysystems-operator" || c.namespace != "tinysystems" {
+	if c.release != "r-http-module-v2" || c.chart != "tinysystems-operator" || c.namespace != "tinysystems" {
 		t.Errorf("helm call wrong: %+v", c)
 	}
 	// Merged values carry the OVERLAY (inline values' filled cluster hole)…
@@ -65,7 +66,7 @@ func TestInstallFullPipeline(t *testing.T) {
 		t.Errorf("merged values missing filled className: %#v", c.values)
 	}
 	// …AND the harness BASE (from fakeBase).
-	if c.values["fullnameOverride"] != "http-module-v2" {
+	if c.values["fullnameOverride"] != "r-http-module-v2" {
 		t.Errorf("merged values missing base fullnameOverride: %#v", c.values)
 	}
 }

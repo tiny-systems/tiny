@@ -45,18 +45,39 @@ func baseName(name string) string {
 }
 
 // ReleaseName is the coexistence-safe helm release / resource identity:
-// `<module>-v<major>`. This is what lets v1 and v2 of a module live in one
-// namespace (distinct releases, labels, node refs).
-func ReleaseName(module string, major int) string {
-	return fmt.Sprintf("%s-v%d", baseName(module), major)
+// `<repo>-<module>-v<major>`. Two coordinates are derived at install time, so
+// both dimensions can coexist in one namespace (distinct releases, labels,
+// node refs):
+//
+//   - major   — v1 and v2 of the same module (design §7)
+//   - repo    — the same module name published by different people (§7.1).
+//     A cluster holds modules from many publishers and nothing stops two of
+//     them shipping "http-module"; without this the second install silently
+//     replaces the first.
+//
+// repo is the LOCAL repo name from repos.yaml, not the GitHub org — identity
+// stays under the cluster operator's control and survives an upstream rename.
+// It may contain dashes (tiny-systems does); this string is an opaque identity
+// and is never split back into its parts. Two pairs can therefore generate one
+// name ("a-b"+"c" and "a"+"b-c"), which the installer catches by comparing the
+// authoritative repo/module labels rather than by restricting names.
+//
+// An empty repo yields the legacy `<module>-v<major>` form, so callers that
+// don't know the publisher keep working.
+func ReleaseName(repo, module string, major int) string {
+	name := baseName(module)
+	if repo != "" {
+		name = repo + "-" + name
+	}
+	return fmt.Sprintf("%s-v%d", name, major)
 }
 
-// ReleaseName derives the release name for a resolved target from its module
-// name + the version's SemVer major.
+// ReleaseName derives the release name for a resolved target from its repo +
+// module name + the version's SemVer major.
 func (r *Resolved) ReleaseName() (string, error) {
 	major, err := r.Version.Major()
 	if err != nil {
 		return "", err
 	}
-	return ReleaseName(r.Name, major), nil
+	return ReleaseName(r.Repo, r.Name, major), nil
 }
