@@ -81,58 +81,23 @@ func (s statisticsService) GetTraceByID(ctx context.Context, req *platform.Stati
 	return resp, nil
 }
 
-// GetStream drives the editor's live telemetry: the trace list reloads on every
-// event it receives (debounced), and the events themselves plot the flow's
-// throughput.
+// GetStream is the live telemetry channel. It holds the stream open and sends
+// nothing.
 //
-// It used to return immediately. That single line is why the Traces list never
-// updated without a manual refresh and why the chart read "No data" — the
-// editor opened the stream, got EOF, and nothing ever arrived.
+// It briefly polled the otel-collector on a 2s ticker so the editor's trace
+// list would refresh itself. That shipped in v0.4.12 and caused intermittent
+// hangs: the collector is reached through ONE shared port-forwarder, which the
+// flow-render path also uses, so a slow read there stalls every trace-dependent
+// request at once — the editor simply stops responding, then recovers.
 //
-// Polls rather than watches because the otel-collector exposes no watch: it
-// samples the trace count each tick and emits when the flow has run, which is
-// exactly the signal the editor needs to refetch.
-func (s statisticsService) GetStream(req *platform.StatisticsStreamRequest, stream grpc.ServerStreamingServer[platform.StatisticsStreamResponse]) error {
-	ctx := stream.Context()
-	if s.trace == nil {
-		<-ctx.Done() // hold it open so the editor shows "live", not an error
-		return nil
-	}
-
-	const (
-		interval = 2 * time.Second
-		window   = tracesLookback
-	)
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	// Emit only on change, so an idle flow costs one collector read per tick and
-	// never churns the editor's list.
-	last := -1
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
-			traces, err := s.trace.ReadTraces(ctx, req.ProjectName, req.FlowName, window, 0, tracesLimit)
-			if err != nil {
-				continue // a transient collector blip must not kill the stream
-			}
-			if len(traces) == last {
-				continue
-			}
-			last = len(traces)
-			if err := stream.Send(&platform.StatisticsStreamResponse{
-				Events: []*platform.StatsEvent{{
-					Metric:   "traces",
-					Value:    float64(len(traces)),
-					Datetime: time.Now().UnixMilli(),
-				}},
-			}); err != nil {
-				return err
-			}
-		}
-	}
+// Reverted to sending nothing until liveness can be done without periodic load
+// on that shared forwarder (piggyback the flow stream, or watch rather than
+// poll). Holding the stream open rather than closing it keeps the editor
+// showing "live" instead of a connection error; the trace list falls back to
+// its manual refresh.
+func (s statisticsService) GetStream(_ *platform.StatisticsStreamRequest, stream grpc.ServerStreamingServer[platform.StatisticsStreamResponse]) error {
+	<-stream.Context().Done()
+	return nil
 }
 
 // spanToTraceSpan maps an SDK span to the editor's TraceSpan. ParentSpanID and

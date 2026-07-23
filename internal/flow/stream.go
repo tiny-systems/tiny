@@ -264,6 +264,12 @@ func (s *Service) traceEdgeMap(ctx context.Context, projectName, traceID string)
 	if traceID == "" || s.trace == nil {
 		return nil
 	}
+	// Bounded: this runs inside the flow-render path and shares one
+	// port-forwarder with everything else that reads traces. A slow collector
+	// must degrade to an unannotated graph, never stall the render.
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
 	spans, err := s.trace.ReadTraceSpans(ctx, projectName, traceID)
 	if err != nil || len(spans) == 0 {
 		return nil
