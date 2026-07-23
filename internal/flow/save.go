@@ -14,6 +14,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/rs/zerolog/log"
+
+	"github.com/tiny-systems/tiny/internal/adapters"
 	"github.com/tiny-systems/tiny/internal/kube"
 )
 
@@ -135,6 +138,12 @@ func (s *Service) SaveFlow(ctx context.Context, req *platform.SaveFlowRequest) (
 			node.Annotations[v1alpha1.ComponentPosXAnnotation] = fmt.Sprintf("%d", int(el.Position.X))
 			node.Annotations[v1alpha1.ComponentPosYAnnotation] = fmt.Sprintf("%d", int(el.Position.Y))
 		}
+		// The settings dialog's "Shared node" toggle writes the target flows
+		// into data.shared_with_flows; persist it to the annotation the render
+		// path reads (stream.go). Without this the toggle was dropped on save.
+		if shared, ok := el.Data["shared_with_flows"].(string); ok && shared != "" {
+			node.Annotations[v1alpha1.SharedWithFlowsAnnotation] = shared
+		}
 		// Node settings live on the _settings handle in data.handles.
 		if cfg, schema, ok := settingsFromHandles(el.Data); ok {
 			node.Spec.Ports = append(node.Spec.Ports, v1alpha1.TinyNodePortConfig{
@@ -194,6 +203,12 @@ func (s *Service) SaveFlow(ctx context.Context, req *platform.SaveFlowRequest) (
 		for k, v := range node.Annotations {
 			existing.Annotations[k] = v
 		}
+		// "Shared node" unchecked → the annotation must be REMOVED, not just
+		// left. The merge above only copies keys that are set, so an unset
+		// shared list would otherwise persist forever.
+		if _, set := node.Annotations[v1alpha1.SharedWithFlowsAnnotation]; !set {
+			delete(existing.Annotations, v1alpha1.SharedWithFlowsAnnotation)
+		}
 		if err := kc.Client.Update(ctx, &existing); err != nil {
 			return nil, fmt.Errorf("update node %s: %w", id, err)
 		}
@@ -205,6 +220,29 @@ func (s *Service) SaveFlow(ctx context.Context, req *platform.SaveFlowRequest) (
 		n := node
 		if err := kc.Client.Delete(ctx, &n); err != nil {
 			return nil, fmt.Errorf("delete node %s: %w", name, err)
+		}
+	}
+
+	// The settings dialog's "Add to dashboard" toggle writes data.dashboard.
+	// Reconcile each surviving node's _control widget to match — pin when set,
+	// unpin when cleared — so the checkbox actually reaches the dashboard
+	// instead of being dropped on save.
+	dw := adapters.NewDashboardWriter(kc)
+	for _, el := range payload.Elements {
+		module, _ := el.Data["module"].(string)
+		component, _ := el.Data["component"].(string)
+		if module == "" || component == "" {
+			continue
+		}
+		id := remap(idRemap, el.ID)
+		if _, ok := desired[id]; !ok {
+			continue
+		}
+		enabled := el.Data["dashboard"] == "true" || el.Data["dashboard"] == true
+		if _, err := dw.SetNodeWidget(ctx, req.ProjectName, id, "_control", enabled); err != nil {
+			// A widget-page write failing must not fail the whole save — the
+			// graph is already persisted. Surface it, don't abort.
+			log.Error().Err(err).Str("node", id).Msg("save: reconcile dashboard widget")
 		}
 	}
 
