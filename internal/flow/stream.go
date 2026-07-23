@@ -33,11 +33,18 @@ func (s *Service) GetFlowStream(req *platform.GetFlowStreamRequest, stream grpc.
 		return err
 	}
 
+	// Load the selected trace's stats ONCE. req.TraceID is fixed for this
+	// subscription — selecting another trace tears the stream down and
+	// re-subscribes — so the overlay is computed a single time and reused by
+	// every render below, never re-read on the per-event path. nil when no
+	// trace is selected (the plain graph).
+	traceData := s.loadTraceStats(ctx, req.ProjectName, req.TraceID)
+
 	// sent tracks element IDs already on the canvas so a re-render can emit
 	// DELETED for anything that vanished from the cluster.
 	sent := map[string]bool{}
 	render := func() error {
-		events, ids, err := s.buildFlowEvents(ctx, mgr, req)
+		events, ids, err := s.buildFlowEvents(ctx, mgr, req, traceData)
 		if err != nil {
 			return err
 		}
@@ -120,7 +127,7 @@ func (s *Service) GetFlowStream(req *platform.GetFlowStreamRequest, stream grpc.
 // shared with this flow, and then only as blocked (dimmed) context; everything
 // else is hidden. So we watch the WHOLE project, not one flow in isolation.
 // Returns the set of element IDs present (for delete-diffing).
-func (s *Service) buildFlowEvents(ctx context.Context, mgr *resource.Manager, req *platform.GetFlowStreamRequest) ([]*platform.NodeEvent, map[string]bool, error) {
+func (s *Service) buildFlowEvents(ctx context.Context, mgr *resource.Manager, req *platform.GetFlowStreamRequest, traceData *utils.TraceStatistics) ([]*platform.NodeEvent, map[string]bool, error) {
 	nodes, err := mgr.GetProjectNodes(ctx, req.ProjectName)
 	if err != nil {
 		return nil, nil, err
@@ -149,13 +156,16 @@ func (s *Service) buildFlowEvents(ctx context.Context, mgr *resource.Manager, re
 		blocked := notThisFlow // shared-in nodes are context, not editable here
 
 		nodeAsMap := utils.ApiNodeToMap(node, map[string]interface{}{"blocked": blocked}, false)
+		// Overlay the selected trace's latency/error/sequence onto the node
+		// (no-op when traceData is nil). Same SDK call the platform makes.
+		utils.ApplyTraceStatToNode(nodeAsMap, traceData)
 		graph, _ := json.Marshal(nodeAsMap)
 		events = append(events, &platform.NodeEvent{ID: name, Type: string(watch.Added), Graph: graph})
 		ids[name] = true
 
 		for _, edge := range node.Spec.Edges {
 			ids[edge.ID] = true
-			edgeMap, err := buildEdge(ctx, node, edge, flowName, sharedWithThisFlow, nodesMap, statusPortSchemaMap, portConfigMap, edgeConfigMap, portSchemaMap, portExampleMap)
+			edgeMap, err := buildEdge(ctx, node, edge, flowName, sharedWithThisFlow, nodesMap, statusPortSchemaMap, portConfigMap, edgeConfigMap, portSchemaMap, portExampleMap, traceData)
 			if err != nil {
 				continue
 			}
@@ -182,6 +192,7 @@ func buildEdge(
 	edgeConfigMap map[string][]utils.Destination,
 	portSchemaMap map[string]*ajson.Node,
 	portExampleMap map[string][]byte,
+	traceData *utils.TraceStatistics,
 ) (map[string]interface{}, error) {
 	n := node.Name
 	targetNodeName, targetPort := utils.ParseFullPortName(edge.To)
@@ -235,7 +246,14 @@ func buildEdge(
 		data["valid"] = true
 	}
 
-	return utils.ApiEdgeToProtoMap(&node, &edge, data)
+	edgeMap, err := utils.ApiEdgeToProtoMap(&node, &edge, data)
+	if err != nil {
+		return nil, err
+	}
+	// Overlay this edge's trace latency/error if the selected trace traversed
+	// it (no-op when traceData is nil or this edge wasn't on the path).
+	utils.ApplyTraceStatToEdge(edgeMap, traceData)
+	return edgeMap, nil
 }
 
 // tick sends a heartbeat so the client knows the stream is alive.

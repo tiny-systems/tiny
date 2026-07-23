@@ -17,7 +17,7 @@ func flowGraphJSON(ctx context.Context, svc *Service, mgr *resource.Manager, pro
 	events, _, err := svc.buildFlowEvents(ctx, mgr, &platform.GetFlowStreamRequest{
 		ProjectName: projectName,
 		FlowName:    flowName,
-	})
+	}, nil)
 	if err != nil {
 		return []byte("{}"), 0
 	}

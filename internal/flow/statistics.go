@@ -81,6 +81,31 @@ func (s statisticsService) GetTraceByID(ctx context.Context, req *platform.Stati
 	return resp, nil
 }
 
+// loadTraceStats reads one trace's spans and extracts the per-port/per-edge
+// statistics the canvas overlays as latency, error markers, and execution
+// order. Mirrors the platform's loadTraceData (flow/inspect-node.go): the SDK's
+// ExtractTraceStatistics does the work, identical to the hosted product.
+//
+// Called ONCE per GetFlowStream subscription — req.TraceID is fixed for the
+// stream's life (the editor re-subscribes when the selection changes), so the
+// shared otel forwarder is touched a single time here, never on the per-event
+// render path. Reading it per render through that one forwarder is exactly what
+// wedged the canvas before, which is why the overlay was removed until now.
+//
+// Returns nil (no overlay) when no trace is selected, no reader is wired, the
+// read fails, or the trace has no spans — all degrade to the plain graph.
+func (s *Service) loadTraceStats(ctx context.Context, projectName, traceID string) *utils.TraceStatistics {
+	if traceID == "" || s.trace == nil {
+		return nil
+	}
+	spans, err := s.trace.ReadTraceSpans(ctx, projectName, traceID)
+	if err != nil || len(spans) == 0 {
+		return nil
+	}
+	stat, _ := utils.ExtractTraceStatistics(&utils.TraceData{TraceID: traceID, Spans: spans})
+	return stat
+}
+
 // GetStream is the live telemetry channel. It holds the stream open and sends
 // nothing.
 //

@@ -58,7 +58,7 @@ func (p projectService) GetStream(req *platform.GetProjectStreamRequest, stream 
 		events, _, evErr := p.svc.buildFlowEvents(ctx, mgr, &platform.GetFlowStreamRequest{
 			ProjectName: req.ProjectName,
 			FlowName:    f.Name,
-		})
+		}, nil)
 		if evErr == nil {
 			graph := map[string][]json.RawMessage{"nodes": {}, "edges": {}}
 			for _, e := range events {
