@@ -14,9 +14,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/rs/zerolog/log"
-
-	"github.com/tiny-systems/tiny/internal/adapters"
 	"github.com/tiny-systems/tiny/internal/kube"
 )
 
@@ -144,6 +141,13 @@ func (s *Service) SaveFlow(ctx context.Context, req *platform.SaveFlowRequest) (
 		if shared, ok := el.Data["shared_with_flows"].(string); ok && shared != "" {
 			node.Annotations[v1alpha1.SharedWithFlowsAnnotation] = shared
 		}
+		// "Add to dashboard" is a LABEL on the node — the node is the single
+		// source of truth for its widget (delete the node, the widget is gone).
+		// The dashboard is derived by listing nodes with this label; there is no
+		// separate widget store to keep in sync.
+		if dash, _ := el.Data["dashboard"].(string); dash == "true" {
+			node.Labels[v1alpha1.DashboardLabel] = "true"
+		}
 		// Node settings live on the _settings handle in data.handles.
 		if cfg, schema, ok := settingsFromHandles(el.Data); ok {
 			node.Spec.Ports = append(node.Spec.Ports, v1alpha1.TinyNodePortConfig{
@@ -209,6 +213,16 @@ func (s *Service) SaveFlow(ctx context.Context, req *platform.SaveFlowRequest) (
 		if _, set := node.Annotations[v1alpha1.SharedWithFlowsAnnotation]; !set {
 			delete(existing.Annotations, v1alpha1.SharedWithFlowsAnnotation)
 		}
+		// Same for the dashboard label: unchecked must clear it, and the merge
+		// only ever adds.
+		if existing.Labels == nil {
+			existing.Labels = map[string]string{}
+		}
+		if node.Labels[v1alpha1.DashboardLabel] == "true" {
+			existing.Labels[v1alpha1.DashboardLabel] = "true"
+		} else {
+			delete(existing.Labels, v1alpha1.DashboardLabel)
+		}
 		if err := kc.Client.Update(ctx, &existing); err != nil {
 			return nil, fmt.Errorf("update node %s: %w", id, err)
 		}
@@ -220,29 +234,6 @@ func (s *Service) SaveFlow(ctx context.Context, req *platform.SaveFlowRequest) (
 		n := node
 		if err := kc.Client.Delete(ctx, &n); err != nil {
 			return nil, fmt.Errorf("delete node %s: %w", name, err)
-		}
-	}
-
-	// The settings dialog's "Add to dashboard" toggle writes data.dashboard.
-	// Reconcile each surviving node's _control widget to match — pin when set,
-	// unpin when cleared — so the checkbox actually reaches the dashboard
-	// instead of being dropped on save.
-	dw := adapters.NewDashboardWriter(kc)
-	for _, el := range payload.Elements {
-		module, _ := el.Data["module"].(string)
-		component, _ := el.Data["component"].(string)
-		if module == "" || component == "" {
-			continue
-		}
-		id := remap(idRemap, el.ID)
-		if _, ok := desired[id]; !ok {
-			continue
-		}
-		enabled := el.Data["dashboard"] == "true" || el.Data["dashboard"] == true
-		if _, err := dw.SetNodeWidget(ctx, req.ProjectName, id, "_control", enabled); err != nil {
-			// A widget-page write failing must not fail the whole save — the
-			// graph is already persisted. Surface it, don't abort.
-			log.Error().Err(err).Str("node", id).Msg("save: reconcile dashboard widget")
 		}
 	}
 

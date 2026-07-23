@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/tiny-systems/module/api/v1alpha1"
 	sdktools "github.com/tiny-systems/module/pkg/tools"
@@ -13,9 +12,14 @@ import (
 	"github.com/tiny-systems/tiny/internal/kube"
 )
 
-// DashboardReader implements sdktools.DashboardReader by reading
-// TinyWidgetPage CRDs and resolving each widget's data from the
-// corresponding TinyNode status port.
+// DashboardReader implements sdktools.DashboardReader.
+//
+// The dashboard is DERIVED from the nodes themselves: a node is a widget iff it
+// carries the DashboardLabel. The node is the single source of truth — delete
+// the node and its widget is gone, with nothing else to clean up. This mirrors
+// the platform (project/get-stream.go), and replaces an earlier design that
+// kept a separate TinyWidgetPage store which went stale when a node was deleted
+// from another surface.
 type DashboardReader struct {
 	kube *kube.Client
 }
@@ -24,114 +28,48 @@ func NewDashboardReader(k *kube.Client) *DashboardReader {
 	return &DashboardReader{kube: k}
 }
 
-// ReadDashboard reads all TinyWidgetPage CRDs for the project,
-// fetches every referenced TinyNode, and extracts the current
-// port configuration for each widget.
+// ReadDashboard lists the project's dashboard-labelled nodes and renders each
+// as a widget over its _control port.
 func (d *DashboardReader) ReadDashboard(ctx context.Context, projectName string) (*sdktools.DashboardData, error) {
-	// List widget pages for this project
-	pages := &v1alpha1.TinyWidgetPageList{}
-	if err := d.kube.Client.List(ctx, pages,
+	nodes := &v1alpha1.TinyNodeList{}
+	if err := d.kube.Client.List(ctx, nodes,
 		client.InNamespace(d.kube.Namespace),
-		client.MatchingLabels{v1alpha1.ProjectNameLabel: projectName},
+		client.MatchingLabels{
+			v1alpha1.ProjectNameLabel: projectName,
+			v1alpha1.DashboardLabel:   "true",
+		},
 	); err != nil {
-		return nil, wrapCRDError(fmt.Errorf("list widget pages: %w", err))
+		return nil, wrapCRDError(fmt.Errorf("list dashboard nodes: %w", err))
 	}
 
-	// Collect all widget refs: "nodeName:portName"
-	type widgetRef struct {
-		widget v1alpha1.TinyWidget
-		page   string
-	}
-	var refs []widgetRef
-	for _, page := range pages.Items {
-		for _, w := range page.Spec.Widgets {
-			if w.Port == "" {
-				continue
-			}
-			refs = append(refs, widgetRef{widget: w, page: page.Name})
-		}
-	}
-
-	if len(refs) == 0 {
-		return &sdktools.DashboardData{
-			ProjectName: projectName,
-		}, nil
-	}
-
-	// Fetch unique nodes referenced by widgets
-	nodeNames := make(map[string]bool)
-	for _, r := range refs {
-		nodeName, _ := parseWidgetPort(r.widget.Port)
-		if nodeName != "" {
-			nodeNames[nodeName] = true
-		}
-	}
-
-	nodeMap := make(map[string]*v1alpha1.TinyNode)
-	for name := range nodeNames {
-		node := &v1alpha1.TinyNode{}
-		key := client.ObjectKey{Namespace: d.kube.Namespace, Name: name}
-		if err := d.kube.Client.Get(ctx, key, node); err != nil {
-			continue // node might not exist yet
-		}
-		nodeMap[name] = node
-	}
-
-	// Build widgets with resolved data
-	var widgets []sdktools.DashboardWidget
-	for _, r := range refs {
-		nodeName, portName := parseWidgetPort(r.widget.Port)
-		if nodeName == "" || portName == "" {
-			continue
-		}
-
+	widgets := make([]sdktools.DashboardWidget, 0, len(nodes.Items))
+	for i := range nodes.Items {
+		node := &nodes.Items[i]
 		w := sdktools.DashboardWidget{
-			Name:     r.widget.Name,
-			NodeName: nodeName,
-			PortName: portName,
-			GridX:    r.widget.GridX,
-			GridY:    r.widget.GridY,
-			GridW:    r.widget.GridW,
-			GridH:    r.widget.GridH,
+			Name:     node.Status.Component.Description,
+			NodeName: node.Name,
+			PortName: controlPort,
 		}
-
-		// Resolve port data from node status
-		if node, ok := nodeMap[nodeName]; ok {
-			for _, p := range node.Status.Ports {
-				if p.Name != portName {
-					continue
-				}
-				if len(p.Configuration) > 0 {
-					var data map[string]interface{}
-					if err := json.Unmarshal(p.Configuration, &data); err == nil {
-						w.Data = data
-					}
+		if w.Name == "" {
+			w.Name = node.Name
+		}
+		// Live control-port data, if the node has reconciled it.
+		for _, p := range node.Status.Ports {
+			if p.Name == controlPort && len(p.Configuration) > 0 {
+				var data map[string]interface{}
+				if err := json.Unmarshal(p.Configuration, &data); err == nil {
+					w.Data = data
 				}
 				break
 			}
-
-			// Use component description as fallback name
-			if w.Name == "" {
-				w.Name = node.Status.Component.Description
-			}
 		}
-
 		widgets = append(widgets, w)
 	}
 
-	return &sdktools.DashboardData{
-		ProjectName: projectName,
-		Widgets:     widgets,
-	}, nil
+	return &sdktools.DashboardData{ProjectName: projectName, Widgets: widgets}, nil
 }
 
-// parseWidgetPort splits "nodeName:portName" into its parts.
-func parseWidgetPort(port string) (string, string) {
-	parts := strings.SplitN(port, ":", 2)
-	if len(parts) != 2 {
-		return "", ""
-	}
-	return parts[0], parts[1]
-}
+// controlPort is the port a dashboard widget renders — the node's control form.
+const controlPort = "_control"
 
 var _ sdktools.DashboardReader = (*DashboardReader)(nil)
