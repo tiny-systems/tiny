@@ -141,6 +141,19 @@ func (p projectService) GetStream(req *platform.GetProjectStreamRequest, stream 
 	}
 	defer w.Stop()
 
+	// Track which nodes are currently shown as widgets, seeded from the snapshot.
+	// This lets a widget be removed both when its node is DELETED and when the
+	// node loses its dashboard label ("Add to dashboard" unchecked + saved) —
+	// the platform handles only deletion, so there an unchecked widget lingers
+	// until reload. Tracking also avoids emitting a delete for every non-widget
+	// node's routine reconcile.
+	widgetNodes := make(map[string]bool)
+	for _, e := range widgetEvents {
+		if e.Widget != nil {
+			widgetNodes[e.Widget.Node] = true
+		}
+	}
+
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
 	for {
@@ -148,20 +161,31 @@ func (p projectService) GetStream(req *platform.GetProjectStreamRequest, stream 
 		case <-ctx.Done():
 			return nil
 		case ev, ok := <-w.ResultChan():
+			// A closed channel would otherwise hot-spin (the platform's bug):
+			// wait for disconnect instead.
 			if !ok {
 				<-ctx.Done()
 				return nil
 			}
 			node, isNode := ev.Object.(*v1alpha1.TinyNode)
-			if !isNode || node == nil || node.Labels[v1alpha1.DashboardLabel] != "true" {
-				continue // only dashboard nodes drive widget events
+			if !isNode || node == nil {
+				continue
 			}
+			isWidget := ev.Type != watch.Deleted && node.Labels[v1alpha1.DashboardLabel] == "true"
+
 			var event *platform.DashboardEvent
-			if ev.Type == watch.Deleted {
-				event = deleteWidgetEvent(*node)
-			} else {
+			switch {
+			case isWidget:
 				event = updateWidgetEvent(*node)
+				widgetNodes[node.Name] = true
+			case widgetNodes[node.Name]:
+				// Was a widget, now isn't (deleted or unlabelled) → remove it.
+				event = deleteWidgetEvent(*node)
+				delete(widgetNodes, node.Name)
+			default:
+				continue // not a widget and never was — nothing to send
 			}
+			// Return (not break) on send error: the client is gone.
 			if err := stream.Send(&platform.GetProjectStreamEvent{DashboardEvent: []*platform.DashboardEvent{event}}); err != nil {
 				return err
 			}
