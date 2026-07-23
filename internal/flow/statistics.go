@@ -81,10 +81,58 @@ func (s statisticsService) GetTraceByID(ctx context.Context, req *platform.Stati
 	return resp, nil
 }
 
-// GetStream is the live per-node stats overlay (count/latency badges). Not yet
-// wired — closes immediately so the editor renders the static graph. Phase 2.
-func (s statisticsService) GetStream(_ *platform.StatisticsStreamRequest, _ grpc.ServerStreamingServer[platform.StatisticsStreamResponse]) error {
-	return nil
+// GetStream drives the editor's live telemetry: the trace list reloads on every
+// event it receives (debounced), and the events themselves plot the flow's
+// throughput.
+//
+// It used to return immediately. That single line is why the Traces list never
+// updated without a manual refresh and why the chart read "No data" — the
+// editor opened the stream, got EOF, and nothing ever arrived.
+//
+// Polls rather than watches because the otel-collector exposes no watch: it
+// samples the trace count each tick and emits when the flow has run, which is
+// exactly the signal the editor needs to refetch.
+func (s statisticsService) GetStream(req *platform.StatisticsStreamRequest, stream grpc.ServerStreamingServer[platform.StatisticsStreamResponse]) error {
+	ctx := stream.Context()
+	if s.trace == nil {
+		<-ctx.Done() // hold it open so the editor shows "live", not an error
+		return nil
+	}
+
+	const (
+		interval = 2 * time.Second
+		window   = tracesLookback
+	)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	// Emit only on change, so an idle flow costs one collector read per tick and
+	// never churns the editor's list.
+	last := -1
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			traces, err := s.trace.ReadTraces(ctx, req.ProjectName, req.FlowName, window, 0, tracesLimit)
+			if err != nil {
+				continue // a transient collector blip must not kill the stream
+			}
+			if len(traces) == last {
+				continue
+			}
+			last = len(traces)
+			if err := stream.Send(&platform.StatisticsStreamResponse{
+				Events: []*platform.StatsEvent{{
+					Metric:   "traces",
+					Value:    float64(len(traces)),
+					Datetime: time.Now().UnixMilli(),
+				}},
+			}); err != nil {
+				return err
+			}
+		}
+	}
 }
 
 // spanToTraceSpan maps an SDK span to the editor's TraceSpan. ParentSpanID and

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -110,6 +111,11 @@ func (s *Service) buildFlowEvents(ctx context.Context, mgr *resource.Manager, re
 	}
 	portExampleMap := utils.GetPortExampleMap(nodesMap)
 
+	// When a trace is selected, mark the edges that actually carried data in it
+	// so the canvas can draw the execution path. Without this the editor asks
+	// for a TraceID, gets an unannotated graph back, and nothing highlights.
+	traceEdges := s.traceEdgeMap(ctx, req.ProjectName, req.TraceID)
+
 	flowName := req.FlowName
 	events := make([]*platform.NodeEvent, 0, len(nodesMap)*2)
 	ids := make(map[string]bool)
@@ -129,7 +135,7 @@ func (s *Service) buildFlowEvents(ctx context.Context, mgr *resource.Manager, re
 
 		for _, edge := range node.Spec.Edges {
 			ids[edge.ID] = true
-			edgeMap, err := buildEdge(ctx, node, edge, flowName, sharedWithThisFlow, nodesMap, statusPortSchemaMap, portConfigMap, edgeConfigMap, portSchemaMap, portExampleMap)
+			edgeMap, err := buildEdge(ctx, node, edge, flowName, sharedWithThisFlow, nodesMap, statusPortSchemaMap, portConfigMap, edgeConfigMap, portSchemaMap, portExampleMap, traceEdges)
 			if err != nil {
 				continue
 			}
@@ -156,6 +162,7 @@ func buildEdge(
 	edgeConfigMap map[string][]utils.Destination,
 	portSchemaMap map[string]*ajson.Node,
 	portExampleMap map[string][]byte,
+	traceEdges map[string]edgeTrace,
 ) (map[string]interface{}, error) {
 	n := node.Name
 	targetNodeName, targetPort := utils.ParseFullPortName(edge.To)
@@ -197,6 +204,9 @@ func buildEdge(
 	if len(edgeSchema) > 0 {
 		data["schema"] = json.RawMessage(edgeSchema)
 	}
+	if t, ok := traceEdges[from+"->"+edge.To]; ok {
+		data["trace"] = t
+	}
 
 	if verr := utils.ValidateEdgeWithPrecomputedMaps(ctx, portSchemaMap, edgeConfigMap, from, edgeConfiguration, edgeSchema, nil, portExampleMap); verr != nil {
 		if utils.IsUnverifiable(verr) {
@@ -234,4 +244,54 @@ func heartbeat(ctx context.Context, stream grpc.ServerStreamingServer[platform.G
 			}
 		}
 	}
+}
+
+// edgeTrace is one edge's participation in the selected trace: where the hop
+// fell in execution order, and how long it took. The canvas reads both —
+// sequence as the step number, latency as the label on the highlighted edge.
+type edgeTrace struct {
+	Sequence int     `json:"sequence"`
+	Latency  float64 `json:"latency"`
+}
+
+// traceEdgeMap keys a trace's spans by "<from>-><to>" so buildEdge can mark the
+// edges that carried data. Spans are ordered by start time, which is the order
+// the flow actually executed in.
+//
+// Best-effort: no trace reader, no trace selected, or an unreadable trace all
+// yield nil, and the graph renders unannotated exactly as before.
+func (s *Service) traceEdgeMap(ctx context.Context, projectName, traceID string) map[string]edgeTrace {
+	if traceID == "" || s.trace == nil {
+		return nil
+	}
+	spans, err := s.trace.ReadTraceSpans(ctx, projectName, traceID)
+	if err != nil || len(spans) == 0 {
+		return nil
+	}
+	sort.SliceStable(spans, func(i, j int) bool {
+		return spans[i].StartTimeUnixNano < spans[j].StartTimeUnixNano
+	})
+
+	out := make(map[string]edgeTrace, len(spans))
+	seq := 0
+	for _, sp := range spans {
+		var from, to string
+		for _, a := range sp.Attributes {
+			switch a.Key {
+			case "from":
+				from = a.Value
+			case "to":
+				to = a.Value
+			}
+		}
+		if from == "" || to == "" {
+			continue // an entry span carries no edge — nothing to highlight
+		}
+		seq++
+		out[from+"->"+to] = edgeTrace{
+			Sequence: seq,
+			Latency:  float64(sp.EndTimeUnixNano-sp.StartTimeUnixNano) / 1e6,
+		}
+	}
+	return out
 }
