@@ -254,8 +254,44 @@ releases.
 
 This is exactly what `-v0` was reaching for — the mistake was baking it into the
 name/image repo instead of deriving it. It becomes a runtime detail that equals
-the SemVer major (so today's `-v0` just means "still 0.x"). Install-name
-derivation: `releaseName = "<module>-v" + semverMajor(version)`.
+the SemVer major (so today's `-v0` just means "still 0.x").
+
+### 7.1 Publisher is the second coordinate
+
+**Decided (2026-07):** the major is not the only thing that has to coexist. A
+cluster will hold modules from **many publishers**, and nothing stops two of them
+shipping a module called `http-module`. With identity as `<module>-v<major>`
+alone, both install as release `http-module-v0` with the same `TinyModule` name:
+the second install silently upgrades the first. Third-party repos are already
+assumed elsewhere in this document (§9.4, signing), so this is an omission, not a
+decision to keep one publisher per cluster.
+
+Publisher is therefore a coordinate of exactly the same kind as the major —
+**derived at install time, never stored in the repo name or the image repo**:
+
+    releaseName = "<repo>-<module>-v" + semverMajor(version)
+
+So `tiny install acme/http-module@2.3.1` → release `acme-http-module-v2`,
+image `ghcr.io/acme/http-module:2.3.1`, coexisting with
+`tinysystems-http-module-v2` in the same namespace. `<repo>` is the **local repo
+name** from `repos.yaml` — the name the operator of *this* cluster chose when
+adding the repo — not the GitHub org. That keeps identity under the cluster
+operator's control and stable even if an upstream org renames itself.
+
+**Publisher names may contain dashes** (`tiny-systems` does). We do not restrict
+them, because we never reverse-parse this string: it is an opaque identity, and
+the only parsing that exists strips a trailing `-v<major>`. The residual risk is
+that two different pairs can generate one name (`a-b` + `c` and `a` + `b-c`).
+That is handled by truth-in-labels, not by a naming rule:
+
+- `tinysystems.io/repo` and `tinysystems.io/module` are set on install and are
+  **authoritative**. Anything needing the publisher reads the label.
+- Install **fails loudly** when the computed release name already exists with a
+  different repo/module label pair, instead of silently replacing another
+  publisher's module.
+
+Node refs follow the release name, as with the major
+(`…acme-http-module-v2.http-server-…`).
 
 ## 8. Migration
 
@@ -283,6 +319,11 @@ Keep everything working at each step; nothing is a flag-day.
    cluster *and namespace*. The major is a derived runtime coordinate
    (`<module>-v<major>` from the SemVer major); repo name + image repo stay
    plain. See §7.
+3b. ~~Publisher collisions~~ — **DECIDED (2026-07): publisher is a second derived
+   coordinate**, `<repo>-<module>-v<major>`, so modules from different
+   publishers coexist the same way majors do. Dashes in publisher names are
+   allowed; ambiguity is handled by authoritative repo/module labels plus a
+   loud failure on collision, not by a naming restriction. See §7.1.
 4. **Signing:** cosign **keyless** via GitHub OIDC (no key management) — confirm
    the verification story for third-party repos.
 5. **Harness chart source:** confirm it ships in the default repo and modules

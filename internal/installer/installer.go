@@ -84,7 +84,7 @@ func (m *ModuleInstaller) InstallModule(ctx context.Context, moduleName, version
 		ref = moduleName + "@" + version
 	}
 	progress("install", "installing "+ref+" — this can take a minute while the image pulls", "info")
-	plan, err := repo.Install(ctx, merged, ref, m.namespace, cluster, bundles, provision.BaseValues, hc)
+	plan, err := repo.Install(ctx, merged, ref, m.namespace, cluster, bundles, provision.BaseValues, hc, hc)
 	if err != nil {
 		return &sdktools.InstallResult{Success: false, Error: err.Error()}, nil
 	}

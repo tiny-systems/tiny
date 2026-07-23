@@ -72,7 +72,7 @@ add something specific.`,
 			var plan *repo.InstallPlan
 			if err := step("installing "+name, func() error {
 				var e error
-				plan, e = repo.Install(ctx, merged, name, flagNamespace, cluster, bundles, provision.BaseValues, hc)
+				plan, e = repo.Install(ctx, merged, name, flagNamespace, cluster, bundles, provision.BaseValues, hc, hc)
 				return e
 			}); err != nil {
 				fmt.Println("  " + styleSubtle.Render("fresh cluster? run `tiny up` first. not in any repo? see `tiny repo add`."))

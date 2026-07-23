@@ -381,3 +381,47 @@ func SanitizeResourceName(s string) string {
 	}
 	return out
 }
+
+// Lookup reports the module image ref of whatever occupies a helm release name,
+// or found=false when the release isn't installed.
+//
+// It satisfies repo.InstalledModules structurally — primitives only, so this
+// package still does not import internal/repo, matching how BaseValues and
+// UpgradeInstall are wired.
+//
+// The image is the authoritative identity of an installed release: it is
+// literally what the pod runs, so it distinguishes two publishers shipping the
+// same module name without needing any extra bookkeeping.
+//
+// A release that isn't installed is not an error — that is the normal case on a
+// fresh cluster, and helm reports it as one.
+func (c *Client) Lookup(_ context.Context, _, release string) (string, bool, error) {
+	rel, err := c.helm.GetRelease(release)
+	if err != nil || rel == nil {
+		return "", false, nil
+	}
+	return moduleImageFromValues(rel.Config), true, nil
+}
+
+// moduleImageFromValues digs controllerManager.manager.image.{repository,tag}
+// out of a release's values — where BaseValues puts it. Returns "" when the
+// shape isn't what we wrote (a non-module release, or a chart that moved it),
+// which callers treat as "unknown, assume ours" rather than blocking upgrades.
+func moduleImageFromValues(vals map[string]any) string {
+	dig := func(m map[string]any, key string) map[string]any {
+		next, _ := m[key].(map[string]any)
+		return next
+	}
+	img := dig(dig(dig(vals, "controllerManager"), "manager"), "image")
+	if img == nil {
+		return ""
+	}
+	repository, _ := img["repository"].(string)
+	if repository == "" {
+		return ""
+	}
+	if tag, _ := img["tag"].(string); tag != "" {
+		return repository + ":" + tag
+	}
+	return repository
+}
