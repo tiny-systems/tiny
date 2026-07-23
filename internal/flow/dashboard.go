@@ -76,35 +76,7 @@ func buildDashboard(ctx context.Context, mgr *resource.Manager, projectName stri
 		if node.Labels[v1alpha1.DashboardLabel] != "true" {
 			continue
 		}
-
-		var schemaBytes, dataBytes []byte
-		for _, ps := range node.Status.Ports {
-			if ps.Name == controlPort {
-				schemaBytes = ps.Schema
-				dataBytes = ps.Configuration
-				break
-			}
-		}
-
-		title := node.Status.Component.Description
-		if title == "" {
-			title = node.Name
-		}
-
-		events = append(events, &platform.DashboardEvent{
-			Type: "UPDATE_WIDGET",
-			Widget: &platform.Widget{
-				ID:            fmt.Sprintf("%s-%s-%s", dashboardPageName, node.Name, controlPort),
-				Node:          node.Name,
-				Port:          controlPort,
-				Title:         title,
-				DefaultSchema: schemaBytes,
-				Schema:        schemaBytes,
-				Data:          dataBytes,
-				Grid:          &platform.Grid{W: 6, H: 4},
-				Pages:         []string{dashboardPageName},
-			},
-		})
+		events = append(events, updateWidgetEvent(node))
 	}
 
 	return pages, events
@@ -112,3 +84,57 @@ func buildDashboard(ctx context.Context, mgr *resource.Manager, projectName stri
 
 // controlPort is the node port a dashboard widget renders — its control form.
 const controlPort = "_control"
+
+// widgetID is the stable id the editor upserts a widget by. It must match
+// between the initial snapshot and later watch events, or an update would add a
+// duplicate instead of replacing.
+func widgetID(node v1alpha1.TinyNode) string {
+	return fmt.Sprintf("%s-%s-%s", dashboardPageName, node.Name, controlPort)
+}
+
+// updateWidgetEvent renders one dashboard-labelled node as an UPDATE_WIDGET,
+// carrying its live control-port schema + data. Used both for the initial
+// snapshot and for each realtime change.
+func updateWidgetEvent(node v1alpha1.TinyNode) *platform.DashboardEvent {
+	var schemaBytes, dataBytes []byte
+	for _, ps := range node.Status.Ports {
+		if ps.Name == controlPort {
+			schemaBytes = ps.Schema
+			dataBytes = ps.Configuration
+			break
+		}
+	}
+	title := node.Status.Component.Description
+	if title == "" {
+		title = node.Name
+	}
+	return &platform.DashboardEvent{
+		Type: "UPDATE_WIDGET",
+		Widget: &platform.Widget{
+			ID:            widgetID(node),
+			Node:          node.Name,
+			Port:          controlPort,
+			Title:         title,
+			DefaultSchema: schemaBytes,
+			Schema:        schemaBytes,
+			Data:          dataBytes,
+			Grid:          &platform.Grid{W: 6, H: 4},
+			Pages:         []string{dashboardPageName},
+		},
+	}
+}
+
+// deleteWidgetEvent tells the editor to drop a node's widget — sent when a
+// dashboard node is deleted or loses its label. Same id as the update so the
+// editor removes the right one.
+func deleteWidgetEvent(node v1alpha1.TinyNode) *platform.DashboardEvent {
+	return &platform.DashboardEvent{
+		Type: "DELETE_WIDGET",
+		Widget: &platform.Widget{
+			ID:    widgetID(node),
+			Node:  node.Name,
+			Port:  controlPort,
+			Pages: []string{dashboardPageName},
+		},
+	}
+}

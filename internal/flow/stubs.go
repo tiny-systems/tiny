@@ -3,10 +3,12 @@ package flow
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/tiny-systems/module/api/v1alpha1"
 	platform "github.com/tiny-systems/platform-go"
 	"google.golang.org/grpc"
+	"k8s.io/apimachinery/pkg/watch"
 )
 
 // The editor's EditorClient has four service slices. tiny fully backs
@@ -126,10 +128,47 @@ func (p projectService) GetStream(req *platform.GetProjectStreamRequest, stream 
 		}
 	}
 
-	// Hold the stream open until the client disconnects; a one-shot snapshot is
-	// enough for the local dashboard today.
-	<-ctx.Done()
-	return nil
+	// Keep the dashboard live, exactly as the platform does (project/get-stream.go):
+	// watch the project's nodes and push a widget event per change. A dashboard
+	// node changing → UPDATE_WIDGET (fresh control-port data); a dashboard node
+	// deleted → DELETE_WIDGET so the widget disappears instead of lingering.
+	// WatchNodes is a k8s informer, and each event is built from the node already
+	// in hand — no otel forwarder, no per-event network read.
+	w, err := mgr.WatchNodes(ctx, req.ProjectName)
+	if err != nil {
+		<-ctx.Done() // no watch available — snapshot stands until disconnect
+		return nil
+	}
+	defer w.Stop()
+
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case ev, ok := <-w.ResultChan():
+			if !ok {
+				<-ctx.Done()
+				return nil
+			}
+			node, isNode := ev.Object.(*v1alpha1.TinyNode)
+			if !isNode || node == nil || node.Labels[v1alpha1.DashboardLabel] != "true" {
+				continue // only dashboard nodes drive widget events
+			}
+			var event *platform.DashboardEvent
+			if ev.Type == watch.Deleted {
+				event = deleteWidgetEvent(*node)
+			} else {
+				event = updateWidgetEvent(*node)
+			}
+			if err := stream.Send(&platform.GetProjectStreamEvent{DashboardEvent: []*platform.DashboardEvent{event}}); err != nil {
+				return err
+			}
+		case <-heartbeat.C:
+			// keep the stream visibly alive between changes
+		}
+	}
 }
 
 // statisticsService (traces) moved to statistics.go, now backed by the
