@@ -191,6 +191,17 @@ func (e *NodeEditor) ConfigureEdge(ctx context.Context, projectName, flowName, e
 	//   this source port. If it does, validate each JSONPath against
 	//   the sample's actual JSON structure. Gives the caller a useful
 	//   error on decoded / js_eval-style outputs when scenarios exist.
+	// Both passes below read published port schemas, and a node that has not
+	// reconciled yet publishes none — lookupPortSchema returns nil and
+	// strictValidateEdge deliberately passes. build_flow creates the nodes and
+	// configures the edges in the SAME call, so on a fresh flow every edge was
+	// validated against nothing and came back valid whatever it contained. The
+	// error only surfaced later, in the UI, once the node reconciled.
+	//
+	// Wait for the ports to exist so the checks actually run.
+	e.waitForPorts(ctx, fromNode)
+	targetReady := e.waitForPorts(ctx, toNode)
+
 	sourceSchemaBytes := e.lookupPortSchema(ctx, fromNode, fromPort)
 	walkResult, _ := validateEdgeExpressions(config, sourceSchemaBytes)
 	if len(walkResult.Unresolved) > 0 {
@@ -267,6 +278,14 @@ func (e *NodeEditor) ConfigureEdge(ctx context.Context, projectName, flowName, e
 		return &sdktools.ConfigureEdgeResult{
 			Valid: true,
 			Hint:  "warning: " + strictErr.Error(),
+		}, nil
+	}
+	if !targetReady {
+		// Say so rather than implying the config was checked. A silent "valid"
+		// here is what let broken edges ship green.
+		return &sdktools.ConfigureEdgeResult{
+			Valid: true,
+			Hint:  "not verified: target node " + toNode + " has not published its port schema yet — re-check this edge once it reconciles",
 		}, nil
 	}
 	return &sdktools.ConfigureEdgeResult{Valid: true}, nil
@@ -709,13 +728,16 @@ func nextPosition(flowName string, tracker sdktools.PositionTracker) (int, int) 
 // Node IDs contain dots and hyphens but never underscores (component
 // names are slugified), so we can reliably split on underscores first:
 //
-//   <fromNode> _ <fromPort> - <toNode> _ <toPort>
+//	<fromNode> _ <fromPort> - <toNode> _ <toPort>
 //
 // Step 1: the FIRST underscore separates fromNode from the rest.
 // Step 2: in what remains, the FIRST dash separates fromPort (which
-//   has no dashes in practice) from the target half.
+//
+//	has no dashes in practice) from the target half.
+//
 // Step 3: in the target half, the LAST underscore separates toNode
-//   from toPort.
+//
+//	from toPort.
 func parseEdgeID(edgeID string) (fromNode, fromPort, toNode, toPort string, err error) {
 	firstUnder := strings.Index(edgeID, "_")
 	if firstUnder < 0 {
@@ -781,3 +803,34 @@ var (
 	_ sdktools.NodeSettingsConfigurer = (*NodeEditor)(nil)
 	_ sdktools.FlowModifier           = (*NodeEditor)(nil)
 )
+
+// waitForPorts polls until the node publishes any Status.Ports, so schema-based
+// edge validation has something to validate against. Reports whether ports
+// appeared; false means the caller is about to check an edge against nothing.
+//
+// Bounded and best-effort: a node that never reconciles must not block an
+// authoring call.
+func (e *NodeEditor) waitForPorts(ctx context.Context, nodeID string) bool {
+	const (
+		maxWait  = 3 * time.Second
+		interval = 150 * time.Millisecond
+	)
+	deadline := time.Now().Add(maxWait)
+	for {
+		node := &v1alpha1.TinyNode{}
+		if err := e.kube.Client.Get(ctx, types.NamespacedName{
+			Namespace: e.kube.Namespace,
+			Name:      nodeID,
+		}, node); err == nil && len(node.Status.Ports) > 0 {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		select {
+		case <-time.After(interval):
+		case <-ctx.Done():
+			return false
+		}
+	}
+}
