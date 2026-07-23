@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
+	"github.com/tiny-systems/module/api/v1alpha1"
 	"github.com/tiny-systems/module/pkg/utils"
 	platform "github.com/tiny-systems/platform-go"
 
 	"github.com/tiny-systems/tiny/internal/adapters"
 	"github.com/tiny-systems/tiny/internal/kube"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // kubeClient builds a scheme-aware controller-runtime client over the
@@ -120,6 +123,53 @@ func (s *Service) UndeployFlow(ctx context.Context, req *platform.UndeployFlowRe
 	}
 	if err := adapters.NewFlowLifecycle(kc).DeleteFlow(ctx, "", req.FlowID); err != nil {
 		return nil, err
+	}
+	return &platform.Nil{}, nil
+}
+
+// RenameFlow updates a flow's human-readable name. That name lives in the
+// TinyFlow's description annotation (createFlow writes it there and the editor
+// reads it), so a rename is a one-field annotation update — no resources move,
+// the flow's resource name and node bindings are untouched.
+//
+// The editor sends the new name as JSON in RenameForm.Data under "newName",
+// matching the platform's form, so the same dialog drives both. Without this
+// handler the menu's Rename action hit an unregistered method and failed
+// silently.
+func (s *Service) RenameFlow(ctx context.Context, req *platform.RenameFlowRequest) (*platform.Nil, error) {
+	if req.RenameForm == nil {
+		return nil, fmt.Errorf("rename form is required")
+	}
+	var form struct {
+		NewName string `json:"newName"`
+	}
+	if err := json.Unmarshal(req.RenameForm.Data, &form); err != nil {
+		return nil, fmt.Errorf("parse rename form: %w", err)
+	}
+	newName := strings.TrimSpace(form.NewName)
+	if newName == "" {
+		return nil, fmt.Errorf("new name is required")
+	}
+	if len(newName) > 100 {
+		newName = newName[:100]
+	}
+
+	kc, err := s.kubeClient()
+	if err != nil {
+		return nil, err
+	}
+	flow := &v1alpha1.TinyFlow{}
+	if err := kc.Client.Get(ctx, types.NamespacedName{Namespace: s.namespace, Name: req.FlowName}, flow); err != nil {
+		return nil, fmt.Errorf("get flow %s: %w", req.FlowName, err)
+	}
+	if flow.Annotations == nil {
+		// A flow created without a description has no annotation map; the SDK's
+		// RenameFlow assigns into it unconditionally and would panic here.
+		flow.Annotations = map[string]string{}
+	}
+	flow.Annotations[v1alpha1.FlowDescriptionAnnotation] = newName
+	if err := kc.Client.Update(ctx, flow); err != nil {
+		return nil, fmt.Errorf("rename flow: %w", err)
 	}
 	return &platform.Nil{}, nil
 }
