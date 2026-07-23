@@ -67,6 +67,22 @@ func (s *Service) GetFlowStream(req *platform.GetFlowStreamRequest, stream grpc.
 	}
 	defer w.Stop()
 
+	// Coalesce watch events into at most one render per window. A running flow
+	// bumps node status many times a second, and render() rebuilds AND
+	// revalidates the whole project graph (buildFlowEvents) every call — doing
+	// that per event floods the HTTP/1.1 stream and pins the browser's main
+	// thread, which is the freeze that hits the instant a flow starts running.
+	// This mirrors the platform's 500ms debounced send (flow/get-stream.go),
+	// but coalesces inside this select loop so every stream.Send stays on the
+	// one goroutine: the platform's debounce fires its callback on a timer
+	// goroutine that can race the heartbeat's Send, and grpc streams reject
+	// concurrent Send — a trap not worth copying.
+	const coalesceWindow = 500 * time.Millisecond
+	coalesce := time.NewTimer(coalesceWindow)
+	coalesce.Stop()
+	defer coalesce.Stop()
+	pending := false
+
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -77,9 +93,19 @@ func (s *Service) GetFlowStream(req *platform.GetFlowStreamRequest, stream grpc.
 			if !ok {
 				return heartbeat(ctx, stream)
 			}
-			// A node in the project changed — re-render this flow. The FE
-			// upserts by element ID, so re-emitting current state is safe.
-			_ = render()
+			// A node changed. The first event of a burst arms the render;
+			// later events within the window fold into that one render.
+			if !pending {
+				pending = true
+				coalesce.Reset(coalesceWindow)
+			}
+		case <-coalesce.C:
+			// Re-render once for the whole burst. The FE upserts by element
+			// ID, so re-emitting current state is safe.
+			pending = false
+			if err := render(); err != nil {
+				return err
+			}
 		case <-ticker.C:
 			if err := tick(stream); err != nil {
 				return err

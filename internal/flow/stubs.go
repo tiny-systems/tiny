@@ -154,6 +154,18 @@ func (p projectService) GetStream(req *platform.GetProjectStreamRequest, stream 
 		}
 	}
 
+	// Coalesce widget events, same rationale as GetFlowStream: a running flow
+	// bumps its widget nodes' _control data many times a second, and sending a
+	// DashboardEvent per change floods the browser. Fold changes into one event
+	// per node per window (latest wins), flushed on the coalesce tick — mirrors
+	// the platform's 500ms debounced send, kept on this goroutine.
+	const coalesceWindow = 500 * time.Millisecond
+	coalesce := time.NewTimer(coalesceWindow)
+	coalesce.Stop()
+	defer coalesce.Stop()
+	pendingEvents := make(map[string]*platform.DashboardEvent)
+	armed := false
+
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
 	for {
@@ -173,20 +185,36 @@ func (p projectService) GetStream(req *platform.GetProjectStreamRequest, stream 
 			}
 			isWidget := ev.Type != watch.Deleted && node.Labels[v1alpha1.DashboardLabel] == "true"
 
-			var event *platform.DashboardEvent
 			switch {
 			case isWidget:
-				event = updateWidgetEvent(*node)
+				pendingEvents[node.Name] = updateWidgetEvent(*node)
 				widgetNodes[node.Name] = true
 			case widgetNodes[node.Name]:
 				// Was a widget, now isn't (deleted or unlabelled) → remove it.
-				event = deleteWidgetEvent(*node)
+				pendingEvents[node.Name] = deleteWidgetEvent(*node)
 				delete(widgetNodes, node.Name)
 			default:
 				continue // not a widget and never was — nothing to send
 			}
+			// Arm the flush only on the first change of a burst — never re-arm
+			// on later changes, or a single widget updating continuously would
+			// keep pushing the deadline out and never flush (starvation).
+			if !armed {
+				armed = true
+				coalesce.Reset(coalesceWindow)
+			}
+		case <-coalesce.C:
+			armed = false
+			if len(pendingEvents) == 0 {
+				continue
+			}
+			events := make([]*platform.DashboardEvent, 0, len(pendingEvents))
+			for _, e := range pendingEvents {
+				events = append(events, e)
+			}
+			pendingEvents = make(map[string]*platform.DashboardEvent)
 			// Return (not break) on send error: the client is gone.
-			if err := stream.Send(&platform.GetProjectStreamEvent{DashboardEvent: []*platform.DashboardEvent{event}}); err != nil {
+			if err := stream.Send(&platform.GetProjectStreamEvent{DashboardEvent: events}); err != nil {
 				return err
 			}
 		case <-heartbeat.C:
