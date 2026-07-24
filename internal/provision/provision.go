@@ -20,7 +20,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	helmclient "github.com/mittwald/go-helm-client"
@@ -81,8 +83,12 @@ func NewClient(cfg *rest.Config, namespace string, debug io.Writer) (*Client, er
 	opt := &helmclient.RestConfClientOptions{
 		Options: &helmclient.Options{
 			RepositoryCache: cache,
-			Namespace:       namespace,
-			Debug:           debug != nil,
+			// Isolate the repo config per client. Left unset it defaults to the
+			// shared ~/.config/helm/repositories.yaml, which concurrent installs
+			// race on — corrupting it so later installs fail "no cached repo found".
+			RepositoryConfig: filepath.Join(cache, "repositories.yaml"),
+			Namespace:        namespace,
+			Debug:            debug != nil,
 			DebugLog: func(format string, v ...interface{}) {
 				if debug != nil {
 					fmt.Fprintf(debug, format+"\n", v...)
@@ -95,10 +101,34 @@ func NewClient(cfg *rest.Config, namespace string, debug io.Writer) (*Client, er
 	if err != nil {
 		return nil, fmt.Errorf("helm client: %w", err)
 	}
-	if err := hc.AddOrUpdateChartRepo(repo.Entry{Name: repoName, URL: repoURL}); err != nil {
+	if err := addChartRepo(hc); err != nil {
 		return nil, fmt.Errorf("add chart repo: %w", err)
 	}
 	return &Client{helm: hc, namespace: namespace, debug: debug}, nil
+}
+
+// chartRepoMu serializes AddOrUpdateChartRepo across concurrent NewClient
+// calls. Each client already gets an isolated RepositoryConfig + Cache, but
+// serializing the add is belt-and-suspenders against go-helm-client's global
+// helm settings and keeps parallel installs from hammering the repo-index
+// fetch at once. Cheap — a single fast index download.
+var chartRepoMu sync.Mutex
+
+// addChartRepo registers the public chart repo, retrying the index fetch so a
+// transient network blip doesn't hard-fail the install. The prior symptom was a
+// bare "no cached repo found" when a raced or failed fetch left no index behind.
+func addChartRepo(hc helmclient.Client) error {
+	chartRepoMu.Lock()
+	defer chartRepoMu.Unlock()
+	entry := repo.Entry{Name: repoName, URL: repoURL}
+	var err error
+	for attempt := 1; attempt <= 3; attempt++ {
+		if err = hc.AddOrUpdateChartRepo(entry); err == nil {
+			return nil
+		}
+		time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
+	}
+	return err
 }
 
 // EnsureNamespace creates the target namespace if absent and labels it
