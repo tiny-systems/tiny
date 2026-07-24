@@ -243,9 +243,6 @@ func (c *Client) moduleValues(m *catalog.Module, release, natsURL string, settin
 		// uses the WorkQueue stream (pod-death survival + per-edge retry).
 		"controllerManager.manager.extraEnv[1].name=TINY_NATS_TRANSPORT",
 		"controllerManager.manager.extraEnv[1].value=jetstream",
-		// Namespace-scoped secret reads so [[secret:name/key]] placeholders in
-		// node settings resolve against Kubernetes Secrets.
-		"secrets.enabled=true",
 	}
 	if natsURL != "" {
 		v = append(v, "natsURL="+natsURL)

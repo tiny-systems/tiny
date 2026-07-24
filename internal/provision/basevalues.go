@@ -18,7 +18,6 @@ func BaseValues(image, release, version, namespace, natsURL string) map[string]a
 
 	m := map[string]any{
 		"fullnameOverride": release,
-		"secrets":          map[string]any{"enabled": true},
 		"controllerManager": map[string]any{
 			"manager": map[string]any{
 				"image": map[string]any{"repository": repo, "tag": tag},
