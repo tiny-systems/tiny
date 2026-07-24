@@ -9,10 +9,15 @@ import (
 	"fmt"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
+
+// runtimeGroupVersion is the operator's CRD API group, served only once the
+// runtime is provisioned. A fresh cluster does not serve it.
+const runtimeGroupVersion = "operator.tinysystems.io/v1alpha1"
 
 // RestConfig builds a client config from the local kubeconfig. An empty
 // contextName means "use the kubeconfig's current-context" — the same
@@ -49,4 +54,26 @@ func Ping(cfg *rest.Config) error {
 		return err
 	}
 	return nil
+}
+
+// RuntimeInstalled reports whether the Tiny Systems runtime is provisioned on
+// the cluster — i.e. whether the operator's CRD group is served. A fresh
+// cluster has no CRDs, so the serve path can stop with "run `tiny up`" instead
+// of prompting for a project whose CRD doesn't exist yet and then just
+// listening. A false with nil error means "definitely not provisioned"; a
+// non-nil error means the check itself couldn't run (callers should fail open).
+func RuntimeInstalled(cfg *rest.Config) (bool, error) {
+	c := rest.CopyConfig(cfg)
+	c.Timeout = 8 * time.Second
+	cs, err := kubernetes.NewForConfig(c)
+	if err != nil {
+		return false, err
+	}
+	if _, err := cs.Discovery().ServerResourcesForGroupVersion(runtimeGroupVersion); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil // group not served — runtime not provisioned
+		}
+		return false, err
+	}
+	return true, nil
 }

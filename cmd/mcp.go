@@ -46,6 +46,19 @@ func runMCP(cmd *cobra.Command) error {
 		return clusterUnreachable(err)
 	}
 
+	// Preflight: the runtime must be provisioned (its operator CRDs served).
+	// On a fresh cluster there's nothing to serve — stop with "run `tiny up`"
+	// instead of prompting for a project whose CRD doesn't exist and then just
+	// listening on an endpoint that can do nothing. Fail open on a check error.
+	if installed, err := kube.RuntimeInstalled(cfg); err == nil && !installed {
+		fmt.Println()
+		fmt.Println("  " + banner())
+		fmt.Println("\n  " + styleWarn.Render("runtime not installed") +
+			styleSubtle.Render("  — the operator.tinysystems.io CRDs aren't on this cluster yet."))
+		fmt.Printf("  %s %s\n\n", styleSubtle.Render("provision it first:"), styleTitle.Render("tiny up"))
+		return nil
+	}
+
 	// A tiny session works inside one project: select or create it now so
 	// both the MCP endpoint and the editor are scoped to it.
 	activeProject := chooseProject(ctx, cfg)
