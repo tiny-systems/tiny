@@ -23,11 +23,23 @@ import (
 // `tiny up`" instead of treating a missing runtime as "zero projects".
 var ErrRuntimeNotInstalled = errors.New("tiny runtime not installed on cluster (no TinyProject CRD)")
 
-// isNoCRD reports whether err is the cluster not serving the CRD kind: either
-// the RESTMapper has no mapping (NoKindMatchError) or the API server 404s the
-// resource. Both mean "not provisioned", not a real list failure.
+// isNoCRD reports whether err is the cluster not serving the operator CRD group
+// — meaning "not provisioned", not a real list failure. Covers the RESTMapper
+// miss (NoKindMatchError), a 404, and the discovery aggregation error the SDK's
+// manager surfaces on a fresh cluster: "unable to retrieve the complete list of
+// server APIs: operator.tinysystems.io/v1alpha1: no matches ...". That last one
+// is *discovery.ErrGroupDiscoveryFailed wrapped, so a type assert misses it;
+// match on the unique group name in the message instead.
 func isNoCRD(err error) bool {
-	return apimeta.IsNoMatchError(err) || apierrors.IsNotFound(err)
+	if err == nil {
+		return false
+	}
+	if apimeta.IsNoMatchError(err) || apierrors.IsNotFound(err) {
+		return true
+	}
+	s := err.Error()
+	return strings.Contains(s, "operator.tinysystems.io") &&
+		(strings.Contains(s, "no matches") || strings.Contains(s, "could not find"))
 }
 
 // Ensure returns the project's resource name, creating the TinyProject CR when
