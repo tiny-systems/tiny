@@ -110,7 +110,7 @@ func runUp(cmd *cobra.Command, _ []string) error {
 	}
 
 	fmt.Println()
-	fmt.Println("  " + styleOK.Render("✓ runtime ready") + styleSubtle.Render("  · `tiny mcp` prints the client wiring; `tiny status` inspects it."))
+	fmt.Println("  " + styleOK.Render("✓ runtime ready") + styleSubtle.Render("  · run `tiny` to serve it (auto-connects Claude Code); `tiny status` inspects it."))
 	fmt.Println()
 	return nil
 }

@@ -30,7 +30,7 @@ func envPort(name string, def int) int {
 // endpoint against your cluster, so you point Claude Code / Cursor at it and
 // build agents by prompt. The browser editor — the other half of the dev
 // server — lands in a later release; until then bare `tiny` is the live MCP
-// endpoint (the same thing `tiny mcp` serves). Needs a provisioned runtime:
+// endpoint. Needs a provisioned runtime:
 // run `tiny up` first on a fresh cluster.
 func runDev(cmd *cobra.Command, _ []string) error {
 	if flagPrint {
