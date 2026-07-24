@@ -6,15 +6,29 @@ package project
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/tiny-systems/module/api/v1alpha1"
 	"github.com/tiny-systems/module/pkg/resource"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 )
+
+// ErrRuntimeNotInstalled means the TinyProject CRD isn't served by the cluster
+// — the runtime hasn't been provisioned. Distinct so callers can say "run
+// `tiny up`" instead of treating a missing runtime as "zero projects".
+var ErrRuntimeNotInstalled = errors.New("tiny runtime not installed on cluster (no TinyProject CRD)")
+
+// isNoCRD reports whether err is the cluster not serving the CRD kind: either
+// the RESTMapper has no mapping (NoKindMatchError) or the API server 404s the
+// resource. Both mean "not provisioned", not a real list failure.
+func isNoCRD(err error) bool {
+	return apimeta.IsNoMatchError(err) || apierrors.IsNotFound(err)
+}
 
 // Ensure returns the project's resource name, creating the TinyProject CR when
 // it doesn't exist yet — "select or create" in one call. Unlike the SDK's
@@ -53,6 +67,9 @@ func List(ctx context.Context, cfg *rest.Config, namespace string) ([]string, er
 	}
 	projects, err := mgr.GetProjectList(ctx)
 	if err != nil {
+		if isNoCRD(err) {
+			return nil, ErrRuntimeNotInstalled
+		}
 		return nil, err
 	}
 	names := make([]string, 0, len(projects))

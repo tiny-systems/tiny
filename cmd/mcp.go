@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -46,17 +47,20 @@ func runMCP(cmd *cobra.Command) error {
 		return clusterUnreachable(err)
 	}
 
-	// Preflight: the runtime must be provisioned (its operator CRDs served).
-	// On a fresh cluster there's nothing to serve — stop with "run `tiny up`"
-	// instead of prompting for a project whose CRD doesn't exist and then just
-	// listening on an endpoint that can do nothing. Fail open on a check error.
-	if installed, err := kube.RuntimeInstalled(cfg); err == nil && !installed {
-		fmt.Println()
-		fmt.Println("  " + banner())
-		fmt.Println("\n  " + styleWarn.Render("runtime not installed") +
-			styleSubtle.Render("  — the operator.tinysystems.io CRDs aren't on this cluster yet."))
-		fmt.Printf("  %s %s\n\n", styleSubtle.Render("provision it first:"), styleTitle.Render("tiny up"))
-		return nil
+	// Preflight: list projects. A missing TinyProject CRD means the runtime
+	// isn't provisioned — stop with "run `tiny up`" instead of prompting for a
+	// project that can't exist and then listening on a dead endpoint. Any OTHER
+	// list error is a real problem — surface it raw, don't serve over it.
+	if _, err := project.List(ctx, cfg, flagNamespace); err != nil {
+		if errors.Is(err, project.ErrRuntimeNotInstalled) {
+			fmt.Println()
+			fmt.Println("  " + banner())
+			fmt.Println("\n  " + styleWarn.Render("runtime not installed") +
+				styleSubtle.Render("  — no TinyProject CRD on this cluster."))
+			fmt.Printf("  %s %s\n\n", styleSubtle.Render("provision it first:"), styleTitle.Render("tiny up"))
+			return nil
+		}
+		return err
 	}
 
 	// A tiny session works inside one project: select or create it now so
