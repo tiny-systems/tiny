@@ -149,7 +149,18 @@ func runMCP(cmd *cobra.Command) error {
 	fmt.Println("\n  " + styleSubtle.Render("Ctrl-C to stop · tool calls stream below."))
 	fmt.Println()
 
-	return transport.Run(ctx)
+	err = transport.Run(ctx)
+	if err == nil || errors.Is(err, context.Canceled) {
+		// Ctrl-C / SIGTERM cancels ctx and Run returns cleanly. Sign off
+		// instead of leaving a bare ^C — nothing here needs teardown, but a
+		// silent exit reads like a crash.
+		fmt.Println("\n  " + styleOK.Render("✓ tiny stopped") +
+			styleSubtle.Render("  · nothing left running here, your cluster is untouched. Run ") +
+			styleTitle.Render("tiny") + styleSubtle.Render(" to serve again."))
+		fmt.Println()
+		return nil
+	}
+	return err
 }
 
 // buildKubeBundle assembles the execution context the MCP tools run against:
