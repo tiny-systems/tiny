@@ -9,6 +9,7 @@ package installer
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	sdktools "github.com/tiny-systems/module/pkg/tools"
 	"k8s.io/client-go/rest"
@@ -21,11 +22,33 @@ import (
 type ModuleInstaller struct {
 	cfg       *rest.Config
 	namespace string
+
+	mu sync.Mutex
+	hc *provision.Client // lazily created once, then reused across installs
 }
 
 // New returns an installer bound to one cluster + namespace.
 func New(cfg *rest.Config, namespace string) *ModuleInstaller {
 	return &ModuleInstaller{cfg: cfg, namespace: namespace}
+}
+
+// client lazily creates the helm client once and reuses it. A fresh client per
+// install re-runs AddOrUpdateChartRepo, and in practice the second+ install then
+// fails "repo tinysystems not found" (the helm repo config/cache doesn't carry
+// cleanly to a new client). `tiny up` works precisely because it uses one client
+// for all its installs — mirror that here.
+func (m *ModuleInstaller) client() (*provision.Client, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.hc != nil {
+		return m.hc, nil
+	}
+	hc, err := provision.NewClient(m.cfg, m.namespace, nil)
+	if err != nil {
+		return nil, err
+	}
+	m.hc = hc
+	return hc, nil
 }
 
 var _ sdktools.ModuleInstaller = (*ModuleInstaller)(nil)
@@ -63,7 +86,7 @@ func (m *ModuleInstaller) InstallModule(ctx context.Context, moduleName, version
 	if err := provision.EnsureNamespace(ctx, m.cfg, m.namespace); err != nil {
 		return &sdktools.InstallResult{Success: false, Error: fmt.Sprintf("prepare namespace: %v", err)}, nil
 	}
-	hc, err := provision.NewClient(m.cfg, m.namespace, nil)
+	hc, err := m.client()
 	if err != nil {
 		return &sdktools.InstallResult{Success: false, Error: fmt.Sprintf("helm client: %v", err)}, nil
 	}
