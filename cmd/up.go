@@ -101,7 +101,13 @@ func runUp(cmd *cobra.Command, _ []string) error {
 	}
 	for _, name := range coreModules {
 		nm := name
-		if err := step("module: "+nm, func() error {
+		// Show the version we're about to install so a no-op upgrade to a
+		// stale (e.g. CDN-cached) index version is visible, not silent.
+		label := "module: " + nm
+		if r, rerr := merged.Resolve(nm); rerr == nil && r.Version != nil {
+			label = "module: " + nm + " → " + r.Version.Version
+		}
+		if err := step(label, func() error {
 			_, e := repo.Install(ctx, merged, nm, flagNamespace, cluster, nil, provision.BaseValues, hc, hc)
 			return e
 		}); err != nil {

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -259,6 +260,15 @@ func (e *NodeEditor) ConfigureEdge(ctx context.Context, projectName, flowName, e
 		return nil, fmt.Errorf("compute flow prefix: %w", err)
 	}
 
+	// Advisory: config keys the target port does not declare persist here but
+	// the runtime silently drops them (a data loss the caller can't see). Flag
+	// them. Best-effort — empty unless the target published a concrete object
+	// schema, so a fresh/unreconciled node produces no false warning.
+	var fieldWarn string
+	if unknown := unknownTargetFields(e.lookupPortSchema(ctx, toNode, toPort), schema, config); len(unknown) > 0 {
+		fieldWarn = fmt.Sprintf("target port %q does not declare field(s) [%s] — they persist but the runtime drops them", toPort, strings.Join(unknown, ", "))
+	}
+
 	err = e.patchNode(ctx, toNode, func(target *v1alpha1.TinyNode) error {
 		upsertPortConfig(target, v1alpha1.TinyNodePortConfig{
 			From:          fromNode + ":" + fromPort,
@@ -277,7 +287,7 @@ func (e *NodeEditor) ConfigureEdge(ctx context.Context, projectName, flowName, e
 		// Unverifiable — persisted, but surface the caveat.
 		return &sdktools.ConfigureEdgeResult{
 			Valid: true,
-			Hint:  "warning: " + strictErr.Error(),
+			Hint:  joinHints("warning: "+strictErr.Error(), fieldWarn),
 		}, nil
 	}
 	if !targetReady {
@@ -285,10 +295,62 @@ func (e *NodeEditor) ConfigureEdge(ctx context.Context, projectName, flowName, e
 		// here is what let broken edges ship green.
 		return &sdktools.ConfigureEdgeResult{
 			Valid: true,
-			Hint:  "not verified: target node " + toNode + " has not published its port schema yet — re-check this edge once it reconciles",
+			Hint:  joinHints("not verified: target node "+toNode+" has not published its port schema yet — re-check this edge once it reconciles", fieldWarn),
 		}, nil
 	}
+	if fieldWarn != "" {
+		return &sdktools.ConfigureEdgeResult{Valid: true, Hint: fieldWarn}, nil
+	}
 	return &sdktools.ConfigureEdgeResult{Valid: true}, nil
+}
+
+// joinHints combines two advisory strings, dropping empties.
+func joinHints(a, b string) string {
+	switch {
+	case a == "":
+		return b
+	case b == "":
+		return a
+	default:
+		return a + "; " + b
+	}
+}
+
+// unknownTargetFields returns the top-level config keys that the target port
+// neither declares in its schema nor has an explicit edge-schema override for.
+// Such keys persist on the edge but the runtime drops them at delivery — a
+// silent data loss. Conservative by design: returns nothing unless the target
+// published a concrete object schema with a non-empty `properties` set and does
+// not allow additionalProperties, so it never false-warns on a fresh node or an
+// open/`any` port.
+func unknownTargetFields(targetSchema []byte, edgeSchema, config map[string]interface{}) []string {
+	if len(targetSchema) == 0 || len(config) == 0 {
+		return nil
+	}
+	var s map[string]interface{}
+	if err := json.Unmarshal(targetSchema, &s); err != nil {
+		return nil
+	}
+	root := resolveSchemaRef(s, s)
+	props, ok := root["properties"].(map[string]interface{})
+	if !ok || len(props) == 0 {
+		return nil
+	}
+	if ap, ok := root["additionalProperties"].(bool); ok && ap {
+		return nil
+	}
+	var unknown []string
+	for k := range config {
+		if _, declared := props[k]; declared {
+			continue
+		}
+		if _, overridden := edgeSchema[k]; overridden {
+			continue
+		}
+		unknown = append(unknown, k)
+	}
+	sort.Strings(unknown)
+	return unknown
 }
 
 // lookupPortSchema fetches the named port's schema bytes from the
