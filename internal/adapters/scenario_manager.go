@@ -2,6 +2,7 @@ package adapters
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/tiny-systems/module/api/v1alpha1"
@@ -17,17 +18,19 @@ import (
 // ScenarioManager implements sdktools.ScenarioManager by CRUD'ing
 // TinyScenario CRDs in the target namespace.
 //
-// Scenarios are scoped per project via the project-name label. The
-// v0.1.0 implementation does NOT support CreateScenarioFromTrace —
-// capturing trace data into a scenario requires coordination with the
-// otel-collector that is beyond the v0.1.0 scope. Use CreateEmptyScenario
-// plus UpdateScenarioPort instead.
+// Scenarios are scoped per project via the project-name label.
+// CreateScenarioFromTrace pins a real execution: it reads the trace's
+// output-port spans through the TraceReader, redacts credential-shaped
+// values (sample data lands in etcd and in exports — an agent flow's
+// context carries the apiKey on every hop), and stores one port entry
+// per span payload.
 type ScenarioManager struct {
-	kube *kube.Client
+	kube   *kube.Client
+	traces sdktools.TraceReader
 }
 
-func NewScenarioManager(k *kube.Client) *ScenarioManager {
-	return &ScenarioManager{kube: k}
+func NewScenarioManager(k *kube.Client, traces sdktools.TraceReader) *ScenarioManager {
+	return &ScenarioManager{kube: k, traces: traces}
 }
 
 func (s *ScenarioManager) CreateEmptyScenario(ctx context.Context, projectName, name string) (*sdktools.ScenarioItem, error) {
@@ -61,10 +64,39 @@ func (s *ScenarioManager) CreateEmptyScenario(ctx context.Context, projectName, 
 	}, nil
 }
 
-// CreateScenarioFromTrace is not supported in v0.1.0.
+// CreateScenarioFromTrace pins a trace as a scenario: one port entry per
+// output-port span payload, secrets redacted before anything is persisted.
 func (s *ScenarioManager) CreateScenarioFromTrace(ctx context.Context, projectName, name, traceID string) (*sdktools.ScenarioItem, error) {
-	return nil, fmt.Errorf("creating scenarios from traces is not supported by the local MCP server in v0.1.0; " +
-		"use create_scenario without trace_id, then update_scenario to populate port data")
+	if s.traces == nil {
+		return nil, fmt.Errorf("trace reader unavailable — create the scenario without trace_id, then update_scenario to populate port data")
+	}
+	if traceID == "" {
+		return nil, fmt.Errorf("trace id required")
+	}
+	spans, err := s.traces.ReadTraceDetail(ctx, projectName, traceID)
+	if err != nil {
+		return nil, fmt.Errorf("read trace %s: %w", traceID, err)
+	}
+	ports := sdktools.ExtractScenarioPorts(spans)
+	if len(ports) == 0 {
+		return nil, fmt.Errorf("trace %s has no output-port payloads to pin — run the flow with data first", traceID)
+	}
+
+	item, err := s.CreateEmptyScenario(ctx, projectName, name)
+	if err != nil {
+		return nil, err
+	}
+	for port, payload := range ports {
+		data, err := json.Marshal(sdktools.RedactSecrets(payload))
+		if err != nil {
+			return nil, fmt.Errorf("marshal sample for %s: %w", port, err)
+		}
+		if err := s.UpdateScenarioPort(ctx, projectName, item.ResourceName, port, data); err != nil {
+			return nil, fmt.Errorf("write sample for %s: %w", port, err)
+		}
+	}
+	item.PortCount = len(ports)
+	return item, nil
 }
 
 func (s *ScenarioManager) DeleteScenario(ctx context.Context, projectName, resourceName string) error {

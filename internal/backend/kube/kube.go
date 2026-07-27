@@ -116,7 +116,6 @@ func New(opts Options) (backend.Bundle, backend.Cleanup, error) {
 
 	// Warm the happy path at boot; a failure here is no longer terminal.
 	signalSender := adapters.NewSignalSender(kubeClient, connectNATS(), connectNATS)
-	scenarioManager := adapters.NewScenarioManager(kubeClient)
 	portInspector := adapters.NewPortInspector(kubeClient)
 	dashboardReader := adapters.NewDashboardReader(kubeClient)
 	dashboardWriter := adapters.NewDashboardWriter(kubeClient)
@@ -129,6 +128,9 @@ func New(opts Options) (backend.Bundle, backend.Cleanup, error) {
 	if err != nil {
 		return backend.Bundle{}, nil, fmt.Errorf("init trace reader: %w", err)
 	}
+	// Scenario manager takes the trace reader so scenarios(create, trace_id)
+	// can pin a real execution's port payloads (with secret redaction).
+	scenarioManager := adapters.NewScenarioManager(kubeClient, traceReader)
 
 	bundle := backend.Bundle{
 		ProjectReader:          projectReader,
