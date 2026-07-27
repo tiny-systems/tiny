@@ -214,7 +214,8 @@ func (e *NodeEditor) ConfigureEdge(ctx context.Context, projectName, flowName, e
 		}, nil
 	}
 
-	if sample := e.scenario.findPortSample(ctx, projectName, fromNode, fromPort); sample != nil {
+	sample := e.scenario.findPortSample(ctx, projectName, fromNode, fromPort)
+	if sample != nil {
 		scenarioResult, _ := validateAgainstSample(config, sample)
 		if len(scenarioResult.Unresolved) > 0 {
 			hint := formatIssues(scenarioResult.Unresolved, scenarioResult.AvailableFields)
@@ -246,7 +247,13 @@ func (e *NodeEditor) ConfigureEdge(ctx context.Context, projectName, flowName, e
 	// null leaf at a configurable-any upstream) are persisted with a
 	// warning hint — the runtime will likely satisfy the schema with
 	// real data, and bailing leaves the edge unconfigured (worse).
-	strictErr := e.strictValidateEdge(ctx, flowName, fromNode, fromPort, toNode, toPort, configBytes, schemaBytes)
+	//
+	// The active scenario's sample (if any) rides in as the source
+	// port's runtime data: without it the simulator chain-walks the bare
+	// schema, hits null at every shapeless leaf, and flags an edge
+	// unverifiable even though a sample (authored, pinned, or
+	// auto-scaffolded by build_flow) exists precisely to verify it.
+	strictErr := e.strictValidateEdge(ctx, flowName, fromNode, fromPort, toNode, toPort, configBytes, schemaBytes, sample)
 	if strictErr != nil && !utils.IsUnverifiable(strictErr) {
 		return &sdktools.ConfigureEdgeResult{
 			Valid: false,
@@ -426,7 +433,7 @@ func (e *NodeEditor) ConfigureNodeSettings(ctx context.Context, projectName, flo
 // flow's nodes can't be listed or the target schema isn't published
 // yet, returns nil (lenient — we don't fail edges purely because
 // kube reads or reconciliation are racing).
-func (e *NodeEditor) strictValidateEdge(ctx context.Context, flowName, fromNode, fromPort, toNode, toPort string, configBytes, edgeSchemaBytes []byte) error {
+func (e *NodeEditor) strictValidateEdge(ctx context.Context, flowName, fromNode, fromPort, toNode, toPort string, configBytes, edgeSchemaBytes, sourceSample []byte) error {
 	list := &v1alpha1.TinyNodeList{}
 	if err := e.kube.Client.List(ctx, list,
 		client.InNamespace(e.kube.Namespace),
@@ -442,14 +449,23 @@ func (e *NodeEditor) strictValidateEdge(ctx context.Context, flowName, fromNode,
 	sourceFull := fromNode + ":" + fromPort
 	targetFull := toNode + ":" + toPort
 
+	// Scenario sample data plays the role of runtime data: the simulator
+	// resolves source-port expressions against it instead of null-leafed
+	// mock data, which is what turns "cannot be verified without a
+	// scenario" into an actual verification once a scenario exists.
+	var runtimeData map[string][]byte
+	if len(sourceSample) > 0 {
+		runtimeData = map[string][]byte{sourceFull: sourceSample}
+	}
+
 	// If the caller supplied an explicit edge schema, validate the
 	// resolved configuration against it (overrides the target port
 	// schema). Otherwise validate against the target port's native
 	// schema.
 	if len(edgeSchemaBytes) > 0 {
-		return utils.ValidateEdgeWithSchemaAndRuntimeData(ctx, nodesMap, sourceFull, configBytes, edgeSchemaBytes, nil)
+		return utils.ValidateEdgeWithSchemaAndRuntimeData(ctx, nodesMap, sourceFull, configBytes, edgeSchemaBytes, runtimeData)
 	}
-	return utils.ValidateEdgeWithRuntimeData(ctx, nodesMap, sourceFull, targetFull, configBytes, nil)
+	return utils.ValidateEdgeWithRuntimeData(ctx, nodesMap, sourceFull, targetFull, configBytes, runtimeData)
 }
 
 // waitForObservedPorts polls the node's Status until observedGeneration
