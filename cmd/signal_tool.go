@@ -62,10 +62,32 @@ func (sendSignalTool) Execute(ctx context.Context, execCtx sdktools.ExecutionCon
 	if err != nil {
 		return sdktools.ToolResult{Success: false, Error: fmt.Sprintf("marshal data: %v", err)}
 	}
+
+	// Readiness gate for start fires ({send:true}/{start:true}): a signal
+	// fired into a half-reconciled flow reaches the trigger but downstream
+	// nodes aren't routing yet — the message vanishes and the trace shows a
+	// lone trigger span that reads as a clean run. Wait for the target flow's
+	// node statuses to settle (best-effort, bounded), then fire regardless,
+	// surfacing any nodes that are still pending or hard-failed so the model
+	// knows what a thin trace means. Same gate the platform playground uses.
+	out := map[string]interface{}{"sent": true, "node_id": nodeID, "port": port}
+	if sdktools.IsStartFire(data) {
+		els, waited := sdktools.WaitFlowReady(ctx, execCtx, nodeID)
+		if waited > 0 {
+			out["readiness_waited_ms"] = waited.Milliseconds()
+		}
+		var warnings []string
+		warnings = append(warnings, sdktools.NodeStatusFaults(els)...)
+		if pending := sdktools.NotReadyNodes(els); len(pending) > 0 {
+			warnings = append(warnings, fmt.Sprintf("nodes still reconciling (a signal may not reach them yet): %v — if the trace shows only the trigger span, re-fire after they settle", pending))
+		}
+		if len(warnings) > 0 {
+			out["warnings"] = warnings
+		}
+	}
+
 	if err := execCtx.SignalSender.SendSignal(ctx, execCtx.ProjectName, nodeID, port, payload, ""); err != nil {
 		return sdktools.ToolResult{Success: false, Error: err.Error()}
 	}
-	return sdktools.ToolResult{Success: true, Output: map[string]interface{}{
-		"sent": true, "node_id": nodeID, "port": port,
-	}}
+	return sdktools.ToolResult{Success: true, Output: out}
 }
