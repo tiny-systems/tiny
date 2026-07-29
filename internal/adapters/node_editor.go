@@ -203,6 +203,19 @@ func (e *NodeEditor) ConfigureEdge(ctx context.Context, projectName, flowName, e
 	e.waitForPorts(ctx, fromNode)
 	targetReady := e.waitForPorts(ctx, toNode)
 
+	// A port that does not exist is a wiring mistake, not a mapping mistake, and
+	// it must block. Left to the passes below it surfaces as a downstream type
+	// error — "/inputData/logs: expected string, but got null", because a
+	// nonexistent port simulates to nothing — which blames the expression and
+	// never mentions the real cause, so the edge stays broken and amber forever.
+	// Name the port and list the alternatives instead.
+	if missing := e.describeMissingPort(ctx, fromNode, fromPort, true); missing != "" {
+		return &sdktools.ConfigureEdgeResult{Valid: false, Error: missing}, nil
+	}
+	if missing := e.describeMissingPort(ctx, toNode, toPort, false); missing != "" {
+		return &sdktools.ConfigureEdgeResult{Valid: false, Error: missing}, nil
+	}
+
 	sourceSchemaBytes := e.lookupPortSchema(ctx, fromNode, fromPort)
 	walkResult, _ := validateEdgeExpressions(config, sourceSchemaBytes)
 	if len(walkResult.Unresolved) > 0 {
@@ -363,6 +376,60 @@ func unknownTargetFields(targetSchema []byte, edgeSchema, config map[string]inte
 // lookupPortSchema fetches the named port's schema bytes from the
 // node's Status.Ports. Returns nil if the node or port is not found or
 // if the schema has not been populated yet by the controller.
+// describeMissingPort returns an error message when portName is not among the
+// node's published ports, and "" when the port exists — or when the node has
+// published nothing yet, since a node that has not reconciled cannot prove a
+// port absent and blocking there would break building a flow in one call.
+//
+// wantSource distinguishes the two ends of an edge: data leaves a source port
+// and arrives at an input port, so only the matching direction is offered as an
+// alternative. A name that exists in the wrong direction is called out, because
+// it is the likeliest mistake after a wrong name.
+func (e *NodeEditor) describeMissingPort(ctx context.Context, nodeID, portName string, wantSource bool) string {
+	node := &v1alpha1.TinyNode{}
+	if err := e.kube.Client.Get(ctx, types.NamespacedName{
+		Namespace: e.kube.Namespace,
+		Name:      nodeID,
+	}, node); err != nil {
+		return ""
+	}
+	if len(node.Status.Ports) == 0 {
+		return "" // not reconciled yet — nothing to check against
+	}
+
+	var candidates []string
+	for _, p := range node.Status.Ports {
+		if p.Name == portName {
+			if p.Source == wantSource {
+				return ""
+			}
+			direction := "an input port"
+			if p.Source {
+				direction = "a source port"
+			}
+			want := "a source port"
+			if !wantSource {
+				want = "an input port"
+			}
+			return fmt.Sprintf("port %q on node %s is %s, but this edge needs %s", portName, nodeID, direction, want)
+		}
+		if p.Source == wantSource && !strings.HasPrefix(p.Name, "_") {
+			candidates = append(candidates, p.Name)
+		}
+	}
+
+	sort.Strings(candidates)
+	side := "target"
+	if wantSource {
+		side = "source"
+	}
+	if len(candidates) == 0 {
+		return fmt.Sprintf("%s port %q does not exist on node %s", side, portName, nodeID)
+	}
+	return fmt.Sprintf("%s port %q does not exist on node %s — available: %s",
+		side, portName, nodeID, strings.Join(candidates, ", "))
+}
+
 func (e *NodeEditor) lookupPortSchema(ctx context.Context, nodeID, portName string) []byte {
 	node := &v1alpha1.TinyNode{}
 	if err := e.kube.Client.Get(ctx, types.NamespacedName{
