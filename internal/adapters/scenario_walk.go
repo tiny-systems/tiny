@@ -76,7 +76,13 @@ func (s *scenarioLookup) findPortSample(ctx context.Context, projectName, nodeID
 // This is a looser check than schema walking: it only knows about what
 // happens to be in the sample, not what could legitimately be there.
 // It's a fallback, not a replacement for schema-based validation.
-func validateAgainstSample(config map[string]interface{}, sampleBytes []byte) (schemaWalkResult, error) {
+//
+// sourceSchema, when supplied, is the contract that the sample is merely
+// evidence for. A key missing from the evidence but permitted by the contract —
+// as with an open map, whose keys are decided at runtime and can never all
+// appear in a recording — is not a violation. Without this the sample alone
+// rejects every legitimate dynamic key.
+func validateAgainstSample(config map[string]interface{}, sampleBytes []byte, sourceSchema []byte) (schemaWalkResult, error) {
 	var result schemaWalkResult
 	if len(sampleBytes) == 0 {
 		return result, nil
@@ -85,6 +91,14 @@ func validateAgainstSample(config map[string]interface{}, sampleBytes []byte) (s
 	var sample interface{}
 	if err := json.Unmarshal(sampleBytes, &sample); err != nil {
 		return result, fmt.Errorf("parse scenario sample: %w", err)
+	}
+
+	// Parse the contract once, so each sample miss can be re-checked against it.
+	var schemaDoc, schemaRoot map[string]interface{}
+	if len(sourceSchema) > 0 {
+		if err := json.Unmarshal(sourceSchema, &schemaDoc); err == nil {
+			schemaRoot = resolveSchemaRef(schemaDoc, schemaDoc)
+		}
 	}
 
 	if m, ok := sample.(map[string]interface{}); ok {
@@ -102,6 +116,13 @@ func validateAgainstSample(config map[string]interface{}, sampleBytes []byte) (s
 
 	for _, path := range sorted {
 		if issue, ok := walkSamplePath(path, sample); !ok {
+			// The recording lacks this key. Only a problem if the schema
+			// cannot justify it either.
+			if schemaRoot != nil {
+				if _, permitted := walkPath(path, schemaDoc, schemaRoot); permitted {
+					continue
+				}
+			}
 			result.Unresolved = append(result.Unresolved, issue)
 		}
 	}

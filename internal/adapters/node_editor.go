@@ -216,7 +216,7 @@ func (e *NodeEditor) ConfigureEdge(ctx context.Context, projectName, flowName, e
 
 	sample := e.scenario.findPortSample(ctx, projectName, fromNode, fromPort)
 	if sample != nil {
-		scenarioResult, _ := validateAgainstSample(config, sample)
+		scenarioResult, _ := validateAgainstSample(config, sample, sourceSchemaBytes)
 		if len(scenarioResult.Unresolved) > 0 {
 			hint := formatIssues(scenarioResult.Unresolved, scenarioResult.AvailableFields)
 			return &sdktools.ConfigureEdgeResult{

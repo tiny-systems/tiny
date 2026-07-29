@@ -200,6 +200,16 @@ func walkPath(path string, rootDoc map[string]interface{}, rootType map[string]i
 		props := propertiesOf(current)
 		next, ok := props[seg]
 		if !ok {
+			// An open map admits keys we cannot know statically. Its listed
+			// properties are whatever the port happened to advertise as an
+			// example — a hint, not an exhaustive contract — so an unlisted
+			// key is legitimate rather than a mistake. This is what a Go
+			// map[string]interface{} field produces, and it is the only shape
+			// available to a component whose payload keys are decided at
+			// runtime (a form's field names, a document's columns).
+			if allowsAdditionalProperties(current) {
+				return pathIssue{}, true
+			}
 			available := sortedKeys(props)
 			return pathIssue{
 				Path:      path,
@@ -241,6 +251,30 @@ func isWildcardType(node map[string]interface{}) bool {
 		return true
 	}
 	return false
+}
+
+// allowsAdditionalProperties reports whether a schema node admits keys beyond
+// those it lists. JSON Schema spells a closed object as
+// `additionalProperties: false`; anything else (a schema, an empty schema, or
+// the key being absent from a node that already declares properties) leaves it
+// open. Only an explicit false closes the door.
+//
+// Distinct from isWildcardType, which asks whether a node is entirely unknown.
+// A node can be partly known — listing example properties — and still accept
+// more, which is exactly the case this exists for.
+func allowsAdditionalProperties(node map[string]interface{}) bool {
+	if node == nil {
+		return false
+	}
+	v, ok := node["additionalProperties"]
+	if !ok {
+		return false
+	}
+	if b, isBool := v.(bool); isBool {
+		return b
+	}
+	// A schema (commonly `{}`) constrains the values, not the key set.
+	return true
 }
 
 // propertiesOf returns the "properties" map of a schema node, or nil.
