@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -978,4 +979,29 @@ func (e *NodeEditor) waitForPorts(ctx context.Context, nodeID string) bool {
 			return false
 		}
 	}
+}
+
+// RepositionNode moves a node on the canvas.
+//
+// The position lives in annotations rather than the spec because it describes
+// the drawing, not the flow: changing it must not make the node reconcile or
+// restart, which a spec change would.
+func (e *NodeEditor) RepositionNode(ctx context.Context, projectName, flowName, nodeID string, x, y int) error {
+	node := &v1alpha1.TinyNode{}
+	key := types.NamespacedName{Namespace: e.kube.Namespace, Name: nodeID}
+	if err := e.kube.Client.Get(ctx, key, node); err != nil {
+		return fmt.Errorf("get node %s: %w", nodeID, err)
+	}
+
+	patch := client.MergeFrom(node.DeepCopy())
+	if node.Annotations == nil {
+		node.Annotations = map[string]string{}
+	}
+	node.Annotations[v1alpha1.ComponentPosXAnnotation] = strconv.Itoa(x)
+	node.Annotations[v1alpha1.ComponentPosYAnnotation] = strconv.Itoa(y)
+
+	if err := e.kube.Client.Patch(ctx, node, patch); err != nil {
+		return fmt.Errorf("patch node position: %w", err)
+	}
+	return nil
 }

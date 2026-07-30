@@ -142,6 +142,7 @@ func New(opts Options) (backend.Bundle, backend.Cleanup, error) {
 		EdgeAdder:              nodeEditor,
 		EdgeConfigurer:         nodeEditor,
 		NodeSettingsConfigurer: nodeEditor,
+		NodeRepositioner:       nodeEditor,
 		FlowCreator:            flowLifecycle,
 		FlowDeleter:            flowLifecycle,
 		SignalSender:           signalSender,
