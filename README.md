@@ -52,6 +52,16 @@ One process serves both surfaces: the **MCP endpoint** your editor drives and th
 - 📦 **Real workloads.** Every capability is a Helm-installable module reconciled by an operator, not a function in a hosted sandbox. `kubectl get pods` shows you your agent.
 - ⚡ **Empty to running.** Start from a bare `kind`, `k3s`, or cloud cluster. `tiny up` provisions the broker, the operator, and core modules. Anything else installs on demand — including automatically when a prompt-built agent reaches for a capability it doesn't have yet.
 - ✅ **Built for agents that build.** Flows validate green on the first `build_flow` call (schemas are derived, sample data auto-scaffolds), signals wait for the flow to wake before firing, and every warning reaches the model — so your editor's agent ships working automations instead of chasing ghosts.
+- 🛑 **Safe to point at production.** An agent that can restart a Deployment is only useful if it can't do it behind your back. Put an `ask` node in front of a destructive step and the flow presents you a form — the proposed action, the evidence, Approve/Deny — and waits. Bound the loop with `budget_guard` so a model that won't converge can't bill forever.
+
+## 🤖 What an agent can actually do here
+
+Not "call an API and hope" — these run as workloads on your cluster:
+
+- 👀 **Watch and diagnose.** React to real pod events, read the logs, query metrics and logs from any Prometheus- or Loki-compatible backend (in-cluster or Grafana Cloud/AMP/Mimir — it's a URL), and inspect its own execution traces to debug the automations it built.
+- ✋ **Ask before it acts.** `ask` renders a form from a schema the flow supplies and blocks the branch until a human answers. Approval is just a form with two buttons.
+- 🧪 **Run code it wrote.** `sandbox_run` executes a script in a throwaway Job — non-root, read-only filesystem, no service-account token, dropped capabilities, CPU/memory limits, killed on a deadline. Real Python or Node, next to your data, in a box.
+- 🔌 **Use any MCP server's tools.** `mcp_tools` discovers them, `mcp_call` invokes them — so an agent reaches GitHub, Sentry, or your own MCP server without a connector being written for each.
 
 ## 📦 Install
 
@@ -80,6 +90,12 @@ claude mcp add -s user --transport http tiny http://localhost:7776/mcp
 
 Then, in your editor: *"an HTTP endpoint that summarizes the JSON I POST and alerts Slack if the sentiment is negative"* — and watch it build on the canvas. 🎨
 
+Or point one at the cluster it's running on:
+
+> *"watch pods in `prod`; when one crashloops, pull its logs, work out what's wrong, and **ask me before restarting anything**"*
+
+which builds `pod_watch → pod_logs_get → llm → ask → restart`. When a pod actually breaks, the form arrives with the diagnosis and waits for you. In our own test the model read the logs and argued *against* its proposed restart — a port conflict a restart wouldn't have fixed. That's the point of the gate. 🛑
+
 ## 🧰 Commands
 
 | command | what it does |
@@ -98,7 +114,7 @@ Every mutating command shows the exact context and namespace it will touch and a
 ## 🧩 How it fits together
 
 - ⚙️ **The operator** reconciles agents into workloads and installs capability modules as Helm releases.
-- 🧱 **Modules** are the capabilities: LLM, HTTP, Kubernetes, databases, Slack, and more — each a small Go service the agent composes.
+- 🧱 **Modules** are the capabilities: LLM and MCP, HTTP and metrics/logs, Kubernetes (including sandboxed execution), databases, Slack, and more — each a small Go service the agent composes.
 - 🔌 **MCP** is the prompt surface. `tiny` serves it locally against your kubeconfig; the hosted platform serves the same tools at `mcp.tinysystems.io` for teams.
 - 👀 **The editor** is the trust layer. You watch and inspect what you didn't hand-write.
 - 📸 **Scenarios** are the memory. Pin a real run as sample data (secrets redacted) and every edge validates against real shapes.
@@ -110,6 +126,7 @@ The runtime and SDK are open source. The [hosted platform](https://tinysystems.i
 - ✅ **v0.1** — `up` / `install` / `status` against your cluster, with the target-confirmation guard. Empty cluster → working runtime from your terminal.
 - ✅ **v0.2** — `tiny` (dev): the live MCP endpoint and browser editor in one process, streaming agent activity into the terminal as your editor drives. Prompt-built agents on your own cluster, no hosted account.
 - ✅ **v0.3** — decentralized module repos (`tiny repo` — Helm-style indexes you can host anywhere), scenario pinning with secret redaction, first-build-green validation.
+- ✅ **v0.4** — agents that act on infrastructure safely: human-in-the-loop approval (`ask`), sandboxed code execution, MCP client so any MCP server's tools are reachable, observability (own traces, PromQL/LogQL), and loop budgets. Plus `module tools rbac-check`, which compares a module's declared RBAC against the Kubernetes calls its code actually makes.
 - 🔭 **next** — richer canvas, more modules, smoother day-2 (upgrades, multi-cluster).
 
 Follow along or open an issue — this is being built in the open. 🛠
