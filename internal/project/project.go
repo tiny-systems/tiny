@@ -57,10 +57,32 @@ func Ensure(ctx context.Context, cfg *rest.Config, namespace, name string) (stri
 	if err != nil {
 		return "", err
 	}
-	if _, err := mgr.GetProject(ctx, rn, namespace); err == nil {
+	if existing, err := mgr.GetProject(ctx, rn, namespace); err == nil {
+		// Backfill the display-name annotation on projects created before it was
+		// set, so they too can be adopted if this cluster is connected to the
+		// hosted platform. Best effort: a failure here must not stop the caller
+		// from using a project that already exists.
+		if existing.GetAnnotations()[v1alpha1.ProjectNameAnnotation] == "" {
+			ann := existing.GetAnnotations()
+			if ann == nil {
+				ann = map[string]string{}
+			}
+			ann[v1alpha1.ProjectNameAnnotation] = name
+			existing.SetAnnotations(ann)
+			_ = mgr.GetK8sClient().Update(ctx, existing)
+		}
 		return rn, nil
 	}
-	p := &v1alpha1.TinyProject{ObjectMeta: metav1.ObjectMeta{Name: rn, Namespace: namespace}}
+	// Carry the name the user typed as the display-name annotation. Nothing here
+	// reads it — the resource name is the handle — but it is what the hosted
+	// platform imports a cluster project by, and Project.Name is NOT NULL there,
+	// so a project created without it cannot be adopted when someone later
+	// connects this cluster to the platform.
+	p := &v1alpha1.TinyProject{ObjectMeta: metav1.ObjectMeta{
+		Name:        rn,
+		Namespace:   namespace,
+		Annotations: map[string]string{v1alpha1.ProjectNameAnnotation: name},
+	}}
 	if err := mgr.GetK8sClient().Create(ctx, p); err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			return rn, nil
