@@ -64,6 +64,22 @@ type Version struct {
 	ClusterFills []string `json:"clusterFills,omitempty"` // holes tiny fills
 	Bundles      []Bundle `json:"bundles,omitempty"`
 	Cosign       bool     `json:"cosign,omitempty"` // image + entry are signed
+	// Components this version offers, so a module can be chosen before it is
+	// installed. Name and description only — deliberately no port schemas: those
+	// are large, change with every version, and are read live from a running
+	// node, while this has to stay small enough to serve as a static file
+	// fetched on a loop.
+	Components []Component `json:"components,omitempty"`
+}
+
+// Component is the discovery-level description of one component: enough to
+// decide whether a module is the one you want, not enough to wire it up. A
+// running module stays the authority on its own ports.
+type Component struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Info        string   `json:"info,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
 }
 
 // Bundle is an optional third-party Helm release a module offers (§3.5).

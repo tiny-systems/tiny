@@ -17,6 +17,11 @@ import (
 // aggregates (alongside — eventually — OCI image annotations).
 const ManifestFile = "module.yaml"
 
+// ComponentsFile is the generated sibling listing a module's components for
+// discovery. Separate from module.yaml because it is machine-written per
+// release, while module.yaml is edited by hand.
+const ComponentsFile = "components.yaml"
+
 // Manifest is one module repo's self-description (its `module.yaml`): the module
 // name plus everything an index entry carries. The embedded Module fields
 // (source, description, category, versions) are inlined into the file.
@@ -82,6 +87,25 @@ func GenerateFromDir(dir string) (*Index, error) {
 			for _, v := range m.Versions {
 				if v.Values == "" {
 					v.Values = string(vals)
+				}
+			}
+		}
+		// Same for a sibling components.yaml. This one is generated rather than
+		// hand-written — `tools components-info --json` emits it from the built
+		// module — so it wants its own file that a release overwrites wholesale,
+		// not an inline block in a manifest people edit by hand.
+		//
+		// Carrying it at all is what lets a module be found before it is
+		// installed: a running module is the authority on its own components, but
+		// nothing is running until someone has already chosen it.
+		if comps, err := os.ReadFile(filepath.Join(filepath.Dir(path), ComponentsFile)); err == nil {
+			var parsed []Component
+			if err := yaml.Unmarshal(comps, &parsed); err != nil {
+				return fmt.Errorf("%s: parse %s: %w", path, ComponentsFile, err)
+			}
+			for _, v := range m.Versions {
+				if len(v.Components) == 0 {
+					v.Components = parsed
 				}
 			}
 		}
