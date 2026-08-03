@@ -75,11 +75,11 @@ func newPublishCmd() *cobra.Command {
 		Use:   "publish",
 		Short: "Publish the current project as a solution on tinysystems.io",
 		Long: `Publish packages the project's flows, nodes, dashboard pages and scenarios
-into a solution export and uploads it to the platform, where it appears in
-your workspace (unlisted until you make it public).
+into a solution export and uploads it to the platform, where it goes live in
+the public solutions catalog (unlist it from your dashboard anytime).
 
-Auth: a developer key, via --key or the TINY_API_KEY environment variable.
-Mint one in the dashboard under Setup → Developer keys.`,
+Auth: 'tiny login' once, or a developer key via --key / the TINY_API_KEY
+environment variable (mint one in the dashboard under Setup → Developer keys).`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 
@@ -158,7 +158,7 @@ Mint one in the dashboard under Setup → Developer keys.`,
 			_ = json.Unmarshal(respBody, &out)
 			fmt.Printf("\n  %s %s\n", styleTitle.Render("published:"), out.Title)
 			if out.URL != "" {
-				fmt.Printf("  %s\n\n  It starts unlisted — make it public from your dashboard.\n", out.URL)
+				fmt.Printf("  %s\n\n  It is live in the public catalog — unlist it from your dashboard anytime.\n", out.URL)
 			}
 			return nil
 		},
