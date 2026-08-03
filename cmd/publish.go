@@ -81,12 +81,22 @@ Mint one in the dashboard under Setup → Developer keys.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 
+			// Auth resolution: explicit key flag, then env, then the
+			// OIDC session from `tiny login`.
 			key := cmd.Flag("key").Value.String()
 			if key == "" {
 				key = os.Getenv("TINY_API_KEY")
 			}
+			workspace := cmd.Flag("workspace").Value.String()
 			if key == "" {
-				return fmt.Errorf("no developer key: pass --key or set TINY_API_KEY")
+				creds, err := freshAccessToken(cmd.Context())
+				if err != nil {
+					return fmt.Errorf("no credentials: run `tiny login`, or pass --key / set TINY_API_KEY (%v)", err)
+				}
+				key = creds.AccessToken
+				if workspace == "" {
+					workspace = creds.Workspace
+				}
 			}
 			if flagProject == "" {
 				return fmt.Errorf("no project: pass --project/-p")
@@ -119,6 +129,9 @@ Mint one in the dashboard under Setup → Developer keys.`,
 			}
 			req.Header.Set("Authorization", "Bearer "+key)
 			req.Header.Set("Content-Type", "application/json")
+			if workspace != "" {
+				req.Header.Set("X-Workspace", workspace)
+			}
 
 			httpClient := &http.Client{Timeout: 60 * time.Second}
 			resp, err := httpClient.Do(req)
@@ -145,7 +158,8 @@ Mint one in the dashboard under Setup → Developer keys.`,
 			return nil
 		},
 	}
-	c.Flags().String("key", "", "developer key (or TINY_API_KEY)")
+	c.Flags().String("key", "", "developer key (or TINY_API_KEY); omit to use `tiny login` session")
+	c.Flags().String("workspace", "", "workspace slug (only needed with several workspaces)")
 	c.Flags().StringVar(&apiBase, "api", "https://api.tinysystems.io", "platform API base URL")
 	c.Flags().StringVar(&title, "title", "", "solution title (default: project name)")
 	c.Flags().StringVar(&description, "description", "", "solution description (default: project description)")
