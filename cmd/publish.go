@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"errors"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 	sdkutils "github.com/tiny-systems/module/pkg/utils"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/tiny-systems/tiny/internal/authstore"
 	"github.com/tiny-systems/tiny/internal/kube"
 )
 
@@ -90,8 +92,11 @@ Mint one in the dashboard under Setup → Developer keys.`,
 			workspace := cmd.Flag("workspace").Value.String()
 			if key == "" {
 				creds, err := freshAccessToken(cmd.Context())
+				if errors.Is(err, authstore.ErrNotLoggedIn) {
+					return fmt.Errorf("not signed in — run `tiny login` (robots: --key or TINY_API_KEY)")
+				}
 				if err != nil {
-					return fmt.Errorf("no credentials: run `tiny login`, or pass --key / set TINY_API_KEY (%v)", err)
+					return fmt.Errorf("stored session unusable: %v — run `tiny login` again", err)
 				}
 				key = creds.AccessToken
 				if workspace == "" {
