@@ -3,8 +3,8 @@ package cmd
 import (
 	"bytes"
 	"context"
-	"errors"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,6 +28,7 @@ import (
 type solutionExport struct {
 	Version     int                      `json:"version"`
 	Type        string                   `json:"type"`
+	UpdateSlug  string                   `json:"updateSlug,omitempty"`
 	Title       string                   `json:"title"`
 	Description string                   `json:"description"`
 	Tags        []string                 `json:"tags"`
@@ -60,7 +61,7 @@ type exportWidget struct {
 }
 
 type exportScenario struct {
-	Name  string                    `json:"name"`
+	Name  string                      `json:"name"`
 	Ports []v1alpha1.ScenarioPortData `json:"ports"`
 }
 
@@ -70,6 +71,7 @@ func newPublishCmd() *cobra.Command {
 		title       string
 		description string
 		tags        []string
+		updateSlug  string
 	)
 	c := &cobra.Command{
 		Use:   "publish",
@@ -116,6 +118,22 @@ environment variable (mint one in the dashboard under Setup → Developer keys).
 			if err != nil {
 				return err
 			}
+			if updateSlug != "" {
+				export.UpdateSlug = updateSlug
+				// On update, empty copy fields mean "keep what's there" —
+				// the server only applies non-empty values, so dashboard-
+				// edited title/description/tags survive unless the flags
+				// were explicitly passed.
+				if !cmd.Flags().Changed("title") {
+					export.Title = ""
+				}
+				if !cmd.Flags().Changed("description") {
+					export.Description = ""
+				}
+				if !cmd.Flags().Changed("tags") {
+					export.Tags = nil
+				}
+			}
 			if len(export.TinyFlows) == 0 {
 				return fmt.Errorf("project %q has no flows to publish", flagProject)
 			}
@@ -125,8 +143,16 @@ environment variable (mint one in the dashboard under Setup → Developer keys).
 				return err
 			}
 
-			fmt.Printf("  publishing %s — %d flows, %d elements, %d pages, %d scenarios\n",
-				styleTitle.Render(export.Title), len(export.TinyFlows), len(export.Elements), len(export.Pages), len(export.Scenarios))
+			subject := export.Title
+			if updateSlug != "" {
+				subject = updateSlug
+			}
+			verb := "publishing"
+			if updateSlug != "" {
+				verb = "updating"
+			}
+			fmt.Printf("  %s %s — %d flows, %d elements, %d pages, %d scenarios\n",
+				verb, styleTitle.Render(subject), len(export.TinyFlows), len(export.Elements), len(export.Pages), len(export.Scenarios))
 
 			req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiBase+"/v1/solutions/import", bytes.NewReader(body))
 			if err != nil {
@@ -156,6 +182,13 @@ environment variable (mint one in the dashboard under Setup → Developer keys).
 				URL   string `json:"url"`
 			}
 			_ = json.Unmarshal(respBody, &out)
+			if updateSlug != "" {
+				fmt.Printf("\n  %s %s\n", styleTitle.Render("updated:"), out.Title)
+				if out.URL != "" {
+					fmt.Printf("  %s\n\n  Same URL, new revision — the previous one stays revertable in your dashboard.\n", out.URL)
+				}
+				return nil
+			}
 			fmt.Printf("\n  %s %s\n", styleTitle.Render("published:"), out.Title)
 			if out.URL != "" {
 				fmt.Printf("  %s\n\n  It is live in the public catalog — unlist it from your dashboard anytime.\n", out.URL)
@@ -169,6 +202,7 @@ environment variable (mint one in the dashboard under Setup → Developer keys).
 	c.Flags().StringVar(&title, "title", "", "solution title (default: project name)")
 	c.Flags().StringVar(&description, "description", "", "solution description (default: project description)")
 	c.Flags().StringSliceVar(&tags, "tags", nil, "tags, comma separated")
+	c.Flags().StringVar(&updateSlug, "update", "", "update an existing solution by its slug (a new content revision on the same URL) instead of creating a new entry; title/description/tags change only when their flags are passed")
 	return c
 }
 
