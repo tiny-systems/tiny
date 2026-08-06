@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/tiny-systems/module/api/v1alpha1"
 	"github.com/tiny-systems/module/pkg/resource"
 	"github.com/tiny-systems/module/pkg/schema"
+	sdktools "github.com/tiny-systems/module/pkg/tools"
 	"github.com/tiny-systems/module/pkg/utils"
 	platform "github.com/tiny-systems/platform-go"
 	"google.golang.org/grpc"
@@ -151,6 +153,12 @@ func (s *Service) buildFlowEvents(ctx context.Context, mgr *resource.Manager, re
 	// First scenario carrying data for a port wins, matching scenarioLookup.
 	scenarioData := map[string][]byte{}
 	if scenarios, serr := mgr.GetProjectScenarios(ctx, req.ProjectName); serr == nil {
+		// User-pinned scenarios first; the auto-scaffold is a fallback whose
+		// empty shapes (messages: []) must not shadow verified samples.
+		sort.SliceStable(scenarios, func(i, j int) bool {
+			return scenarios[i].Annotations[v1alpha1.ScenarioNameAnnotation] != sdktools.ScaffoldScenarioName &&
+				scenarios[j].Annotations[v1alpha1.ScenarioNameAnnotation] == sdktools.ScaffoldScenarioName
+		})
 		for _, sc := range scenarios {
 			for _, p := range sc.Spec.Ports {
 				if len(p.Data) == 0 {

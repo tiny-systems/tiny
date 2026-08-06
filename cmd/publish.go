@@ -350,6 +350,12 @@ func buildSolutionExport(ctx context.Context, k *kube.Client, projectName, title
 // requirement bites.
 func validateSolutionForPublish(ctx context.Context, k *kube.Client, projectName string, scenarios []exportScenario) error {
 	scenarioData := map[string][]byte{}
+	// User-pinned scenarios first; the auto-scaffold's empty shapes are a
+	// fallback and must not shadow verified samples.
+	sort.SliceStable(scenarios, func(i, j int) bool {
+		return scenarios[i].Name != sdktools.ScaffoldScenarioName &&
+			scenarios[j].Name == sdktools.ScaffoldScenarioName
+	})
 	for _, sc := range scenarios {
 		for _, p := range sc.Ports {
 			if len(p.Data) == 0 {
@@ -375,7 +381,37 @@ func validateSolutionForPublish(ctx context.Context, k *kube.Client, projectName
 	}
 	nodesMap := make(map[string]v1alpha1.TinyNode, len(nodeList.Items))
 	for _, n := range nodeList.Items {
-		nodesMap[n.Name] = n
+		// Blank the source ports' live Configuration snapshots: the author's
+		// warm cluster carries real runtime data there (a conversation store
+		// with messages in it) and the simulator gap-fills from it, hiding
+		// exactly the failures a fresh install will paint red. The gate must
+		// see the flow the way a new cluster does — schema mocks plus the
+		// shipped scenarios, nothing else.
+		nc := n.DeepCopy()
+		for i := range nc.Status.Ports {
+			if nc.Status.Ports[i].Source {
+				nc.Status.Ports[i].Configuration = nil
+			}
+		}
+		nodesMap[nc.Name] = *nc
+	}
+
+	// A scenario that references node names from a since-rebuilt flow is dead
+	// weight: the clone cannot remap names that no longer exist, so a fresh
+	// install gets samples that match nothing. Catch it here, where the author
+	// can re-pin, instead of on the installer's canvas.
+	var staleRefs []string
+	for port := range scenarioData {
+		nodeName, _ := sdkutils.ParseFullPortName(port)
+		if _, ok := nodesMap[nodeName]; !ok {
+			staleRefs = append(staleRefs, port)
+		}
+	}
+	if len(staleRefs) > 0 {
+		sort.Strings(staleRefs)
+		return fmt.Errorf(`scenario samples reference nodes that no longer exist (the flow was rebuilt after they were pinned):
+  %s
+Re-pin the scenarios from a fresh passing trace — run the flow, then scenarios(action=create, trace_id=...) — and delete the stale ones`, strings.Join(staleRefs, "\n  "))
 	}
 
 	var problems []string

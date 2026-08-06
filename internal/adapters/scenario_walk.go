@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/tiny-systems/module/api/v1alpha1"
+	sdktools "github.com/tiny-systems/module/pkg/tools"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/tiny-systems/tiny/internal/kube"
@@ -57,6 +58,13 @@ func (s *scenarioLookup) findPortSample(ctx context.Context, projectName, nodeID
 
 	// Port keys in a scenario are of the form "<node-id>:<port-name>".
 	wanted := nodeID + ":" + portName
+
+	// User-pinned scenarios first — the auto-scaffold's empty shapes are a
+	// fallback, never allowed to shadow verified samples.
+	sort.SliceStable(list.Items, func(i, j int) bool {
+		return list.Items[i].Annotations[v1alpha1.ScenarioNameAnnotation] != sdktools.ScaffoldScenarioName &&
+			list.Items[j].Annotations[v1alpha1.ScenarioNameAnnotation] == sdktools.ScaffoldScenarioName
+	})
 
 	for i := range list.Items {
 		for _, p := range list.Items[i].Spec.Ports {
