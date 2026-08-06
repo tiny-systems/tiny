@@ -170,3 +170,49 @@ func upsertScenarioPort(s *v1alpha1.TinyScenario, port string, data []byte) {
 }
 
 var _ sdktools.ScenarioManager = (*ScenarioManager)(nil)
+
+// ApplyScenario writes a scenario with pre-built port samples — the
+// clone_solution path applying a solution's shipped scenarios. Reuses an
+// existing scenario with the same display name in the project (idempotent
+// re-clone) or creates one.
+func (s *ScenarioManager) ApplyScenario(ctx context.Context, projectName, name string, ports []v1alpha1.ScenarioPortData) error {
+	if projectName == "" || name == "" {
+		return fmt.Errorf("project and scenario name required")
+	}
+
+	list := &v1alpha1.TinyScenarioList{}
+	if err := s.kube.Client.List(ctx, list,
+		client.InNamespace(s.kube.Namespace),
+		client.MatchingLabels{v1alpha1.ProjectNameLabel: projectName}); err != nil {
+		return fmt.Errorf("list scenarios: %w", err)
+	}
+	for i := range list.Items {
+		sc := &list.Items[i]
+		if sc.Annotations[v1alpha1.ScenarioNameAnnotation] != name {
+			continue
+		}
+		sc.Spec.Ports = ports
+		if err := s.kube.Client.Update(ctx, sc); err != nil {
+			return fmt.Errorf("update scenario %q: %w", name, err)
+		}
+		return nil
+	}
+
+	scenario := &v1alpha1.TinyScenario{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "scenario-",
+			Namespace:    s.kube.Namespace,
+			Labels: map[string]string{
+				v1alpha1.ProjectNameLabel: projectName,
+			},
+			Annotations: map[string]string{
+				v1alpha1.ScenarioNameAnnotation: name,
+			},
+		},
+		Spec: v1alpha1.TinyScenarioSpec{Ports: ports},
+	}
+	if err := s.kube.Client.Create(ctx, scenario); err != nil {
+		return fmt.Errorf("create scenario %q: %w", name, err)
+	}
+	return nil
+}

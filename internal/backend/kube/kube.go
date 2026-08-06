@@ -131,6 +131,7 @@ func New(opts Options) (backend.Bundle, backend.Cleanup, error) {
 	// Scenario manager takes the trace reader so scenarios(create, trace_id)
 	// can pin a real execution's port payloads (with secret redaction).
 	scenarioManager := adapters.NewScenarioManager(kubeClient, traceReader)
+	nodeCRManager := adapters.NewTinyNodeCRManager(kubeClient)
 
 	bundle := backend.Bundle{
 		ProjectReader:          projectReader,
@@ -150,6 +151,8 @@ func New(opts Options) (backend.Bundle, backend.Cleanup, error) {
 		ScenarioManager:        scenarioManager,
 		DashboardReader:        dashboardReader,
 		DashboardWriter:        dashboardWriter,
+		TinyNodeCRManager:      nodeCRManager,
+		ScenarioApplier:        scenarioManager,
 		PositionTracker:        sdktools.NewPositionTracker(),
 	}
 

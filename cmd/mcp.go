@@ -294,6 +294,7 @@ func buildKubeBundle(activeProject string) (backend.Bundle, backend.Cleanup, err
 	}
 	bundle.SolutionSearcher = solutionSearcher
 	bundle.PublicModuleCatalog = moduleCatalogPublic
+	bundle.SolutionExportFetcher = adapters.NewSolutionExportFetcher(publicAPIURL)
 
 	// Pin the session project so the agent works inside it by default (tools
 	// that omit `project` inherit this) — the local mode's "one session, one
