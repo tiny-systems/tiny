@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	pprof "net/http/pprof"
 	"time"
 
 	"github.com/improbable-eng/grpc-web/go/grpcweb"
@@ -59,6 +60,14 @@ func editorHandler(svc *Service, activeProject string, bus *ActivityBus, staticF
 	wrapped := grpcweb.WrapServer(grpcServer)
 
 	mux := http.NewServeMux()
+
+	// Live goroutine/heap introspection for a wedged process. localhost-only
+	// by construction (the editor server binds 127.0.0.1), and the SPA's
+	// catch-all below would otherwise shadow any diagnostic path — a hang
+	// with no pprof means killing the process to learn anything.
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 
 	// The SPA reads the active project from here; flows themselves come from
 	// the gRPC FlowService (GetFlowList), so this is the only JSON endpoint.
