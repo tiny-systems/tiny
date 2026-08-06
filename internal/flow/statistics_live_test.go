@@ -81,4 +81,23 @@ func TestStatisticsLive(t *testing.T) {
 	if sp.StartTimeUnixNano == 0 || sp.EndTimeUnixNano == 0 {
 		t.Errorf("span timing missing — waterfall would be flat (start=%d end=%d)", sp.StartTimeUnixNano, sp.EndTimeUnixNano)
 	}
+
+	// A truncated id (agents/UIs shorten ids for display, then paste the
+	// short form back) must resolve via unique-prefix matching instead of
+	// NotFound-ing a trace the list just returned.
+	short := first.ID
+	if len(short) > 16 {
+		short = short[:16]
+	}
+	shortDetail, err := svc.GetTraceByID(ctx, &platform.StatisticsGetTraceByIDRequest{
+		ProjectName: project,
+		TraceID:     short,
+	})
+	if err != nil {
+		t.Fatalf("GetTraceByID with truncated id %s: %v", short, err)
+	}
+	if len(shortDetail.Spans) != len(detail.Spans) {
+		t.Fatalf("truncated id %s resolved to %d spans, full id %s to %d", short, len(shortDetail.Spans), first.ID, len(detail.Spans))
+	}
+	t.Logf("truncated id %s resolved to the same %d span(s)", short, len(shortDetail.Spans))
 }

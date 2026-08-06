@@ -3,12 +3,22 @@ package adapters
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	sdktools "github.com/tiny-systems/module/pkg/tools"
 	"github.com/tiny-systems/module/pkg/utils"
 
 	"github.com/tiny-systems/tiny/internal/kube"
+)
+
+const (
+	// fullTraceIDLen is a complete trace ID: 16 bytes, hex-encoded.
+	fullTraceIDLen = 32
+	// tracePrefixLookback bounds the trace-list scan used to resolve a
+	// truncated trace ID — same window the editor's trace list shows.
+	tracePrefixLookback = 24 * time.Hour
 )
 
 // TraceReaderOptions configures how the reader reaches the otel-collector.
@@ -90,8 +100,63 @@ func (r *TraceReader) ReadTraces(ctx context.Context, projectName, flowName stri
 	return out, nil
 }
 
+// resolveTraceID normalizes a trace ID and, when it is shorter than a full
+// 32-char ID, resolves it against the recent trace list — git-style unique
+// prefix. The collector's by-ID lookup is an exact map hit, so a truncated
+// ID NotFounds even when the trace is sitting right there in the list.
+// That's a real failure mode, observed live: agents and UIs shorten IDs for
+// display (`id[:16]` and the like), the short form gets pasted back into
+// get_trace_detail / scenarios(trace_id), and the bare "trace not found"
+// gives no hint the ID was merely truncated.
+func (r *TraceReader) resolveTraceID(ctx context.Context, projectName, traceID string) (string, error) {
+	traceID = strings.ToLower(strings.TrimSpace(traceID))
+	if traceID == "" || len(traceID) >= fullTraceIDLen {
+		return traceID, nil
+	}
+	end := time.Now()
+	resp, err := r.svc.GetTraces(ctx, r.namespace, projectName, "", end.Add(-tracePrefixLookback), end, 0)
+	if err != nil {
+		return "", fmt.Errorf("resolve trace id %s: %w", traceID, err)
+	}
+	var ids []string
+	if resp != nil {
+		for _, t := range resp.Traces {
+			ids = append(ids, t.ID)
+		}
+	}
+	return matchTraceIDPrefix(ids, traceID)
+}
+
+// matchTraceIDPrefix picks the single ID matching prefix. Pure so the
+// resolution rules unit-test without a live collector.
+func matchTraceIDPrefix(ids []string, prefix string) (string, error) {
+	var matches []string
+	for _, id := range ids {
+		if strings.HasPrefix(id, prefix) {
+			matches = append(matches, id)
+		}
+	}
+	switch len(matches) {
+	case 1:
+		return matches[0], nil
+	case 0:
+		return "", fmt.Errorf("trace %s not found — it looks truncated (full ids are %d chars) and no recent trace matches this prefix; pass the id exactly as get_traces returns it", prefix, fullTraceIDLen)
+	default:
+		sort.Strings(matches)
+		show := matches
+		if len(show) > 3 {
+			show = show[:3]
+		}
+		return "", fmt.Errorf("trace id %s is ambiguous — %d recent traces share that prefix (%s); pass the full %d-char id", prefix, len(matches), strings.Join(show, ", "), fullTraceIDLen)
+	}
+}
+
 // ReadTraceDetail returns the full span list for a specific trace.
 func (r *TraceReader) ReadTraceDetail(ctx context.Context, projectName, traceID string) ([]sdktools.TraceSpanInfo, error) {
+	traceID, err := r.resolveTraceID(ctx, projectName, traceID)
+	if err != nil {
+		return nil, err
+	}
 	trace, err := r.svc.GetTraceByID(ctx, r.namespace, projectName, traceID)
 	if err != nil {
 		return nil, fmt.Errorf("get trace %s: %w", traceID, err)
@@ -112,6 +177,10 @@ func (r *TraceReader) ReadTraceDetail(ctx context.Context, projectName, traceID 
 // tool-facing summary. The editor's Statistics service uses this so span
 // start/end times survive the mapping.
 func (r *TraceReader) ReadTraceSpans(ctx context.Context, projectName, traceID string) ([]utils.Span, error) {
+	traceID, err := r.resolveTraceID(ctx, projectName, traceID)
+	if err != nil {
+		return nil, err
+	}
 	trace, err := r.svc.GetTraceByID(ctx, r.namespace, projectName, traceID)
 	if err != nil {
 		return nil, fmt.Errorf("get trace %s: %w", traceID, err)
