@@ -854,8 +854,11 @@ func randSuffix(n int) (string, error) {
 // tracker to avoid overlap with nodes already added in this session.
 func nextPosition(flowName string, tracker sdktools.PositionTracker) (int, int) {
 	const (
-		startX      = 100
-		columnWidth = 300
+		startX = 100
+		// A node card is ~230px and its port labels render OUTSIDE the card,
+		// ~90px to each side. 300 packed adjacent columns so tightly that
+		// neighbouring labels overlapped and the flow was unreadable.
+		columnWidth = 440
 	)
 	if tracker == nil {
 		return startX, 150

@@ -11,6 +11,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -137,6 +138,9 @@ environment variable (mint one in the dashboard under Setup → Developer keys).
 			}
 			if len(export.TinyFlows) == 0 {
 				return fmt.Errorf("project %q has no flows to publish", flagProject)
+			}
+			if err := validateSolutionForPublish(ctx, k, flagProject, export.Scenarios); err != nil {
+				return err
 			}
 
 			body, err := json.Marshal(export)
@@ -335,4 +339,69 @@ func buildSolutionExport(ctx context.Context, k *kube.Client, projectName, title
 		export.Elements = []map[string]interface{}{}
 	}
 	return export, nil
+}
+
+// validateSolutionForPublish enforces the publish contract: a solution must
+// ship at least one scenario with sample data, and every edge must validate
+// against those samples — the same simulation a fresh install's editor runs
+// on its canvas. Without the gate a solution can publish with a graph that
+// paints red badges the moment someone installs it; the author is the only
+// person who can produce the passing samples, so publishing is where the
+// requirement bites.
+func validateSolutionForPublish(ctx context.Context, k *kube.Client, projectName string, scenarios []exportScenario) error {
+	scenarioData := map[string][]byte{}
+	for _, sc := range scenarios {
+		for _, p := range sc.Ports {
+			if len(p.Data) == 0 {
+				continue
+			}
+			if _, seen := scenarioData[p.Port]; !seen {
+				scenarioData[p.Port] = p.Data
+			}
+		}
+	}
+	if len(scenarioData) == 0 {
+		return fmt.Errorf(`project %q has no scenarios — a solution must ship verification samples so a fresh install validates green.
+  Run the flow once (send_signal), then pin the passing trace as a scenario:
+    scenarios(action=create, trace_id=<id from get_traces>)
+  and publish again`, projectName)
+	}
+
+	nodeList := &v1alpha1.TinyNodeList{}
+	if err := k.Client.List(ctx, nodeList,
+		client.InNamespace(k.Namespace),
+		client.MatchingLabels{v1alpha1.ProjectNameLabel: projectName}); err != nil {
+		return fmt.Errorf("list nodes for validation: %w", err)
+	}
+	nodesMap := make(map[string]v1alpha1.TinyNode, len(nodeList.Items))
+	for _, n := range nodeList.Items {
+		nodesMap[n.Name] = n
+	}
+
+	var problems []string
+	for _, node := range nodesMap {
+		for _, edge := range node.Spec.Edges {
+			from := sdkutils.GetPortFullName(node.Name, edge.Port)
+			targetNodeName, targetPort := sdkutils.ParseFullPortName(edge.To)
+			var edgeConfiguration []byte
+			if target, ok := nodesMap[targetNodeName]; ok {
+				for _, pc := range target.Spec.Ports {
+					if pc.From == from && pc.Port == targetPort {
+						edgeConfiguration = pc.Configuration
+						break
+					}
+				}
+			}
+			err := sdkutils.ValidateEdgeWithRuntimeData(ctx, nodesMap, from, edge.To, edgeConfiguration, scenarioData)
+			if err != nil && !sdkutils.IsUnverifiable(err) {
+				problems = append(problems, fmt.Sprintf("%s -> %s: %v", from, edge.To, err))
+			}
+		}
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf(`solution does not simulate green against its scenarios — %d edge(s) fail:
+  %s
+Fix the flow (or re-pin scenarios from a passing trace) and publish again`, len(problems), strings.Join(problems, "\n  "))
+	}
+	return nil
 }

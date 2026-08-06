@@ -143,6 +143,26 @@ func (s *Service) buildFlowEvents(ctx context.Context, mgr *resource.Manager, re
 	}
 	portExampleMap := utils.GetPortExampleMap(nodesMap)
 
+	// Scenario samples act as runtime data for edge validation — the same
+	// overlay configure_edge and build_flow already use. Without it a fresh
+	// install validates against empty live data (a new conversation store's
+	// messages: []) and draws red badges on a flow that is actually correct;
+	// the solution's shipped scenarios hold the author-verified samples.
+	// First scenario carrying data for a port wins, matching scenarioLookup.
+	scenarioData := map[string][]byte{}
+	if scenarios, serr := mgr.GetProjectScenarios(ctx, req.ProjectName); serr == nil {
+		for _, sc := range scenarios {
+			for _, p := range sc.Spec.Ports {
+				if len(p.Data) == 0 {
+					continue
+				}
+				if _, seen := scenarioData[p.Port]; !seen {
+					scenarioData[p.Port] = p.Data
+				}
+			}
+		}
+	}
+
 	flowName := req.FlowName
 	events := make([]*platform.NodeEvent, 0, len(nodesMap)*2)
 	ids := make(map[string]bool)
@@ -165,7 +185,7 @@ func (s *Service) buildFlowEvents(ctx context.Context, mgr *resource.Manager, re
 
 		for _, edge := range node.Spec.Edges {
 			ids[edge.ID] = true
-			edgeMap, err := buildEdge(ctx, node, edge, flowName, sharedWithThisFlow, nodesMap, statusPortSchemaMap, portConfigMap, edgeConfigMap, portSchemaMap, portExampleMap, traceData)
+			edgeMap, err := buildEdge(ctx, node, edge, flowName, sharedWithThisFlow, nodesMap, statusPortSchemaMap, portConfigMap, edgeConfigMap, portSchemaMap, portExampleMap, scenarioData, traceData)
 			if err != nil {
 				continue
 			}
@@ -192,6 +212,7 @@ func buildEdge(
 	edgeConfigMap map[string][]utils.Destination,
 	portSchemaMap map[string]*ajson.Node,
 	portExampleMap map[string][]byte,
+	scenarioData map[string][]byte,
 	traceData *utils.TraceStatistics,
 ) (map[string]interface{}, error) {
 	n := node.Name
@@ -235,7 +256,7 @@ func buildEdge(
 		data["schema"] = json.RawMessage(edgeSchema)
 	}
 
-	if verr := utils.ValidateEdgeWithPrecomputedMaps(ctx, portSchemaMap, edgeConfigMap, from, edgeConfiguration, edgeSchema, nil, portExampleMap); verr != nil {
+	if verr := utils.ValidateEdgeWithPrecomputedMaps(ctx, portSchemaMap, edgeConfigMap, from, edgeConfiguration, edgeSchema, scenarioData, portExampleMap); verr != nil {
 		if utils.IsUnverifiable(verr) {
 			data["valid"] = true
 			data["warning"] = verr.Error()
