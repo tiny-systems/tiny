@@ -55,7 +55,16 @@ func (f *FlowLifecycle) CreateFlow(ctx context.Context, projectName, flowName st
 			return "", err
 		}
 		if existing != nil {
-			return existing.Name, nil
+			// Reuse is only idempotency, never theft: flow resource names
+			// are namespace-global, and solutions ship generic flow names
+			// ("agent"). Without this check, cloning a solution into a
+			// second project silently attached its nodes to the FIRST
+			// project's flow — two projects sharing one canvas.
+			if existing.Labels[v1alpha1.ProjectNameLabel] == projectName {
+				return existing.Name, nil
+			}
+			resourceName := slugifyFlowName(flowName) + "-" + randAlphaSuffix(5)
+			return f.createFlow(ctx, projectName, resourceName, flowName)
 		}
 		return f.createFlow(ctx, projectName, flowName, flowName)
 	}
