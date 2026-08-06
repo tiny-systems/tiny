@@ -15,6 +15,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/tiny-systems/module/api/v1alpha1"
+	sdktools "github.com/tiny-systems/module/pkg/tools"
 	sdkutils "github.com/tiny-systems/module/pkg/utils"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -283,6 +284,12 @@ func buildSolutionExport(ctx context.Context, k *kube.Client, projectName, title
 			export.Elements = append(export.Elements, m)
 		}
 	}
+
+	// Secrets die here, before the export leaves the machine. Components
+	// whose settings absorb runtime data (debug mirrors the last message)
+	// would otherwise publish whatever flowed through the graph — API keys
+	// included, in both port configurations and schema defaults.
+	sdktools.RedactGraphElements(export.Elements)
 
 	// dashboard pages
 	pageList := &v1alpha1.TinyWidgetPageList{}
