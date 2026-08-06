@@ -383,9 +383,11 @@ func needsProjectFlow(name string) bool {
 
 func needsFlow(name string) bool {
 	switch name {
+	// clone_solution is deliberately absent: a solution is a whole
+	// project (many flows) — the clone creates its own flows.
 	case "delete_flow",
 		"edit_flow",
-		"build_flow", "clone_solution", "get_traces":
+		"build_flow", "get_traces":
 		return true
 	}
 	return false
