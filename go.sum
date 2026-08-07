@@ -724,6 +724,16 @@ github.com/tiny-systems/module v0.13.64 h1:rdWLTzJjNiIW5DGHaKFcEtkSDmJkK7jtukMPn
 github.com/tiny-systems/module v0.13.64/go.mod h1:otnspaZWQfPDNsyoFfpyy7c+Nz/W1LN9IzjVAi5EX8s=
 github.com/tiny-systems/module v0.13.65 h1:9yRP8RXzXFh+s5XYgW+ICNpZewl/8Og3HvQ1ijl7Qco=
 github.com/tiny-systems/module v0.13.65/go.mod h1:otnspaZWQfPDNsyoFfpyy7c+Nz/W1LN9IzjVAi5EX8s=
+github.com/tiny-systems/module v0.13.66 h1:pPb0TcyqKztXRocS3OYy27zJtsiEesl+kbCmLMGQYuY=
+github.com/tiny-systems/module v0.13.66/go.mod h1:otnspaZWQfPDNsyoFfpyy7c+Nz/W1LN9IzjVAi5EX8s=
+github.com/tiny-systems/module v0.13.67 h1:GQ/iiCJpLhbVzPhJ71SUMwZzzO9fX/+X3u5q7tfbBoQ=
+github.com/tiny-systems/module v0.13.67/go.mod h1:otnspaZWQfPDNsyoFfpyy7c+Nz/W1LN9IzjVAi5EX8s=
+github.com/tiny-systems/module v0.13.68 h1:bWlgxneo+Bjs1KCO2EkUbWUk80O6/JfrBAOaRXwrf0Q=
+github.com/tiny-systems/module v0.13.68/go.mod h1:otnspaZWQfPDNsyoFfpyy7c+Nz/W1LN9IzjVAi5EX8s=
+github.com/tiny-systems/module v0.13.69 h1:GmT1w8hhotZ9LGQIeAb9YZwEOzICa0GkEbC0u/aRddY=
+github.com/tiny-systems/module v0.13.69/go.mod h1:otnspaZWQfPDNsyoFfpyy7c+Nz/W1LN9IzjVAi5EX8s=
+github.com/tiny-systems/module v0.13.70 h1:sgtzKCU5ps0uM7M2kkZSmEi2mPcysSymrjGO1N3ReJw=
+github.com/tiny-systems/module v0.13.70/go.mod h1:otnspaZWQfPDNsyoFfpyy7c+Nz/W1LN9IzjVAi5EX8s=
 github.com/tiny-systems/otel-collector v0.5.1 h1:tylLj7f7O7n5o9R383Lojd0fN7j5jgZ76zFshJ0SE6c=
 github.com/tiny-systems/otel-collector v0.5.1/go.mod h1:EGo1dQ3+5iG3ejGJ8y9kMgHhOGB6WyoasJDUHesKXEA=
 github.com/tiny-systems/platform-api v0.5.6 h1:IJPslzpV06cJcHaloZ9mm18pE8DCpCqLc/PD0NGFOUA=

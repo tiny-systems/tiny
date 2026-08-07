@@ -14,7 +14,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/santhosh-tekuri/jsonschema/v5"
 	"github.com/spf13/cobra"
+	"github.com/tiny-systems/ajson"
 	"github.com/tiny-systems/module/api/v1alpha1"
 	sdktools "github.com/tiny-systems/module/pkg/tools"
 	sdkutils "github.com/tiny-systems/module/pkg/utils"
@@ -366,13 +368,6 @@ func validateSolutionForPublish(ctx context.Context, k *kube.Client, projectName
 			}
 		}
 	}
-	if len(scenarioData) == 0 {
-		return fmt.Errorf(`project %q has no scenarios — a solution must ship verification samples so a fresh install validates green.
-  Run the flow once (send_signal), then pin the passing trace as a scenario:
-    scenarios(action=create, trace_id=<id from get_traces>)
-  and publish again`, projectName)
-	}
-
 	nodeList := &v1alpha1.TinyNodeList{}
 	if err := k.Client.List(ctx, nodeList,
 		client.InNamespace(k.Namespace),
@@ -414,7 +409,36 @@ func validateSolutionForPublish(ctx context.Context, k *kube.Client, projectName
 Re-pin the scenarios from a fresh passing trace — run the flow, then scenarios(action=create, trace_id=...) — and delete the stale ones`, strings.Join(staleRefs, "\n  "))
 	}
 
-	var problems []string
+	// A sample that contradicts its own port's schema is worse than no
+	// sample: it validates edges against a shape the port can never emit,
+	// so the flow looks green here and breaks on the installer's canvas.
+	_, _, _, portSchemaMap, _, mapsErr := sdkutils.GetFlowMaps(nodesMap)
+	if mapsErr != nil {
+		return fmt.Errorf("build flow maps for validation: %w", mapsErr)
+	}
+	var badSamples []string
+	for port, data := range scenarioData {
+		schemaNode, ok := portSchemaMap[port]
+		if !ok || schemaNode == nil {
+			continue // port carries no schema — nothing to contradict
+		}
+		if serr := validateSampleAgainstSchema(schemaNode, data); serr != nil {
+			badSamples = append(badSamples, fmt.Sprintf("%s: %v", port, serr))
+		}
+	}
+	if len(badSamples) > 0 {
+		sort.Strings(badSamples)
+		return fmt.Errorf(`scenario samples contradict their port schemas — %d sample(s) invalid:
+  %s
+A sample the port can never emit validates edges against a fiction. Re-pin from a real passing trace: scenarios(action=create, trace_id=...)`, len(badSamples), strings.Join(badSamples, "\n  "))
+	}
+
+	// Edge validation decides whether scenarios are needed AT ALL. A flow
+	// whose every edge verifies from its schemas alone is publishable with
+	// no scenarios — demanding them there is bureaucracy. Scenarios are
+	// required exactly where the simulator cannot prove an edge on its own
+	// (shapeless / open-typed source ports), which is what unverifiable means.
+	var problems, unverifiable []string
 	for _, node := range nodesMap {
 		for _, edge := range node.Spec.Edges {
 			from := sdkutils.GetPortFullName(node.Name, edge.Port)
@@ -428,16 +452,56 @@ Re-pin the scenarios from a fresh passing trace — run the flow, then scenarios
 					}
 				}
 			}
-			err := sdkutils.ValidateEdgeWithRuntimeData(ctx, nodesMap, from, edge.To, edgeConfiguration, scenarioData)
-			if err != nil && !sdkutils.IsUnverifiable(err) {
-				problems = append(problems, fmt.Sprintf("%s -> %s: %v", from, edge.To, err))
+			verr := sdkutils.ValidateEdgeWithRuntimeData(ctx, nodesMap, from, edge.To, edgeConfiguration, scenarioData)
+			if verr == nil {
+				continue
 			}
+			if sdkutils.IsUnverifiable(verr) {
+				unverifiable = append(unverifiable, fmt.Sprintf("%s -> %s", from, edge.To))
+				continue
+			}
+			problems = append(problems, fmt.Sprintf("%s -> %s: %v", from, edge.To, verr))
 		}
 	}
 	if len(problems) > 0 {
-		return fmt.Errorf(`solution does not simulate green against its scenarios — %d edge(s) fail:
+		sort.Strings(problems)
+		return fmt.Errorf(`solution does not simulate green — %d edge(s) fail:
   %s
-Fix the flow (or re-pin scenarios from a passing trace) and publish again`, len(problems), strings.Join(problems, "\n  "))
+Fix the flow, or pin a scenario that gives these edges real sample data (run the flow, then scenarios(action=create, trace_id=...)), and publish again`, len(problems), strings.Join(problems, "\n  "))
+	}
+	if len(unverifiable) > 0 {
+		sort.Strings(unverifiable)
+		return fmt.Errorf(`%d edge(s) cannot be verified without sample data:
+  %s
+These read from open-typed ports, so only a scenario can prove they work. Run the flow once (send_signal), then pin the passing trace:
+  scenarios(action=create, trace_id=<id from get_traces>)`, len(unverifiable), strings.Join(unverifiable, "\n  "))
 	}
 	return nil
+}
+
+// validateSampleAgainstSchema checks one scenario sample against its port's
+// schema, with the same compiler settings the SDK edge validator uses — a
+// sample that passes here is one the validator can trust downstream.
+func validateSampleAgainstSchema(portSchema *ajson.Node, sample []byte) error {
+	schemaBytes, err := ajson.Marshal(portSchema)
+	if err != nil {
+		return fmt.Errorf("unreadable port schema: %w", err)
+	}
+	if len(schemaBytes) == 0 || string(schemaBytes) == "{}" {
+		return nil
+	}
+	compiler := jsonschema.NewCompiler()
+	compiler.Draft = jsonschema.Draft7
+	if err := compiler.AddResource("schema.json", bytes.NewReader(schemaBytes)); err != nil {
+		return nil // an unusable schema is the port's problem, not the sample's
+	}
+	sch, err := compiler.Compile("schema.json")
+	if err != nil {
+		return nil
+	}
+	var decoded interface{}
+	if err := json.Unmarshal(sample, &decoded); err != nil {
+		return fmt.Errorf("sample is not valid JSON: %w", err)
+	}
+	return sch.Validate(decoded)
 }

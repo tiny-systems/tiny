@@ -22,6 +22,16 @@ func NewTinyNodeCRManager(k *kube.Client) *TinyNodeCRManager {
 	return &TinyNodeCRManager{kube: k}
 }
 
+func (m *TinyNodeCRManager) ListProjectNodeCRs(ctx context.Context, projectName string) ([]v1alpha1.TinyNode, error) {
+	list := &v1alpha1.TinyNodeList{}
+	if err := m.kube.Client.List(ctx, list,
+		client.InNamespace(m.kube.Namespace),
+		client.MatchingLabels{v1alpha1.ProjectNameLabel: projectName}); err != nil {
+		return nil, err
+	}
+	return list.Items, nil
+}
+
 func (m *TinyNodeCRManager) CreateNodeCR(ctx context.Context, node *v1alpha1.TinyNode) (string, error) {
 	node.Namespace = m.kube.Namespace
 	if err := m.kube.Client.Create(ctx, node); err != nil {
