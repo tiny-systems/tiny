@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/tiny-systems/module/api/v1alpha1"
+	sdktools "github.com/tiny-systems/module/pkg/tools"
 	"github.com/tiny-systems/module/pkg/utils"
 	platform "github.com/tiny-systems/platform-go"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/tiny-systems/tiny/internal/adapters"
 	"github.com/tiny-systems/tiny/internal/kube"
@@ -106,11 +109,56 @@ func (s *Service) GetComponents(ctx context.Context, req *platform.GetComponents
 	return &platform.GetComponentsResponse{Components: items}, nil
 }
 
-// ListScenarios returns the flow's scenarios for the editor's scenario
-// switcher. Local flows have none beyond the implicit Default, so this returns
-// empty — enough to stop the switcher's on-mount call from erroring.
+// ListScenarios returns the project's scenarios for the editor's scenario
+// switcher.
+//
+// This returned empty until v0.5.8, on the assumption that local flows have
+// no scenarios. They do: build_flow auto-scaffolds one, clone_solution
+// applies every scenario a solution ships, and scenarios(action=create) pins
+// traces. All of them were invisible in the editor — a solution installed
+// with two scenarios showed a switcher with nothing in it.
 func (s *Service) ListScenarios(ctx context.Context, req *platform.ListScenariosRequest) (*platform.ListScenariosResponse, error) {
-	return &platform.ListScenariosResponse{}, nil
+	kc, err := s.kubeClient()
+	if err != nil {
+		return nil, err
+	}
+	list := &v1alpha1.TinyScenarioList{}
+	if err := kc.Client.List(ctx, list,
+		client.InNamespace(s.namespace),
+		client.MatchingLabels{v1alpha1.ProjectNameLabel: req.ProjectName}); err != nil {
+		return nil, fmt.Errorf("list scenarios: %w", err)
+	}
+
+	items := make([]*platform.ScenarioItem, 0, len(list.Items))
+	for i := range list.Items {
+		sc := &list.Items[i]
+		name := sc.Annotations[v1alpha1.ScenarioNameAnnotation]
+		if name == "" {
+			name = sc.Name
+		}
+		ports := 0
+		for _, p := range sc.Spec.Ports {
+			if len(p.Data) > 0 {
+				ports++
+			}
+		}
+		items = append(items, &platform.ScenarioItem{
+			ResourceName: sc.Name,
+			Name:         name,
+			PortCount:    int32(ports),
+		})
+	}
+	// Stable, and user-pinned scenarios ahead of the auto-scaffold — the
+	// scaffold is fallback data, not what an author wants to see first.
+	sort.SliceStable(items, func(i, j int) bool {
+		iScaffold := items[i].Name == sdktools.ScaffoldScenarioName
+		jScaffold := items[j].Name == sdktools.ScaffoldScenarioName
+		if iScaffold != jScaffold {
+			return jScaffold
+		}
+		return items[i].Name < items[j].Name
+	})
+	return &platform.ListScenariosResponse{Scenarios: items}, nil
 }
 
 // UndeployFlow deletes a flow (layer) and all the TinyNodes that belong to it —
