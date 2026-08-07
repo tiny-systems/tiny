@@ -1,5 +1,6 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
+import Notifications from 'notiwind'
 import { createGrpcWebTransport } from '@connectrpc/connect-web'
 import { createClient } from '@connectrpc/connect'
 import type { EditorClient } from '@tinysystems/editor'
@@ -50,5 +51,8 @@ setNavigator((to: string) => {
 const app = createApp(App)
 app.provide('editorClient', client)
 app.use(createPinia())
+// The editor reports outcomes through notiwind; without the plugin AND the
+// outlet in App.vue every notify() is a no-op — errors included.
+app.use(Notifications)
 app.use(router)
 app.mount('#app')
