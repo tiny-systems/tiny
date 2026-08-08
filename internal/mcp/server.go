@@ -278,7 +278,16 @@ func (s *Server) callTool(ctx context.Context, raw json.RawMessage) toolCallResu
 	flowName, _ := params.Arguments["flow"].(string)
 
 	execCtx := s.execCtx
-	execCtx.ProjectName = projectName
+	// A tiny session is bound to ONE project (`tiny -p <name>`), and the
+	// editor only ever shows that project. Taking the caller's name here let
+	// a model invent one — the work landed in a project nothing was serving,
+	// so the dashboard showed 0 widgets and 0 flows while the nodes sat
+	// perfectly healthy under a name the user never chose.
+	if execCtx.ProjectName == "" {
+		execCtx.ProjectName = projectName
+	} else if projectName != "" && projectName != execCtx.ProjectName {
+		params.Arguments["project"] = execCtx.ProjectName
+	}
 	execCtx.FlowName = flowName
 
 	var finish func(success bool, errMsg string)
@@ -344,7 +353,7 @@ func injectProjectFlowParams(toolName string, schema map[string]interface{}) {
 	if _, ok := props["project"]; !ok {
 		props["project"] = map[string]interface{}{
 			"type":        "string",
-			"description": "Project resource name (TinyProject CRD)",
+			"description": "Project resource name. This session is bound to one project (tiny -p <name>) and always uses it — do not invent a name; anything else is ignored.",
 		}
 	}
 	if needsFlow(toolName) {
