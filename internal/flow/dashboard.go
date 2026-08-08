@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/tiny-systems/module/api/v1alpha1"
 	"github.com/tiny-systems/module/pkg/resource"
@@ -45,9 +46,17 @@ func flowGraphJSON(ctx context.Context, svc *Service, mgr *resource.Manager, pro
 	return b, nodes
 }
 
-// dashboardPageName is the single page tiny exposes. tiny has no multi-page
-// dashboard; a widget is simply a node carrying the DashboardLabel.
+// dashboardPageName is the page a widget lands on when its node does not ask
+// for another one.
 const dashboardPageName = "default"
+
+// widgetPage is the tab a node asks for, or the default.
+func widgetPage(node v1alpha1.TinyNode) string {
+	if p := strings.TrimSpace(node.Annotations[v1alpha1.DashboardPageAnnotation]); p != "" {
+		return p
+	}
+	return dashboardPageName
+}
 
 // buildDashboard DERIVES the dashboard from the project's nodes: every node
 // labelled DashboardLabel is a widget over its control port, rendered with the
@@ -64,11 +73,11 @@ func buildDashboard(ctx context.Context, mgr *resource.Manager, projectName stri
 		return nil, nil
 	}
 
-	pages := []*platform.ProjectDashboardPage{{
-		Name:    dashboardPageName,
-		Title:   dashboardPageName,
-		SortIdx: 0,
-	}}
+	// Pages are derived from what the widgets actually ask for: a tab exists
+	// because something is on it. The default page is always offered so a
+	// project with no widgets still renders a dashboard rather than nothing.
+	seen := map[string]bool{dashboardPageName: true}
+	order := []string{dashboardPageName}
 	events := make([]*platform.DashboardEvent, 0)
 
 	for i := range nodes {
@@ -76,7 +85,20 @@ func buildDashboard(ctx context.Context, mgr *resource.Manager, projectName stri
 		if node.Labels[v1alpha1.DashboardLabel] != "true" {
 			continue
 		}
+		if p := widgetPage(node); !seen[p] {
+			seen[p] = true
+			order = append(order, p)
+		}
 		events = append(events, updateWidgetEvent(node))
+	}
+
+	pages := make([]*platform.ProjectDashboardPage, 0, len(order))
+	for i, name := range order {
+		pages = append(pages, &platform.ProjectDashboardPage{
+			Name:    name,
+			Title:   name,
+			SortIdx: int32(i),
+		})
 	}
 
 	return pages, events
@@ -89,7 +111,7 @@ const controlPort = "_control"
 // between the initial snapshot and later watch events, or an update would add a
 // duplicate instead of replacing.
 func widgetID(node v1alpha1.TinyNode) string {
-	return fmt.Sprintf("%s-%s-%s", dashboardPageName, node.Name, controlPort)
+	return fmt.Sprintf("%s-%s-%s", widgetPage(node), node.Name, controlPort)
 }
 
 // updateWidgetEvent renders one dashboard-labelled node as an UPDATE_WIDGET,
@@ -104,7 +126,14 @@ func updateWidgetEvent(node v1alpha1.TinyNode) *platform.DashboardEvent {
 			break
 		}
 	}
-	title := node.Status.Component.Description
+	// The node's own label first: a dashboard with two widgets both titled
+	// "Signal" tells the user nothing about which one holds the API key and
+	// which one asks the question. The component description is the fallback
+	// for nodes the author never named.
+	title := node.Annotations[v1alpha1.NodeLabelAnnotation]
+	if title == "" {
+		title = node.Status.Component.Description
+	}
 	if title == "" {
 		title = node.Name
 	}
@@ -123,7 +152,7 @@ func updateWidgetEvent(node v1alpha1.TinyNode) *platform.DashboardEvent {
 			// Position is left unset: the grid packs them in order, and a
 			// user's own drag/resize in edit mode wins from then on.
 			Grid:  &platform.Grid{W: 3, H: 4},
-			Pages: []string{dashboardPageName},
+			Pages: []string{widgetPage(node)},
 		},
 	}
 }
@@ -138,7 +167,7 @@ func deleteWidgetEvent(node v1alpha1.TinyNode) *platform.DashboardEvent {
 			ID:    widgetID(node),
 			Node:  node.Name,
 			Port:  controlPort,
-			Pages: []string{dashboardPageName},
+			Pages: []string{widgetPage(node)},
 		},
 	}
 }
