@@ -153,6 +153,7 @@ func New(opts Options) (backend.Bundle, backend.Cleanup, error) {
 		DashboardWriter:        dashboardWriter,
 		TinyNodeCRManager:      nodeCRManager,
 		ScenarioApplier:        scenarioManager,
+		DashboardPageApplier:   scenarioManager,
 		PositionTracker:        sdktools.NewPositionTracker(),
 	}
 

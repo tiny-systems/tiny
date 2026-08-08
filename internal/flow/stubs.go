@@ -187,7 +187,7 @@ func (p projectService) GetStream(req *platform.GetProjectStreamRequest, stream 
 
 			switch {
 			case isWidget:
-				pendingEvents[node.Name] = updateWidgetEvent(*node)
+				pendingEvents[node.Name] = widgetEventForNode(ctx, mgr, req.ProjectName, *node)
 				widgetNodes[node.Name] = true
 			case widgetNodes[node.Name]:
 				// Was a widget, now isn't (deleted or unlabelled) → remove it.

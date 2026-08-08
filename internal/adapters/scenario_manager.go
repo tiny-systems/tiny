@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	"github.com/tiny-systems/module/api/v1alpha1"
 	sdktools "github.com/tiny-systems/module/pkg/tools"
@@ -213,6 +214,51 @@ func (s *ScenarioManager) ApplyScenario(ctx context.Context, projectName, name s
 	}
 	if err := s.kube.Client.Create(ctx, scenario); err != nil {
 		return fmt.Errorf("create scenario %q: %w", name, err)
+	}
+	return nil
+}
+
+// ApplyDashboardPage writes one page of a solution's dashboard: its title,
+// its order, and the widget entries with their grid placement. Pages are
+// TinyWidgetPage resources — the same model the platform uses, where a widget
+// may appear on several pages.
+func (s *ScenarioManager) ApplyDashboardPage(ctx context.Context, projectName, pageTitle string, sortIdx int, widgets []v1alpha1.TinyWidget) error {
+	if projectName == "" || pageTitle == "" {
+		return fmt.Errorf("project and page title required")
+	}
+
+	list := &v1alpha1.TinyWidgetPageList{}
+	if err := s.kube.Client.List(ctx, list,
+		client.InNamespace(s.kube.Namespace),
+		client.MatchingLabels{v1alpha1.ProjectNameLabel: projectName}); err != nil {
+		return fmt.Errorf("list pages: %w", err)
+	}
+	for i := range list.Items {
+		page := &list.Items[i]
+		if page.Annotations[v1alpha1.PageTitleAnnotation] != pageTitle {
+			continue
+		}
+		page.Spec.Widgets = widgets
+		if err := s.kube.Client.Update(ctx, page); err != nil {
+			return fmt.Errorf("update page %q: %w", pageTitle, err)
+		}
+		return nil
+	}
+
+	page := &v1alpha1.TinyWidgetPage{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "page-",
+			Namespace:    s.kube.Namespace,
+			Labels:       map[string]string{v1alpha1.ProjectNameLabel: projectName},
+			Annotations: map[string]string{
+				v1alpha1.PageTitleAnnotation:   pageTitle,
+				v1alpha1.PageSortIdxAnnotation: strconv.Itoa(sortIdx),
+			},
+		},
+		Spec: v1alpha1.TinyWidgetPageSpec{Widgets: widgets},
+	}
+	if err := s.kube.Client.Create(ctx, page); err != nil {
+		return fmt.Errorf("create page %q: %w", pageTitle, err)
 	}
 	return nil
 }

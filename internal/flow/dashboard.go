@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
+	"github.com/tiny-systems/module/pkg/utils"
+	"sort"
+	"strconv"
 
 	"github.com/tiny-systems/module/api/v1alpha1"
 	"github.com/tiny-systems/module/pkg/resource"
@@ -46,17 +48,10 @@ func flowGraphJSON(ctx context.Context, svc *Service, mgr *resource.Manager, pro
 	return b, nodes
 }
 
-// dashboardPageName is the page a widget lands on when its node does not ask
-// for another one.
+// dashboardPageName is the page widgets land on when a project has no
+// TinyWidgetPage of its own — a project that never opened the dashboard
+// editor still has somewhere to render.
 const dashboardPageName = "default"
-
-// widgetPage is the tab a node asks for, or the default.
-func widgetPage(node v1alpha1.TinyNode) string {
-	if p := strings.TrimSpace(node.Annotations[v1alpha1.DashboardPageAnnotation]); p != "" {
-		return p
-	}
-	return dashboardPageName
-}
 
 // buildDashboard DERIVES the dashboard from the project's nodes: every node
 // labelled DashboardLabel is a widget over its control port, rendered with the
@@ -73,32 +68,73 @@ func buildDashboard(ctx context.Context, mgr *resource.Manager, projectName stri
 		return nil, nil
 	}
 
-	// Pages are derived from what the widgets actually ask for: a tab exists
-	// because something is on it. The default page is always offered so a
-	// project with no widgets still renders a dashboard rather than nothing.
-	seen := map[string]bool{dashboardPageName: true}
-	order := []string{dashboardPageName}
+	// Pages are TinyWidgetPage resources — the same model the platform uses,
+	// where a page owns its widget entries and each entry carries the grid
+	// placement. A widget may belong to SEVERAL pages, so membership is read
+	// per page rather than stored on the node.
+	pageList, _ := mgr.GetProjectPageWidgets(ctx, projectName)
+
+	pages := make([]*platform.ProjectDashboardPage, 0, len(pageList))
+	// port full name -> the pages showing it, and the placement to render.
+	memberOf := map[string][]string{}
+	placement := map[string]v1alpha1.TinyWidget{}
+
+	for i := range pageList {
+		page := pageList[i]
+		title := page.Annotations[v1alpha1.PageTitleAnnotation]
+		if title == "" {
+			title = page.Name
+		}
+		idx, _ := strconv.Atoi(page.Annotations[v1alpha1.PageSortIdxAnnotation])
+		pages = append(pages, &platform.ProjectDashboardPage{
+			Name:    title,
+			Title:   title,
+			SortIdx: int32(idx),
+		})
+		for _, w := range page.Spec.Widgets {
+			memberOf[w.Port] = append(memberOf[w.Port], title)
+			if _, seen := placement[w.Port]; !seen {
+				placement[w.Port] = w
+			}
+		}
+	}
+
+	sort.SliceStable(pages, func(i, j int) bool { return pages[i].SortIdx < pages[j].SortIdx })
+
 	events := make([]*platform.DashboardEvent, 0)
+	var needDefault bool
 
 	for i := range nodes {
 		node := nodes[i]
 		if node.Labels[v1alpha1.DashboardLabel] != "true" {
 			continue
 		}
-		if p := widgetPage(node); !seen[p] {
-			seen[p] = true
-			order = append(order, p)
+		port := utils.GetPortFullName(node.Name, controlPort)
+		on := memberOf[port]
+		if len(on) == 0 {
+			// A node labelled for the dashboard that no page claims yet —
+			// the common case right after a build, before anyone arranged
+			// the layout.
+			on = []string{dashboardPageName}
+			needDefault = true
 		}
-		events = append(events, updateWidgetEvent(node))
+		w, hasPlacement := placement[port]
+		events = append(events, updateWidgetEvent(node, on, w, hasPlacement))
 	}
 
-	pages := make([]*platform.ProjectDashboardPage, 0, len(order))
-	for i, name := range order {
-		pages = append(pages, &platform.ProjectDashboardPage{
-			Name:    name,
-			Title:   name,
-			SortIdx: int32(i),
-		})
+	if needDefault || len(pages) == 0 {
+		has := false
+		for _, p := range pages {
+			if p.Name == dashboardPageName {
+				has = true
+				break
+			}
+		}
+		if !has {
+			pages = append([]*platform.ProjectDashboardPage{{
+				Name: dashboardPageName, Title: dashboardPageName, SortIdx: 0,
+			}}, pages...)
+		}
 	}
 
 	return pages, events
@@ -111,13 +147,13 @@ const controlPort = "_control"
 // between the initial snapshot and later watch events, or an update would add a
 // duplicate instead of replacing.
 func widgetID(node v1alpha1.TinyNode) string {
-	return fmt.Sprintf("%s-%s-%s", widgetPage(node), node.Name, controlPort)
+	return fmt.Sprintf("%s-%s", node.Name, controlPort)
 }
 
 // updateWidgetEvent renders one dashboard-labelled node as an UPDATE_WIDGET,
 // carrying its live control-port schema + data. Used both for the initial
 // snapshot and for each realtime change.
-func updateWidgetEvent(node v1alpha1.TinyNode) *platform.DashboardEvent {
+func updateWidgetEvent(node v1alpha1.TinyNode, pages []string, placed v1alpha1.TinyWidget, hasPlacement bool) *platform.DashboardEvent {
 	var schemaBytes, dataBytes []byte
 	for _, ps := range node.Status.Ports {
 		if ps.Name == controlPort {
@@ -126,17 +162,39 @@ func updateWidgetEvent(node v1alpha1.TinyNode) *platform.DashboardEvent {
 			break
 		}
 	}
-	// The node's own label first: a dashboard with two widgets both titled
-	// "Signal" tells the user nothing about which one holds the API key and
-	// which one asks the question. The component description is the fallback
-	// for nodes the author never named.
-	title := node.Annotations[v1alpha1.NodeLabelAnnotation]
+
+	// Title: the page's own name for this widget wins (that is what the user
+	// typed in the dashboard editor), then the node's label, then the
+	// component's description.
+	title := placed.Name
+	if title == "" {
+		title = node.Annotations[v1alpha1.NodeLabelAnnotation]
+	}
 	if title == "" {
 		title = node.Status.Component.Description
 	}
 	if title == "" {
 		title = node.Name
 	}
+
+	// Placement comes from the page entry. Only a widget nobody has arranged
+	// falls back to a default size, and half-width so several fit a row.
+	grid := &platform.Grid{W: 3, H: 4}
+	if hasPlacement {
+		grid = &platform.Grid{
+			X: int32(placed.GridX),
+			Y: int32(placed.GridY),
+			W: int32(placed.GridW),
+			H: int32(placed.GridH),
+		}
+		if grid.W == 0 {
+			grid.W = 3
+		}
+		if grid.H == 0 {
+			grid.H = 4
+		}
+	}
+
 	return &platform.DashboardEvent{
 		Type: "UPDATE_WIDGET",
 		Widget: &platform.Widget{
@@ -147,12 +205,8 @@ func updateWidgetEvent(node v1alpha1.TinyNode) *platform.DashboardEvent {
 			DefaultSchema: schemaBytes,
 			Schema:        schemaBytes,
 			Data:          dataBytes,
-			// Half of the six-column grid, so widgets flow two per row
-			// instead of every one claiming the full width and stacking.
-			// Position is left unset: the grid packs them in order, and a
-			// user's own drag/resize in edit mode wins from then on.
-			Grid:  &platform.Grid{W: 3, H: 4},
-			Pages: []string{widgetPage(node)},
+			Grid:          grid,
+			Pages:         pages,
 		},
 	}
 }
@@ -167,7 +221,41 @@ func deleteWidgetEvent(node v1alpha1.TinyNode) *platform.DashboardEvent {
 			ID:    widgetID(node),
 			Node:  node.Name,
 			Port:  controlPort,
-			Pages: []string{widgetPage(node)},
+			Pages: []string{dashboardPageName},
 		},
 	}
+}
+
+// widgetEventForNode builds one node's widget event with its real page
+// membership and placement — the watch path's equivalent of the snapshot,
+// so a live update cannot silently move a widget back to the default page.
+func widgetEventForNode(ctx context.Context, mgr *resource.Manager, projectName string, node v1alpha1.TinyNode) *platform.DashboardEvent {
+	port := utils.GetPortFullName(node.Name, controlPort)
+
+	var on []string
+	var placed v1alpha1.TinyWidget
+	var hasPlacement bool
+
+	if pageList, err := mgr.GetProjectPageWidgets(ctx, projectName); err == nil {
+		for i := range pageList {
+			page := pageList[i]
+			title := page.Annotations[v1alpha1.PageTitleAnnotation]
+			if title == "" {
+				title = page.Name
+			}
+			for _, w := range page.Spec.Widgets {
+				if w.Port != port {
+					continue
+				}
+				on = append(on, title)
+				if !hasPlacement {
+					placed, hasPlacement = w, true
+				}
+			}
+		}
+	}
+	if len(on) == 0 {
+		on = []string{dashboardPageName}
+	}
+	return updateWidgetEvent(node, on, placed, hasPlacement)
 }
