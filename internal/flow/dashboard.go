@@ -118,8 +118,12 @@ func updateWidgetEvent(node v1alpha1.TinyNode) *platform.DashboardEvent {
 			DefaultSchema: schemaBytes,
 			Schema:        schemaBytes,
 			Data:          dataBytes,
-			Grid:          &platform.Grid{W: 6, H: 4},
-			Pages:         []string{dashboardPageName},
+			// Half of the six-column grid, so widgets flow two per row
+			// instead of every one claiming the full width and stacking.
+			// Position is left unset: the grid packs them in order, and a
+			// user's own drag/resize in edit mode wins from then on.
+			Grid:  &platform.Grid{W: 3, H: 4},
+			Pages: []string{dashboardPageName},
 		},
 	}
 }

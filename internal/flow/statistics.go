@@ -36,11 +36,21 @@ type statisticsService struct {
 
 // GetTraces lists recent traces for the Executions tab. Nil trace source (no
 // reader wired) returns an empty list rather than erroring the panel.
+// maxTraceOffset mirrors the collector's paging window (statistics/traces.go).
+const maxTraceOffset = 1000
+
 func (s statisticsService) GetTraces(ctx context.Context, req *platform.StatisticsGetTracesRequest) (*platform.StatisticsGetTracesResponse, error) {
 	if s.trace == nil {
 		return &platform.StatisticsGetTracesResponse{}, nil
 	}
 	offset := int(req.Offset)
+	// The collector rejects an offset past its window outright. A client that
+	// walks off the end then gets an error for every subsequent poll, which
+	// is a stream of failures rather than "no more traces". Past the end is
+	// simply the end.
+	if offset < 0 || offset > maxTraceOffset {
+		return &platform.StatisticsGetTracesResponse{Offset: req.Offset}, nil
+	}
 	summaries, err := s.trace.ReadTraces(ctx, req.ProjectName, req.FlowName, tracesLookback, offset, tracesLimit)
 	if err != nil {
 		return nil, err
@@ -59,7 +69,12 @@ func (s statisticsService) GetTraces(ctx context.Context, req *platform.Statisti
 	}
 	return &platform.StatisticsGetTracesResponse{
 		Traces: traces,
-		Total:  int64(offset + len(traces)),
+		// Total is THIS page's size: the client advances by
+		// offset + total. Reporting offset+len made every page advance the
+		// cursor by the whole history again, so the offset grew
+		// quadratically, blew past the collector's limit within a few
+		// refreshes, and every poll after that failed.
+		Total:  int64(len(traces)),
 		Offset: int64(offset),
 	}, nil
 }
