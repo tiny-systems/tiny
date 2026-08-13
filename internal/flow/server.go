@@ -13,6 +13,16 @@ import (
 	"google.golang.org/grpc"
 )
 
+// streamKeepalive is how often an otherwise-idle server stream writes a
+// keepalive frame. A grpc-web stream runs over an HTTP/1.1 request, and Go's
+// server does not read that connection while the streaming handler runs — so a
+// handler that only waits (never writes) never learns the browser navigated
+// away. The stream context is not cancelled, the goroutine blocks forever, and
+// its half-closed socket sits in CLOSE_WAIT; enough editor visits exhaust fds
+// and the server stops responding. A periodic write turns client disconnect
+// into a Send error, which every stream handler treats as "client gone, return".
+const streamKeepalive = 15 * time.Second
+
 // Serve runs the FlowService as a gRPC-web endpoint on addr (e.g.
 // "127.0.0.1:7775") until ctx is cancelled. The editor's Connect-ES
 // createGrpcWebTransport client talks to it directly — same wire protocol the

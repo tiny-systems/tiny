@@ -102,9 +102,24 @@ type workspaceActivityService struct {
 
 func (w workspaceActivityService) Watch(_ *mcpv1.WatchWorkspaceActivityRequest, stream grpc.ServerStreamingServer[mcpv1.WorkspaceActivityEvent]) error {
 	ctx := stream.Context()
+	// Keepalive so a browser that left is detected via the failed write rather
+	// than leaking this handler forever (see streamKeepalive). Tagged so the
+	// editor filters it instead of showing a blank activity row.
+	t := time.NewTicker(streamKeepalive)
+	defer t.Stop()
+	keepalive := func() error { return stream.Send(&mcpv1.WorkspaceActivityEvent{Kind: "keepalive"}) }
+
 	if w.bus == nil {
-		<-ctx.Done()
-		return nil
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-t.C:
+				if err := keepalive(); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	ch, backlog, cancel := w.bus.subscribe()
 	defer cancel()
@@ -118,6 +133,10 @@ func (w workspaceActivityService) Watch(_ *mcpv1.WatchWorkspaceActivityRequest, 
 		select {
 		case <-ctx.Done():
 			return nil
+		case <-t.C:
+			if err := keepalive(); err != nil {
+				return err
+			}
 		case evt := <-ch:
 			e := evt
 			if err := stream.Send(&e); err != nil {

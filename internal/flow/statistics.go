@@ -136,8 +136,23 @@ func (s *Service) loadTraceStats(ctx context.Context, projectName, traceID strin
 // showing "live" instead of a connection error; the trace list falls back to
 // its manual refresh.
 func (s statisticsService) GetStream(_ *platform.StatisticsStreamRequest, stream grpc.ServerStreamingServer[platform.StatisticsStreamResponse]) error {
-	<-stream.Context().Done()
-	return nil
+	// Send an empty keepalive on a ticker rather than blocking on ctx.Done():
+	// an idle grpc-web stream never writes, so a browser that navigated away is
+	// only noticed via a failed write (see streamKeepalive). The editor ignores
+	// the empty payload; it exists only to detect the dead client.
+	t := time.NewTicker(streamKeepalive)
+	defer t.Stop()
+	ctx := stream.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-t.C:
+			if err := stream.Send(&platform.StatisticsStreamResponse{}); err != nil {
+				return err
+			}
+		}
+	}
 }
 
 // spanToTraceSpan maps an SDK span to the editor's TraceSpan. ParentSpanID and

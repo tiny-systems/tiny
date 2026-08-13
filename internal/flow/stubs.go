@@ -218,7 +218,12 @@ func (p projectService) GetStream(req *platform.GetProjectStreamRequest, stream 
 				return err
 			}
 		case <-heartbeat.C:
-			// keep the stream visibly alive between changes
+			// An empty keepalive (no events → editor's `DashboardEvent || []`
+			// loop is a no-op) whose only job is to write, so a browser that
+			// left surfaces as a Send error instead of leaking this handler.
+			if err := stream.Send(&platform.GetProjectStreamEvent{}); err != nil {
+				return err
+			}
 		}
 	}
 }
