@@ -157,14 +157,34 @@ func (p projectService) GetStream(req *platform.GetProjectStreamRequest, stream 
 	// Coalesce widget events, same rationale as GetFlowStream: a running flow
 	// bumps its widget nodes' _control data many times a second, and sending a
 	// DashboardEvent per change floods the browser. Fold changes into one event
-	// per node per window (latest wins), flushed on the coalesce tick — mirrors
-	// the platform's 500ms debounced send, kept on this goroutine.
+	// per node per window (latest wins).
+	//
+	// Leading edge: the FIRST change after an idle period flushes immediately,
+	// so a transient state the person is waiting on — a "working…" line, a
+	// locked form — reaches the browser instead of being overwritten by the
+	// next change (e.g. the answer) inside the window and never shown. Changes
+	// that arrive while armed are coalesced and flushed on the tick (trailing
+	// edge), which still shields the browser from a widget bumping many times a
+	// second.
 	const coalesceWindow = 500 * time.Millisecond
 	coalesce := time.NewTimer(coalesceWindow)
 	coalesce.Stop()
 	defer coalesce.Stop()
 	pendingEvents := make(map[string]*platform.DashboardEvent)
 	armed := false
+
+	flush := func() error {
+		if len(pendingEvents) == 0 {
+			return nil
+		}
+		events := make([]*platform.DashboardEvent, 0, len(pendingEvents))
+		for _, e := range pendingEvents {
+			events = append(events, e)
+		}
+		pendingEvents = make(map[string]*platform.DashboardEvent)
+		// Return (not break) on send error: the client is gone.
+		return stream.Send(&platform.GetProjectStreamEvent{DashboardEvent: events})
+	}
 
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
@@ -196,25 +216,20 @@ func (p projectService) GetStream(req *platform.GetProjectStreamRequest, stream 
 			default:
 				continue // not a widget and never was — nothing to send
 			}
-			// Arm the flush only on the first change of a burst — never re-arm
-			// on later changes, or a single widget updating continuously would
-			// keep pushing the deadline out and never flush (starvation).
+			// Leading edge: send the first change of a burst now; arm the timer
+			// so later changes coalesce and flush on the tick. Never re-arm on
+			// later changes, or a continuously-updating widget would keep pushing
+			// the deadline out and never flush (starvation).
 			if !armed {
 				armed = true
+				if err := flush(); err != nil {
+					return err
+				}
 				coalesce.Reset(coalesceWindow)
 			}
 		case <-coalesce.C:
 			armed = false
-			if len(pendingEvents) == 0 {
-				continue
-			}
-			events := make([]*platform.DashboardEvent, 0, len(pendingEvents))
-			for _, e := range pendingEvents {
-				events = append(events, e)
-			}
-			pendingEvents = make(map[string]*platform.DashboardEvent)
-			// Return (not break) on send error: the client is gone.
-			if err := stream.Send(&platform.GetProjectStreamEvent{DashboardEvent: events}); err != nil {
+			if err := flush(); err != nil {
 				return err
 			}
 		case <-heartbeat.C:
