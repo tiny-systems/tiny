@@ -1,10 +1,14 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import ProjectView from './views/ProjectView.vue'
 import EditorView from './views/EditorView.vue'
+import AppView from './views/AppView.vue'
 
-// Two routes mirror the platform's project shell:
-//   /            → the project dashboard (activity, widgets, flows, …)
-//   /flow/:id    → the flow editor for one flow (layer)
+// Three routes mirror the split between building and using:
+//   /                → the project dashboard (activity, widgets, flows, …)
+//   /flow/:id        → the flow editor for one flow (layer)
+//   /app/:project?   → the Agent page — the product surface for USING an
+//                      agent (setup + chat + widgets); the link tiny prints
+//                      after a build. Project defaults to the session's.
 // Client-side routing is what makes the flow switcher, previews and the
 // "open flow" navigation work — they push routes instead of hitting dead URLs.
 export const router = createRouter({
@@ -12,6 +16,7 @@ export const router = createRouter({
   routes: [
     { path: '/', name: 'project', component: ProjectView },
     { path: '/flow/:id', name: 'flow', component: EditorView, props: true },
+    { path: '/app/:project?', name: 'app', component: AppView, props: true },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })
