@@ -183,8 +183,13 @@ func (s *Service) SaveFlow(ctx context.Context, req *platform.SaveFlowRequest) (
 		})
 
 		cfg, schema := edgeConfig(el.Data)
+		// From MUST carry the source node:port — the SDK runner selects a
+		// port config by exact (From, Port) match (runner.go getPortConfig),
+		// so a config saved without From never applies and the edge's
+		// mapping silently evaporates on every editor save.
 		tgtNode.Spec.Ports = append(tgtNode.Spec.Ports, v1alpha1.TinyNodePortConfig{
 			Port:          el.TargetHandle,
+			From:          fmt.Sprintf("%s:%s", src, el.SourceHandle),
 			Configuration: cfg,
 			Schema:        schema,
 			FlowID:        prefix,
