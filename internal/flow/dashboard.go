@@ -10,6 +10,7 @@ import (
 
 	"github.com/tiny-systems/module/api/v1alpha1"
 	"github.com/tiny-systems/module/pkg/resource"
+	"github.com/tiny-systems/module/pkg/schema"
 	platform "github.com/tiny-systems/platform-go"
 )
 
@@ -160,6 +161,16 @@ func updateWidgetEvent(node v1alpha1.TinyNode, pages []string, placed v1alpha1.T
 			schemaBytes = ps.Schema
 			dataBytes = ps.Configuration
 			break
+		}
+	}
+	// The status schema is the component's NATIVE schema by design; schemas a
+	// person or agent authored on the node (Spec.Ports) overlay at read time.
+	// The canvas path does this merge (utils.GetFlowMaps) — the widget path
+	// must too, or a custom trigger form (masked API-key field, titles) never
+	// reaches the dashboard.
+	if len(schemaBytes) > 0 {
+		if merged, err := schema.UpdateWithDefinitions(schemaBytes, utils.GetConfigurableDefinitions(node, nil)); err == nil {
+			schemaBytes = merged
 		}
 	}
 
