@@ -205,6 +205,27 @@ func (s *Service) SaveFlow(ctx context.Context, req *platform.SaveFlowRequest) (
 			}
 			continue
 		}
+		// Cross-flow wiring must survive the save. A shared node from another
+		// flow can be an edge endpoint here, but the canvas payload only
+		// describes THIS flow's nodes — a plain spec replace was deleting
+		// every edge TO a foreign node (it lives on the owned source) and
+		// every edge config FROM a foreign node (it lives on the owned
+		// target), silently breaking a flow the first time anyone saved it
+		// after an agent wired flows together.
+		for _, e := range existing.Spec.Edges {
+			if i := strings.LastIndex(e.To, ":"); i > 0 {
+				if _, owned := desired[e.To[:i]]; !owned {
+					node.Spec.Edges = append(node.Spec.Edges, e)
+				}
+			}
+		}
+		for _, pc := range existing.Spec.Ports {
+			if i := strings.LastIndex(pc.From, ":"); i > 0 {
+				if _, owned := desired[pc.From[:i]]; !owned {
+					node.Spec.Ports = append(node.Spec.Ports, pc)
+				}
+			}
+		}
 		existing.Spec = node.Spec
 		if existing.Annotations == nil {
 			existing.Annotations = map[string]string{}
