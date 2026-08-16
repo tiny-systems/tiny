@@ -267,7 +267,7 @@ func (e *NodeEditor) ConfigureEdge(ctx context.Context, projectName, flowName, e
 	// schema, hits null at every shapeless leaf, and flags an edge
 	// unverifiable even though a sample (authored, pinned, or
 	// auto-scaffolded by build_flow) exists precisely to verify it.
-	strictErr := e.strictValidateEdge(ctx, flowName, fromNode, fromPort, toNode, toPort, configBytes, schemaBytes, sample)
+	strictErr := e.strictValidateEdge(ctx, projectName, fromNode, fromPort, toNode, toPort, configBytes, schemaBytes, sample)
 	if strictErr != nil && !utils.IsUnverifiable(strictErr) {
 		return &sdktools.ConfigureEdgeResult{
 			Valid: false,
@@ -501,11 +501,19 @@ func (e *NodeEditor) ConfigureNodeSettings(ctx context.Context, projectName, flo
 // flow's nodes can't be listed or the target schema isn't published
 // yet, returns nil (lenient — we don't fail edges purely because
 // kube reads or reconciliation are racing).
-func (e *NodeEditor) strictValidateEdge(ctx context.Context, flowName, fromNode, fromPort, toNode, toPort string, configBytes, edgeSchemaBytes, sourceSample []byte) error {
+func (e *NodeEditor) strictValidateEdge(ctx context.Context, projectName, fromNode, fromPort, toNode, toPort string, configBytes, edgeSchemaBytes, sourceSample []byte) error {
+	// Scope to the PROJECT, not the flow. Flows are transparent layers of
+	// one project and an edge may cross them (a shared node wired into
+	// another flow). Listing one flow left the far endpoint out of the
+	// map, so its port example was missing and the edge validated as
+	// unverifiable — the tool reported valid while the canvas, which
+	// reads the whole project, resolved the same expression and painted
+	// it red. Two validators, two verdicts, and the model never learned
+	// it had a problem.
 	list := &v1alpha1.TinyNodeList{}
 	if err := e.kube.Client.List(ctx, list,
 		client.InNamespace(e.kube.Namespace),
-		client.MatchingLabels{v1alpha1.FlowNameLabel: flowName},
+		client.MatchingLabels{v1alpha1.ProjectNameLabel: projectName},
 	); err != nil {
 		return nil // lenient on transient kube failures
 	}
