@@ -10,9 +10,10 @@ require (
 	github.com/mittwald/go-helm-client v0.12.19
 	github.com/nats-io/nats.go v1.52.0
 	github.com/rs/zerolog v1.34.0
+	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	github.com/spf13/cobra v1.10.2
 	github.com/tiny-systems/ajson v0.1.6
-	github.com/tiny-systems/module v0.13.82
+	github.com/tiny-systems/module v0.13.84
 	github.com/tiny-systems/platform-api v0.5.6
 	github.com/tiny-systems/platform-go v0.2.4
 	google.golang.org/grpc v1.82.1
@@ -135,7 +136,6 @@ require (
 	github.com/rs/cors v1.7.0 // indirect
 	github.com/rubenv/sql-migrate v1.8.1 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
-	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
