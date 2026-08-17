@@ -89,10 +89,11 @@ func (p projectService) SaveWidgets(ctx context.Context, req *platform.SaveWidge
 			if page == nil {
 				continue
 			}
-			if hasWidgetPort(page, rw.ID) {
+			port := portFromWidgetID(rw.ID)
+			if hasWidgetPort(page, port) {
 				continue // that page already places this widget its own way
 			}
-			w := v1alpha1.TinyWidget{Port: rw.ID, Name: rw.Title}
+			w := v1alpha1.TinyWidget{Port: port, Name: rw.Title}
 			if rw.Grid != nil {
 				w.GridX, w.GridY = int(rw.Grid.X), int(rw.Grid.Y)
 				w.GridW, w.GridH = int(rw.Grid.W), int(rw.Grid.H)

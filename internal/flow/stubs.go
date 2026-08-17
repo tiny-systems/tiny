@@ -1,7 +1,6 @@
 package flow
 
 import (
-	"context"
 	"encoding/json"
 	"time"
 
@@ -24,10 +23,6 @@ import (
 type projectService struct {
 	platform.UnimplementedProjectServiceServer
 	svc *Service
-}
-
-func (p projectService) GetConfiguration(context.Context, *platform.GetProjectConfigurationRequest) (*platform.GetProjectConfigurationResponse, error) {
-	return &platform.GetProjectConfigurationResponse{}, nil
 }
 
 // GetStream drives the project dashboard: it sends one snapshot with the
@@ -102,6 +97,16 @@ func (p projectService) GetStream(req *platform.GetProjectStreamRequest, stream 
 				Name:         req.ProjectName,
 				ResourceName: req.ProjectName,
 			},
+			// The editor hides every authoring control behind this map —
+			// the dashboard's options menu (edit layout, add/delete tab)
+			// checks `accessMap && checkAccess(accessMap, 'write')`, so a
+			// missing map reads as read-only. Locally the person owns the
+			// cluster they pointed tiny at; there is nobody to withhold it
+			// from.
+			Access: &platform.AccessItem{Access: map[string]bool{
+				"read":  true,
+				"write": true,
+			}},
 		},
 	}); err != nil {
 		return err

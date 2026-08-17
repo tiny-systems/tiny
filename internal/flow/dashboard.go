@@ -7,6 +7,7 @@ import (
 	"github.com/tiny-systems/module/pkg/utils"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/tiny-systems/module/api/v1alpha1"
 	"github.com/tiny-systems/module/pkg/resource"
@@ -149,6 +150,20 @@ const controlPort = "_control"
 // duplicate instead of replacing.
 func widgetID(node v1alpha1.TinyNode) string {
 	return fmt.Sprintf("%s-%s", node.Name, controlPort)
+}
+
+// portFromWidgetID is widgetID's inverse: the browser identifies a widget by
+// the DOM-safe dashed id (GridStack addresses elements with `#id`, and a
+// colon there is a CSS selector), but a page stores placements under the
+// port's real name. Saving the browser's id verbatim wrote a key the read
+// path can never match, so a widget silently lost its placement AND its page
+// membership on the next load.
+func portFromWidgetID(id string) string {
+	suffix := "-" + controlPort
+	if strings.HasSuffix(id, suffix) {
+		return strings.TrimSuffix(id, suffix) + ":" + controlPort
+	}
+	return id
 }
 
 // updateWidgetEvent renders one dashboard-labelled node as an UPDATE_WIDGET,
