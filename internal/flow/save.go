@@ -62,7 +62,15 @@ func (s *Service) SaveFlow(ctx context.Context, req *platform.SaveFlowRequest) (
 	if err != nil {
 		return nil, err
 	}
+	return saveFlow(ctx, kc, req)
+}
 
+// saveFlow is SaveFlow's body with the cluster client passed in explicitly.
+// Resolving the client is the only thing SaveFlow does on its own, and it
+// needs a live rest.Config; taking *kube.Client as an argument is what lets
+// the cross-layer save semantics be tested against a fake client (matching the
+// rest of the package, where helpers like flowGraphJSON take their client).
+func saveFlow(ctx context.Context, kc *kube.Client, req *platform.SaveFlowRequest) (*platform.SaveFlowResponse, error) {
 	var payload graphPayload
 	if err := json.Unmarshal(req.Graph, &payload); err != nil {
 		return nil, fmt.Errorf("parse graph: %w", err)
@@ -161,7 +169,12 @@ func (s *Service) SaveFlow(ctx context.Context, req *platform.SaveFlowRequest) (
 	}
 
 	// Edge pass: wire edges onto their source node, edge config onto the
-	// target node's ports. Both endpoints must be desired nodes we own.
+	// target node's ports. An endpoint may be a node shared in from another
+	// layer, which this flow does not own — those writes accumulate here and
+	// are applied separately.
+	foreignEdges := map[string][]v1alpha1.TinyNodeEdge{}
+	foreignPorts := map[string][]v1alpha1.TinyNodePortConfig{}
+
 	for _, el := range payload.Elements {
 		if el.Source == "" || el.Target == "" {
 			continue
@@ -170,30 +183,46 @@ func (s *Service) SaveFlow(ctx context.Context, req *platform.SaveFlowRequest) (
 		tgt := remap(idRemap, el.Target)
 		srcNode, srcOK := desired[src]
 		tgtNode, tgtOK := desired[tgt]
-		if !srcOK || !tgtOK {
-			continue // edge to a shared/foreign node — skip
+		// Flows are layers of one picture, so an edge may legitimately cross
+		// them: a node shared in from another layer is a valid endpoint. The
+		// edge lives on its SOURCE and the configuration on its TARGET, so
+		// one of those writes can land on a node this flow does not own —
+		// collected here and patched below. Only an edge with an end that
+		// exists nowhere in the project is meaningless.
+		if (!srcOK && !knownNames[src]) || (!tgtOK && !knownNames[tgt]) {
+			continue
 		}
 
 		edgeID := fmt.Sprintf("%s_%s-%s_%s", src, el.SourceHandle, tgt, el.TargetHandle)
-		srcNode.Spec.Edges = append(srcNode.Spec.Edges, v1alpha1.TinyNodeEdge{
+		edge := v1alpha1.TinyNodeEdge{
 			ID:     edgeID,
 			Port:   el.SourceHandle,
 			To:     fmt.Sprintf("%s:%s", tgt, el.TargetHandle),
 			FlowID: prefix,
-		})
+		}
+		if srcOK {
+			srcNode.Spec.Edges = append(srcNode.Spec.Edges, edge)
+		} else {
+			foreignEdges[src] = append(foreignEdges[src], edge)
+		}
 
 		cfg, schema := edgeConfig(el.Data)
 		// From MUST carry the source node:port — the SDK runner selects a
 		// port config by exact (From, Port) match (runner.go getPortConfig),
 		// so a config saved without From never applies and the edge's
 		// mapping silently evaporates on every editor save.
-		tgtNode.Spec.Ports = append(tgtNode.Spec.Ports, v1alpha1.TinyNodePortConfig{
+		portConfig := v1alpha1.TinyNodePortConfig{
 			Port:          el.TargetHandle,
 			From:          fmt.Sprintf("%s:%s", src, el.SourceHandle),
 			Configuration: cfg,
 			Schema:        schema,
 			FlowID:        prefix,
-		})
+		}
+		if tgtOK {
+			tgtNode.Spec.Ports = append(tgtNode.Spec.Ports, portConfig)
+		} else {
+			foreignPorts[tgt] = append(foreignPorts[tgt], portConfig)
+		}
 	}
 
 	// Apply: create new, update existing (owned), delete owned-but-gone.
@@ -205,25 +234,19 @@ func (s *Service) SaveFlow(ctx context.Context, req *platform.SaveFlowRequest) (
 			}
 			continue
 		}
-		// Cross-flow wiring must survive the save. A shared node from another
-		// flow can be an edge endpoint here, but the canvas payload only
-		// describes THIS flow's nodes — a plain spec replace was deleting
-		// every edge TO a foreign node (it lives on the owned source) and
-		// every edge config FROM a foreign node (it lives on the owned
-		// target), silently breaking a flow the first time anyone saved it
-		// after an agent wired flows together.
+		// A node's spec carries what EVERY layer wired onto it, each entry
+		// tagged with the flow that created it. This save owns only its own
+		// slice; another layer's edges and edge configs are preserved
+		// verbatim. Replacing the spec wholesale used to delete them, so
+		// saving one flow quietly unwired another.
 		for _, e := range existing.Spec.Edges {
-			if i := strings.LastIndex(e.To, ":"); i > 0 {
-				if _, owned := desired[e.To[:i]]; !owned {
-					node.Spec.Edges = append(node.Spec.Edges, e)
-				}
+			if e.FlowID != "" && e.FlowID != prefix {
+				node.Spec.Edges = append(node.Spec.Edges, e)
 			}
 		}
 		for _, pc := range existing.Spec.Ports {
-			if i := strings.LastIndex(pc.From, ":"); i > 0 {
-				if _, owned := desired[pc.From[:i]]; !owned {
-					node.Spec.Ports = append(node.Spec.Ports, pc)
-				}
+			if pc.FlowID != "" && pc.FlowID != prefix {
+				node.Spec.Ports = append(node.Spec.Ports, pc)
 			}
 		}
 		existing.Spec = node.Spec
@@ -253,6 +276,49 @@ func (s *Service) SaveFlow(ctx context.Context, req *platform.SaveFlowRequest) (
 			return nil, fmt.Errorf("update node %s: %w", id, err)
 		}
 	}
+
+	// Cross-layer writes. A node shared in from another flow can hold this
+	// flow's edges (when it is an edge's source) or edge configs (when it is
+	// the target), so wiring across layers means writing to a node this flow
+	// does not own. Rewrite only the slice tagged with this flow — dropping
+	// what the canvas no longer shows, keeping every other layer's — and
+	// never touch the node's own settings or labels.
+	for i := range all.Items {
+		node := all.Items[i]
+		if _, owned := ownedByFlow[node.Name]; owned {
+			continue
+		}
+		addEdges, addPorts := foreignEdges[node.Name], foreignPorts[node.Name]
+
+		keptEdges := make([]v1alpha1.TinyNodeEdge, 0, len(node.Spec.Edges))
+		dropped := false
+		for _, e := range node.Spec.Edges {
+			if e.FlowID == prefix {
+				dropped = true
+				continue
+			}
+			keptEdges = append(keptEdges, e)
+		}
+		keptPorts := make([]v1alpha1.TinyNodePortConfig, 0, len(node.Spec.Ports))
+		for _, pc := range node.Spec.Ports {
+			// From == "" is the node's own settings, which belongs to the
+			// node regardless of which layer is being saved.
+			if pc.FlowID == prefix && pc.From != "" {
+				dropped = true
+				continue
+			}
+			keptPorts = append(keptPorts, pc)
+		}
+		if !dropped && len(addEdges) == 0 && len(addPorts) == 0 {
+			continue
+		}
+		node.Spec.Edges = append(keptEdges, addEdges...)
+		node.Spec.Ports = append(keptPorts, addPorts...)
+		if err := kc.Client.Update(ctx, &node); err != nil {
+			return nil, fmt.Errorf("update shared node %s: %w", node.Name, err)
+		}
+	}
+
 	for name, node := range ownedByFlow {
 		if _, keep := desired[name]; keep {
 			continue
