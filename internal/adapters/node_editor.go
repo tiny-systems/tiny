@@ -614,17 +614,17 @@ func (e *NodeEditor) patchNode(ctx context.Context, name string, mutate func(*v1
 func (e *NodeEditor) ApplyFlowChanges(ctx context.Context, projectName, flowName string, operations []sdktools.FlowOperation) ([]sdktools.OperationResult, error) {
 	results := make([]sdktools.OperationResult, 0, len(operations))
 	for _, op := range operations {
-		results = append(results, e.applyOne(ctx, flowName, op))
+		results = append(results, e.applyOne(ctx, projectName, flowName, op))
 	}
 	return results, nil
 }
 
-func (e *NodeEditor) applyOne(ctx context.Context, flowName string, op sdktools.FlowOperation) sdktools.OperationResult {
+func (e *NodeEditor) applyOne(ctx context.Context, projectName, flowName string, op sdktools.FlowOperation) sdktools.OperationResult {
 	result := sdktools.OperationResult{Op: op.Op, ID: op.ID, Success: true}
 
 	switch op.Op {
 	case "delete":
-		if err := e.deleteByID(ctx, flowName, op.ID); err != nil {
+		if err := e.deleteByID(ctx, projectName, flowName, op.ID); err != nil {
 			result.Success = false
 			result.Error = err.Error()
 		}
@@ -638,14 +638,14 @@ func (e *NodeEditor) applyOne(ctx context.Context, flowName string, op sdktools.
 // deleteByID deletes either a node or an edge. The distinction is made by
 // the ID format: node IDs never contain underscore-separated port
 // segments, edge IDs do ("node_port-node_port").
-func (e *NodeEditor) deleteByID(ctx context.Context, flowName, id string) error {
+func (e *NodeEditor) deleteByID(ctx context.Context, projectName, flowName, id string) error {
 	if looksLikeEdgeID(id) {
 		return e.deleteEdge(ctx, id)
 	}
-	return e.deleteNode(ctx, flowName, id)
+	return e.deleteNode(ctx, projectName, flowName, id)
 }
 
-func (e *NodeEditor) deleteNode(ctx context.Context, flowName, nodeID string) error {
+func (e *NodeEditor) deleteNode(ctx context.Context, projectName, flowName, nodeID string) error {
 	node := &v1alpha1.TinyNode{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      nodeID,
@@ -660,7 +660,14 @@ func (e *NodeEditor) deleteNode(ctx context.Context, flowName, nodeID string) er
 	// Ports[].From pointing back here, a source keeps an Edges[].To pointing
 	// here. Left behind, those become dangling edges to a node that no longer
 	// exists — prune them so the flow stays consistent.
-	return e.pruneNodeReferences(ctx, flowName, nodeID)
+	if err := e.pruneNodeReferences(ctx, flowName, nodeID); err != nil {
+		return err
+	}
+	// The node's scenario samples are orphaned the same way, and nothing else
+	// collects them. Tidying is not part of the delete succeeding, so a
+	// failure here is not reported as one.
+	_, _ = pruneOrphanScenarioPorts(ctx, e.kube, projectName)
+	return nil
 }
 
 func (e *NodeEditor) deleteEdge(ctx context.Context, edgeID string) error {
@@ -1016,3 +1023,69 @@ func (e *NodeEditor) RepositionNode(ctx context.Context, projectName, flowName, 
 	}
 	return nil
 }
+
+// shareNode shares a node into other flows of the same project and returns
+// the set it ended up shared with.
+//
+// The returned set is not always the requested one: the node's own flow is
+// dropped (it is already there) and duplicates collapse. Every name is
+// checked against a real flow first — an annotation naming a flow that does
+// not exist is invisible until someone opens a canvas and wonders where the
+// node went.
+func (e *NodeEditor) shareNode(ctx context.Context, projectName, flowName, nodeID string, flows []string) ([]string, error) {
+	node := &v1alpha1.TinyNode{}
+	key := types.NamespacedName{Namespace: e.kube.Namespace, Name: nodeID}
+	if err := e.kube.Client.Get(ctx, key, node); err != nil {
+		return nil, fmt.Errorf("get node %s: %w", nodeID, err)
+	}
+	owner := node.Labels[v1alpha1.FlowNameLabel]
+
+	seen := map[string]bool{}
+	resolved := make([]string, 0, len(flows))
+	for _, name := range flows {
+		name = strings.TrimSpace(name)
+		if name == "" || name == owner || seen[name] {
+			continue
+		}
+		flow := &v1alpha1.TinyFlow{}
+		if err := e.kube.Client.Get(ctx, types.NamespacedName{Namespace: e.kube.Namespace, Name: name}, flow); err != nil {
+			if k8serrors.IsNotFound(err) {
+				return nil, fmt.Errorf("flow %q does not exist in this project", name)
+			}
+			return nil, fmt.Errorf("get flow %s: %w", name, err)
+		}
+		seen[name] = true
+		resolved = append(resolved, name)
+	}
+	sort.Strings(resolved)
+
+	err := e.patchNode(ctx, nodeID, func(n *v1alpha1.TinyNode) error {
+		if len(resolved) == 0 {
+			delete(n.Annotations, v1alpha1.SharedWithFlowsAnnotation)
+			return nil
+		}
+		if n.Annotations == nil {
+			n.Annotations = map[string]string{}
+		}
+		// Joined with a bare comma: the readers split on "," and match each
+		// segment exactly, so a space after the separator makes the flow
+		// name it precedes never match.
+		n.Annotations[v1alpha1.SharedWithFlowsAnnotation] = strings.Join(resolved, ",")
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return resolved, nil
+}
+
+// ShareNode implements sdktools.NodeSharer.
+func (e *NodeEditor) ShareNode(ctx context.Context, projectName, flowName, nodeID string, flows []string) (*sdktools.ShareNodeResult, error) {
+	resolved, err := e.shareNode(ctx, projectName, flowName, nodeID, flows)
+	if err != nil {
+		return nil, err
+	}
+	return &sdktools.ShareNodeResult{NodeID: nodeID, Flows: resolved}, nil
+}
+
+var _ sdktools.NodeSharer = (*NodeEditor)(nil)

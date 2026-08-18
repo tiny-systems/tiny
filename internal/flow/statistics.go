@@ -19,12 +19,33 @@ type traceSource interface {
 }
 
 const (
-	// tracesLookback is the window the editor's trace list scans. Local dev with
-	// dev-grade collector retention — a day is plenty and cheap.
-	tracesLookback = 24 * time.Hour
+	// defaultTracesLookback is the window scanned when a client asks for none.
+	// Local dev with dev-grade collector retention — a day is plenty and cheap.
+	defaultTracesLookback = 24 * time.Hour
+	// minTracesLookback floors a window that has already elapsed, so a stale
+	// or clock-skewed Start can never ask for a negative span.
+	minTracesLookback = time.Minute
 	// tracesLimit caps a single trace-list page.
 	tracesLimit = 100
 )
+
+// lookbackFor converts the request's absolute window into the relative one the
+// trace reader takes.
+//
+// Start used to be ignored outright, and that made the editor lie: its error
+// tile asks for fifteen minutes and renders the answer under a "last 15 min"
+// label, while this served it a full day. The count was real, the label was
+// not. The reader's window always ends now, so only Start matters here.
+func lookbackFor(start int64) time.Duration {
+	if start <= 0 {
+		return defaultTracesLookback
+	}
+	lookback := time.Since(time.UnixMilli(start))
+	if lookback < minTracesLookback {
+		return minTracesLookback
+	}
+	return lookback
+}
 
 // statisticsService serves the editor's Executions/Traces tab from the
 // otel-collector through a trace reader — the same source the MCP get_traces
@@ -51,7 +72,7 @@ func (s statisticsService) GetTraces(ctx context.Context, req *platform.Statisti
 	if offset < 0 || offset > maxTraceOffset {
 		return &platform.StatisticsGetTracesResponse{Offset: req.Offset}, nil
 	}
-	summaries, err := s.trace.ReadTraces(ctx, req.ProjectName, req.FlowName, tracesLookback, offset, tracesLimit)
+	summaries, err := s.trace.ReadTraces(ctx, req.ProjectName, req.FlowName, lookbackFor(req.Start), offset, tracesLimit)
 	if err != nil {
 		return nil, err
 	}

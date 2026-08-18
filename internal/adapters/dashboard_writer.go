@@ -51,6 +51,16 @@ func (d *DashboardWriter) SetNodeWidget(ctx context.Context, projectName, nodeID
 		if has == enabled {
 			return nil // already in the desired state
 		}
+		if enabled {
+			// A widget renders from the node's control port. Labelling a node
+			// that has none produces a widget that never appears — silence is
+			// the hardest failure to trace, so refuse instead. A node that has
+			// published no ports at all is still reconciling: allow it, since
+			// refusing a correct request is worse than allowing a useless one.
+			if err := requireControlPort(node); err != nil {
+				return err
+			}
+		}
 		if node.Labels == nil {
 			node.Labels = map[string]string{}
 		}
@@ -65,6 +75,21 @@ func (d *DashboardWriter) SetNodeWidget(ctx context.Context, projectName, nodeID
 		return "", wrapCRDError(fmt.Errorf("toggle dashboard on %s: %w", nodeID, err))
 	}
 	return projectName, nil
+}
+
+// requireControlPort reports whether a node publishes the control port a
+// dashboard widget renders from. Fails open on a node with no published ports:
+// it has not reconciled yet, and that is not evidence of absence.
+func requireControlPort(node *v1alpha1.TinyNode) error {
+	if len(node.Status.Ports) == 0 {
+		return nil
+	}
+	for _, p := range node.Status.Ports {
+		if p.Name == v1alpha1.ControlPort {
+			return nil
+		}
+	}
+	return fmt.Errorf("node %s has no %s port, so it would never render as a widget", node.Name, v1alpha1.ControlPort)
 }
 
 var _ sdktools.DashboardWriter = (*DashboardWriter)(nil)

@@ -176,6 +176,12 @@ func randAlphaSuffix(n int) string {
 // DeleteFlow deletes a TinyFlow and all TinyNodes belonging to it.
 // Nodes are identified via the flow-name label.
 func (f *FlowLifecycle) DeleteFlow(ctx context.Context, projectName, flowName string) error {
+	// The editor's undeploy carries a flow id and nothing else, so the project
+	// has to come from the flow itself. Read it before the flow is gone.
+	if projectName == "" {
+		projectName = f.projectOf(ctx, flowName)
+	}
+
 	if err := f.deleteFlowNodes(ctx, flowName); err != nil {
 		return fmt.Errorf("delete flow nodes: %w", err)
 	}
@@ -189,7 +195,26 @@ func (f *FlowLifecycle) DeleteFlow(ctx context.Context, projectName, flowName st
 	if err := f.kube.Client.Delete(ctx, flow); err != nil && !k8serrors.IsNotFound(err) {
 		return fmt.Errorf("delete TinyFlow: %w", err)
 	}
+	// Every node that just went away took its scenario samples out of reach
+	// but not out of the project — sweep them, or the next publish fails on
+	// samples naming nodes nobody can see any more. Tidying is not part of
+	// the delete succeeding.
+	_, _ = pruneOrphanScenarioPorts(ctx, f.kube, projectName)
 	return nil
+}
+
+// projectOf reads a flow's project label, returning "" when the flow cannot be
+// read. Callers use it only to scope tidy-up work, so an unknown project means
+// "skip the tidying", never an error.
+func (f *FlowLifecycle) projectOf(ctx context.Context, flowName string) string {
+	flow := &v1alpha1.TinyFlow{}
+	if err := f.kube.Client.Get(ctx, types.NamespacedName{
+		Namespace: f.kube.Namespace,
+		Name:      flowName,
+	}, flow); err != nil {
+		return ""
+	}
+	return flow.Labels[v1alpha1.ProjectNameLabel]
 }
 
 func (f *FlowLifecycle) deleteFlowNodes(ctx context.Context, flowName string) error {

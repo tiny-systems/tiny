@@ -34,8 +34,8 @@ hosted backend, no accounts, no workspaces.
   before building a flow from scratch — a close match can be cloned via
   ` + "`clone_solution`" + ` and adjusted much faster than assembling nodes
   by hand.
-- **No dashboard or flow sharing.** ` + "`set_node_dashboard`" + ` and
-  ` + "`share_node`" + ` are hosted-platform features not available locally.
+- **No flow sharing.** ` + "`share_node`" + ` is a hosted-platform feature.
+  Dashboards DO work here: ` + "`set_node_dashboard`" + ` and ` + "`get_dashboard`" + `.
 
 ### Module discovery
 
@@ -79,10 +79,12 @@ rest of the server continues to work.
 
 ### Credentials
 
-Put user-supplied credentials (Slack tokens, API keys, webhook secrets)
-on a config-holder node (ticker, cron, or signal) with
-` + "`settings_schema`" + `, then wire that node's ` + "`out`" + ` port to the next
-node with ` + "`context: \"{{$}}\"`" + `. Downstream hops access values via
-` + "`{{$.context.fieldName}}`" + `. Never hardcode credentials in edge
-configurations — they should flow through the context.
+The trigger-type rules under **Credentials** above apply here unchanged.
+The headless path needs ` + "`kubernetes-module`" + ` installed in this
+namespace for ` + "`secret_get`" + ` — read a Secret the user already has,
+never create one per flow.
+
+Never put a credential VALUE in ` + "`settings_schema`" + ` or hardcode it in an
+edge configuration — it arrives through the context at runtime, and hops
+read it as ` + "`{{$.context.fieldName}}`" + `.
 `
