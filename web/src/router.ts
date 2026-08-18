@@ -20,3 +20,13 @@ export const router = createRouter({
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })
+
+// The tab title names the surface you are on — several are usually open at
+// once, and "flow editor" on all of them makes them indistinguishable.
+router.afterEach((to) => {
+  const title =
+    to.name === 'flow' ? `${to.params.id} · flow editor` :
+    to.name === 'app' ? `${to.params.project || 'agent'} · tiny` :
+    'tiny'
+  document.title = title
+})

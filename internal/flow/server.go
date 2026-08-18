@@ -71,6 +71,16 @@ func editorHandler(svc *Service, activeProject string, bus *ActivityBus, staticF
 
 	mux := http.NewServeMux()
 
+	// One socket for every live stream. gRPC-web spends one HTTP connection
+	// per server-stream, and a browser grants six per host across all tabs —
+	// see mux.go. The editor's streams share this instead.
+	mux.HandleFunc("/ws", muxServices{
+		flow:     svc,
+		project:  projectService{svc: svc},
+		stats:    statisticsService{trace: svc.trace},
+		activity: workspaceActivityService{bus: bus},
+	}.handler)
+
 	// Live goroutine/heap introspection for a wedged process. localhost-only
 	// by construction (the editor server binds 127.0.0.1), and the SPA's
 	// catch-all below would otherwise shadow any diagnostic path — a hang

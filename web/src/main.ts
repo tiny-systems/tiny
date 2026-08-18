@@ -7,6 +7,11 @@ import type { EditorClient } from '@tinysystems/editor'
 import { setNavigator } from '@tinysystems/editor'
 import '@tinysystems/editor/style.css'
 
+import { MuxTransport } from './grpc/mux'
+import { GetProjectStreamEvent } from './grpc/project.messages_pb'
+import { GetFlowStreamResponse } from './grpc/flow.messages_pb'
+import { StatisticsStreamResponse } from './grpc/statistics.messages_pb'
+import { WorkspaceActivityEvent } from './grpc/mcp/v1/mcp_service_pb'
 import { FlowService } from './grpc/flow.service_connect'
 import { RunsService } from './grpc/runs.service_connect'
 import { StatisticsService } from './grpc/statistics.service_connect'
@@ -26,12 +31,40 @@ const transport = createGrpcWebTransport({
   baseUrl: window.location.origin,
 })
 
+// Every long-lived stream shares one WebSocket. gRPC-web spends an HTTP
+// connection per server-stream and a browser grants six PER HOST across all
+// tabs, so three streams per page meant two tabs starved the third — widget
+// data never arrived and the dashboard rendered blank cards. Unary calls stay
+// on gRPC-web: they finish immediately and hold nothing open.
+const mux = new MuxTransport(window.location.origin)
+
+const flow = createClient(FlowService, transport)
+const statistics = createClient(StatisticsService, transport)
+const project = createClient(ProjectService, transport)
+const workspaceActivity = createClient(WorkspaceActivityService, transport)
+
 const client: EditorClient = {
-  flow: createClient(FlowService, transport),
+  flow: {
+    ...flow,
+    getFlowStream: (req: any, opts?: { signal?: AbortSignal }) =>
+      mux.stream('flow.getFlowStream', req, GetFlowStreamResponse, opts?.signal),
+  } as any,
   runs: createClient(RunsService, transport),
-  statistics: createClient(StatisticsService, transport),
-  project: createClient(ProjectService, transport),
-  workspaceActivity: createClient(WorkspaceActivityService, transport),
+  statistics: {
+    ...statistics,
+    getStream: (req: any, opts?: { signal?: AbortSignal }) =>
+      mux.stream('statistics.getStream', req, StatisticsStreamResponse, opts?.signal),
+  } as any,
+  project: {
+    ...project,
+    getStream: (req: any, opts?: { signal?: AbortSignal }) =>
+      mux.stream('project.getStream', req, GetProjectStreamEvent, opts?.signal),
+  } as any,
+  workspaceActivity: {
+    ...workspaceActivity,
+    watch: (req: any, opts?: { signal?: AbortSignal }) =>
+      mux.stream('activity.watch', req, WorkspaceActivityEvent, opts?.signal),
+  } as any,
 }
 
 loadSession()

@@ -5,6 +5,7 @@ go 1.25.12
 require (
 	github.com/charmbracelet/huh v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.0
+	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/improbable-eng/grpc-web v0.15.0
 	github.com/mattn/go-isatty v0.0.20
 	github.com/mittwald/go-helm-client v0.12.19
@@ -17,6 +18,7 @@ require (
 	github.com/tiny-systems/platform-api v0.5.6
 	github.com/tiny-systems/platform-go v0.2.4
 	google.golang.org/grpc v1.82.1
+	google.golang.org/protobuf v1.36.11
 	helm.sh/helm/v3 v3.20.2
 	k8s.io/api v0.35.1
 	k8s.io/apimachinery v0.35.1
@@ -86,7 +88,6 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/css v1.0.1 // indirect
 	github.com/gorilla/mux v1.8.1 // indirect
-	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect
 	github.com/gosuri/uitable v0.0.4 // indirect
 	github.com/gregjones/httpcache v0.0.0-20190611155906-901d90724c79 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
@@ -169,7 +170,6 @@ require (
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.47.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260414002931-afd174a4e478 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
