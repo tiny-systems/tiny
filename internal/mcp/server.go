@@ -274,6 +274,17 @@ func (s *Server) callTool(ctx context.Context, raw json.RawMessage) toolCallResu
 		params.Arguments = map[string]interface{}{}
 	}
 
+	// Refuse an argument this server never advertised, rather than accepting
+	// and discarding it. The schema checked is the one the caller was shown,
+	// host-injected parameters included.
+	if tool, ok := s.registry.Get(params.Name); ok {
+		advertised := tool.Schema()
+		injectProjectFlowParams(tool.Name(), advertised)
+		if err := checkArguments(tool.Name(), advertised, params.Arguments); err != nil {
+			return errorResult(err.Error())
+		}
+	}
+
 	projectName, _ := params.Arguments["project"].(string)
 	flowName, _ := params.Arguments["flow"].(string)
 
