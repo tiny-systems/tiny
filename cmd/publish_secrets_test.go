@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/tiny-systems/module/api/v1alpha1"
+	"github.com/tiny-systems/module/pkg/redact"
 )
 
 // The shape actually found in a live project: a user-supplied key, entered
@@ -25,7 +26,7 @@ func TestRedactScenarioPorts_MasksCapturedKey(t *testing.T) {
 	if strings.Contains(body, key) {
 		t.Fatal("the key survived into the exported sample")
 	}
-	if !strings.Contains(body, redactedSample) {
+	if !strings.Contains(body, redact.Value) {
 		t.Fatalf("expected a redaction marker, got %s", body)
 	}
 	// The sample's job is to pin the port's SHAPE, so the structure around
