@@ -148,7 +148,7 @@ func nodeToElement(n *v1alpha1.TinyNode, flowTitles map[string]string) (map[stri
 		title = flow
 	}
 
-	return map[string]interface{}{
+	element := map[string]interface{}{
 		"id":   n.Name,
 		"type": "tinyNode",
 		"flow": flow,
@@ -156,12 +156,20 @@ func nodeToElement(n *v1alpha1.TinyNode, flowTitles map[string]string) (map[stri
 		// the resource name here made create_flow's display name look like it
 		// had been silently discarded.
 		"flow_title": title,
-		// Layout is writable through build_flow and configure_node but was
-		// never readable, so a caller could place nodes and had no way to
-		// check the result — or to move one relative to another.
-		"position": positionOf(n),
-		"data":     data,
-	}, nil
+		"data":       data,
+	}
+
+	// Layout is writable through build_flow and configure_node but was never
+	// readable, so a caller could place nodes and had no way to check the
+	// result — or to move one relative to another.
+	//
+	// Set only when the node has actually been placed: a nil map stored in an
+	// interface is not nil to a reader, so assigning it unconditionally
+	// reports an empty position, which reads as a deliberate placement.
+	if pos := positionOf(n); pos != nil {
+		element["position"] = pos
+	}
+	return element, nil
 }
 
 // positionOf reads a node's canvas coordinates. A node that has never been
