@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 
 	"github.com/tiny-systems/module/api/v1alpha1"
 	sdktools "github.com/tiny-systems/module/pkg/tools"
@@ -48,9 +49,15 @@ func (p *ProjectReader) ReadProjectElements(ctx context.Context, projectName str
 		byName[nodes[i].Name] = &nodes[i]
 	}
 
+	// A node knows its flow's resource name, not the name a person gave it.
+	titles := make(map[string]string, len(flows))
+	for _, f := range flows {
+		titles[f.ResourceName] = f.DisplayName
+	}
+
 	elements := make([]map[string]interface{}, 0, len(nodes))
 	for i := range nodes {
-		elem, err := nodeToElement(&nodes[i])
+		elem, err := nodeToElement(&nodes[i], titles)
 		if err != nil {
 			return nil, fmt.Errorf("convert node %s: %w", nodes[i].Name, err)
 		}
@@ -109,7 +116,7 @@ func (p *ProjectReader) listNodes(ctx context.Context, projectName string) ([]v1
 
 // nodeToElement converts a TinyNode CRD to the element-map format expected
 // by the SDK read_project tool. Keeps only the fields consumers care about.
-func nodeToElement(n *v1alpha1.TinyNode) (map[string]interface{}, error) {
+func nodeToElement(n *v1alpha1.TinyNode, flowTitles map[string]string) (map[string]interface{}, error) {
 	ports := map[string][]string{"in": nil, "out": nil}
 	for _, s := range n.Status.Ports {
 		if s.Source {
@@ -135,13 +142,37 @@ func nodeToElement(n *v1alpha1.TinyNode) (map[string]interface{}, error) {
 		"status":                n.Status.Status,
 	}
 
+	flow := n.Labels[v1alpha1.FlowNameLabel]
+	title := flowTitles[flow]
+	if title == "" {
+		title = flow
+	}
+
 	return map[string]interface{}{
-		"id":         n.Name,
-		"type":       "tinyNode",
-		"flow":       n.Labels[v1alpha1.FlowNameLabel],
-		"flow_title": n.Labels[v1alpha1.FlowNameLabel],
-		"data":       data,
+		"id":   n.Name,
+		"type": "tinyNode",
+		"flow": flow,
+		// The name a person gave the flow, not its resource name — reporting
+		// the resource name here made create_flow's display name look like it
+		// had been silently discarded.
+		"flow_title": title,
+		// Layout is writable through build_flow and configure_node but was
+		// never readable, so a caller could place nodes and had no way to
+		// check the result — or to move one relative to another.
+		"position": positionOf(n),
+		"data":     data,
 	}, nil
+}
+
+// positionOf reads a node's canvas coordinates. A node that has never been
+// placed reports nothing rather than a misleading origin.
+func positionOf(n *v1alpha1.TinyNode) map[string]interface{} {
+	x, xErr := strconv.Atoi(n.Annotations[v1alpha1.ComponentPosXAnnotation])
+	y, yErr := strconv.Atoi(n.Annotations[v1alpha1.ComponentPosYAnnotation])
+	if xErr != nil || yErr != nil {
+		return nil
+	}
+	return map[string]interface{}{"x": x, "y": y}
 }
 
 // extractSettings pulls the _settings port configuration out of node spec
