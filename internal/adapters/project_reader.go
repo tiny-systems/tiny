@@ -8,6 +8,7 @@ import (
 
 	"github.com/tiny-systems/module/api/v1alpha1"
 	sdktools "github.com/tiny-systems/module/pkg/tools"
+	"github.com/tiny-systems/module/pkg/utils"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/tiny-systems/tiny/internal/kube"
@@ -39,6 +40,14 @@ func (p *ProjectReader) ReadProjectElements(ctx context.Context, projectName str
 		return nil, wrapCRDError(fmt.Errorf("list nodes: %w", err))
 	}
 
+	// An edge is stored in two halves: the wire on the source node, the
+	// configuration on the target's matching port entry. Reading it needs
+	// both, so index the nodes before walking them.
+	byName := make(map[string]*v1alpha1.TinyNode, len(nodes))
+	for i := range nodes {
+		byName[nodes[i].Name] = &nodes[i]
+	}
+
 	elements := make([]map[string]interface{}, 0, len(nodes))
 	for i := range nodes {
 		elem, err := nodeToElement(&nodes[i])
@@ -46,7 +55,7 @@ func (p *ProjectReader) ReadProjectElements(ctx context.Context, projectName str
 			return nil, fmt.Errorf("convert node %s: %w", nodes[i].Name, err)
 		}
 		elements = append(elements, elem)
-		elements = append(elements, edgesFromNode(&nodes[i])...)
+		elements = append(elements, edgesFromNode(&nodes[i], byName)...)
 	}
 
 	sort.Slice(elements, func(i, j int) bool {
@@ -152,7 +161,7 @@ func extractSettings(n *v1alpha1.TinyNode) (map[string]interface{}, error) {
 }
 
 // edgesFromNode emits one edge element per TinyNode.Spec.Edges entry.
-func edgesFromNode(n *v1alpha1.TinyNode) []map[string]interface{} {
+func edgesFromNode(n *v1alpha1.TinyNode, byName map[string]*v1alpha1.TinyNode) []map[string]interface{} {
 	if len(n.Spec.Edges) == 0 {
 		return nil
 	}
@@ -162,7 +171,7 @@ func edgesFromNode(n *v1alpha1.TinyNode) []map[string]interface{} {
 		target, targetHandle := splitPortName(e.To)
 
 		edgeData := map[string]interface{}{
-			"configuration": edgeConfigFromTarget(n, e, target),
+			"configuration": edgeConfigFromTarget(n, e, target, targetHandle, byName),
 		}
 		out = append(out, map[string]interface{}{
 			"id":           e.ID,
@@ -178,12 +187,37 @@ func edgesFromNode(n *v1alpha1.TinyNode) []map[string]interface{} {
 	return out
 }
 
-// edgeConfigFromTarget looks for the port configuration on the target
-// side of an edge. The configuration is stored on the target TinyNode's
-// Ports entry, but we are iterating the source node — so we leave it
-// empty here and let the caller enrich it if needed.
-func edgeConfigFromTarget(_ *v1alpha1.TinyNode, _ v1alpha1.TinyNodeEdge, _ string) map[string]interface{} {
-	return map[string]interface{}{}
+// edgeConfigFromTarget reads the mapping an edge carries.
+//
+// It lives on the TARGET node, in the port entry whose From names this
+// edge's source — one target port can be fed by several sources, each with
+// its own mapping, so both halves of that pair have to match.
+//
+// This used to return an empty object unconditionally, which made every edge
+// in a project read as unconfigured. That is indistinguishable from the
+// failure the flow-building guide warns about — an edge that lost its
+// configuration silently stops working — so a correct flow looked broken, and
+// a genuinely broken one could not be spotted.
+func edgeConfigFromTarget(source *v1alpha1.TinyNode, e v1alpha1.TinyNodeEdge, target, targetHandle string, byName map[string]*v1alpha1.TinyNode) map[string]interface{} {
+	empty := map[string]interface{}{}
+
+	targetNode := byName[target]
+	if targetNode == nil {
+		return empty
+	}
+	from := utils.GetPortFullName(source.Name, e.Port)
+
+	for _, pc := range targetNode.Spec.Ports {
+		if pc.From != from || pc.Port != targetHandle || len(pc.Configuration) == 0 {
+			continue
+		}
+		var config map[string]interface{}
+		if err := json.Unmarshal(pc.Configuration, &config); err != nil {
+			return empty
+		}
+		return config
+	}
+	return empty
 }
 
 // splitPortName splits "node-id:port" into parts. Missing separator
