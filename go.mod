@@ -14,7 +14,7 @@ require (
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	github.com/spf13/cobra v1.10.2
 	github.com/tiny-systems/ajson v0.1.6
-	github.com/tiny-systems/module v0.13.88
+	github.com/tiny-systems/module v0.13.89
 	github.com/tiny-systems/platform-api v0.5.6
 	github.com/tiny-systems/platform-go v0.2.4
 	google.golang.org/grpc v1.82.1
