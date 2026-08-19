@@ -1,0 +1,40 @@
+name: test
+
+# Nothing ran the tests. This repository had twenty-nine test files and one
+# workflow, which built releases on a tag — so a test broke the moment someone
+# pushed and nobody found out until it was noticed by hand, if ever.
+#
+# The tests that matter most here are the ones that hold two things together:
+# what the write path stores against what the read path returns, and what the
+# guide claims against what the code does. Those only earn their keep if they
+# run on every push.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+# A newer push makes an in-flight run redundant.
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: Build
+        run: go build ./...
+
+      # Live tests skip themselves without TINY_TEST_CONTEXT, so this is the
+      # suite that needs no cluster. Race detection is on because the runner
+      # and the schedulers here are concurrent by nature.
+      - name: Test
+        run: go test -race ./...
