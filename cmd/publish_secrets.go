@@ -28,7 +28,10 @@ const redactedSample = "<redacted>"
 // entropy: a false positive silently corrupts a sample someone relies on,
 // and "looks random" describes plenty of legitimate ids.
 var credentialPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`sk-ant-[A-Za-z0-9_\-]{16,}`),                                       // Anthropic
+	// Short bound on purpose: a log line often carries a TRUNCATED key, and a
+	// leading fragment is still disclosure. Nothing legitimate is shaped like
+	// this prefix, so there is no false positive to trade against.
+	regexp.MustCompile(`sk-ant-[A-Za-z0-9_\-]{6,}`), // Anthropic, including truncated
 	regexp.MustCompile(`sk-(?:proj-)?[A-Za-z0-9_\-]{20,}`),                                 // OpenAI
 	regexp.MustCompile(`gh[pousr]_[A-Za-z0-9]{20,}`),                                       // GitHub
 	regexp.MustCompile(`github_pat_[A-Za-z0-9_]{20,}`),                                     // GitHub fine-grained

@@ -87,3 +87,22 @@ func TestRedactScenarioPorts_ScrubsNonJSON(t *testing.T) {
 		t.Fatalf("bearer token survived: %s", out[0].Data)
 	}
 }
+
+// A log line usually carries a TRUNCATED key rather than a whole one. The
+// fragment is not usable on its own, but it is still the leading portion of a
+// real credential, so it must not be exported either. This is the exact shape
+// found in a live pod-logs sample.
+func TestRedactScenarioPorts_MasksTruncatedKey(t *testing.T) {
+	ports := []v1alpha1.ScenarioPortData{{
+		Port: "pod-logs-get-71601:logs",
+		Data: []byte(`{"logs":"using key sk-ant-api03-Ab… (truncated)"}`),
+	}}
+
+	out, touched := redactScenarioPorts(ports)
+	if len(touched) != 1 {
+		t.Fatalf("touched = %v, want the log sample", touched)
+	}
+	if strings.Contains(string(out[0].Data), "sk-ant-") {
+		t.Fatalf("key prefix survived: %s", out[0].Data)
+	}
+}
