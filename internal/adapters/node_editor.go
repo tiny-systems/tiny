@@ -110,9 +110,15 @@ func (e *NodeEditor) AddNode(ctx context.Context, projectName, flowName, compone
 		tracker.RecordPosition(flowName, nodeID, posX, posY)
 	}
 
+	// Ports appear in Status only after the operator reconciles the node, so
+	// returning immediately handed back nil while the tool's own hint told the
+	// caller to wire those ports — leaving them to place a second node just to
+	// read the names back. Wait briefly for them instead; the wait is bounded
+	// and returns whatever has appeared, so a slow reconcile costs a moment
+	// rather than an empty answer.
 	return &sdktools.AddNodeResult{
 		NodeID: nodeID,
-		Ports:  nil, // ports appear in Status after reconciliation
+		Ports:  e.waitForPortNames(ctx, nodeID),
 		PosX:   posX,
 		PosY:   posY,
 	}, nil
@@ -1089,3 +1095,40 @@ func (e *NodeEditor) ShareNode(ctx context.Context, projectName, flowName, nodeI
 }
 
 var _ sdktools.NodeSharer = (*NodeEditor)(nil)
+
+// waitForPortNames returns a node's published port names once the operator has
+// reconciled it, or whatever exists when the wait runs out. Best-effort by
+// design: the node is already created, so an empty list is a slower answer,
+// never a failure.
+func (e *NodeEditor) waitForPortNames(ctx context.Context, nodeID string) []string {
+	const (
+		maxWait  = 3 * time.Second
+		interval = 150 * time.Millisecond
+	)
+	deadline := time.Now().Add(maxWait)
+	for {
+		node := &v1alpha1.TinyNode{}
+		if err := e.kube.Client.Get(ctx, types.NamespacedName{Namespace: e.kube.Namespace, Name: nodeID}, node); err == nil {
+			if names := portNamesOf(node); len(names) > 0 {
+				return names
+			}
+		}
+		if time.Now().After(deadline) {
+			return nil
+		}
+		select {
+		case <-time.After(interval):
+		case <-ctx.Done():
+			return nil
+		}
+	}
+}
+
+// portNamesOf lists a node's published ports.
+func portNamesOf(node *v1alpha1.TinyNode) []string {
+	names := make([]string, 0, len(node.Status.Ports))
+	for _, p := range node.Status.Ports {
+		names = append(names, p.Name)
+	}
+	return names
+}

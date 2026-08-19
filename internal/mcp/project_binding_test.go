@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	sdktools "github.com/tiny-systems/module/pkg/tools"
@@ -62,5 +63,56 @@ func TestCallerProjectUsedWhenSessionUnbound(t *testing.T) {
 	}
 	if spy.seen != "chosen-by-caller" {
 		t.Errorf("ran against %q, want %q", spy.seen, "chosen-by-caller")
+	}
+}
+
+// The override is the design; the silence was the bug. A caller that names a
+// different project must be told which one actually answered, or it can build
+// a flow somewhere its author never intended — which is exactly what happened
+// to two agents evaluating this server.
+func TestProjectSubstitutionIsReported(t *testing.T) {
+	result := noteProjectSubstitution(
+		sdktools.ToolResult{Success: true, Output: map[string]interface{}{"project": "bound-one"}},
+		"asked-for", "bound-one")
+
+	out, ok := result.Output.(map[string]interface{})
+	if !ok {
+		t.Fatalf("output shape changed: %T", result.Output)
+	}
+	note, _ := out["project_note"].(string)
+	if note == "" {
+		t.Fatal("no note: the substitution is still silent")
+	}
+	for _, want := range []string{"asked-for", "bound-one", "tiny -p"} {
+		if !strings.Contains(note, want) {
+			t.Errorf("note should mention %q, got: %s", want, note)
+		}
+	}
+	if out["project"] != "bound-one" {
+		t.Fatal("the original answer must survive the annotation")
+	}
+}
+
+// A failed call needs the note too — "project not found" is baffling when the
+// project you asked about was never the one being searched.
+func TestProjectSubstitutionIsReportedOnFailure(t *testing.T) {
+	result := noteProjectSubstitution(
+		sdktools.ToolResult{Success: false, Error: "flow not found"}, "asked-for", "bound-one")
+	if !strings.Contains(result.Error, "asked-for") || !strings.Contains(result.Error, "bound-one") {
+		t.Fatalf("error lost the substitution note: %s", result.Error)
+	}
+}
+
+// Not every tool returns a map. The note must survive that rather than being
+// dropped on the floor.
+func TestProjectSubstitutionSurvivesNonMapOutput(t *testing.T) {
+	result := noteProjectSubstitution(
+		sdktools.ToolResult{Success: true, Output: []string{"a", "b"}}, "asked-for", "bound-one")
+	out, ok := result.Output.(map[string]interface{})
+	if !ok || out["project_note"] == nil {
+		t.Fatalf("note dropped for non-map output: %#v", result.Output)
+	}
+	if out["result"] == nil {
+		t.Fatal("original output was discarded")
 	}
 }

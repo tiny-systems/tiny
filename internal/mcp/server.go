@@ -283,9 +283,16 @@ func (s *Server) callTool(ctx context.Context, raw json.RawMessage) toolCallResu
 	// a model invent one — the work landed in a project nothing was serving,
 	// so the dashboard showed 0 widgets and 0 flows while the nodes sat
 	// perfectly healthy under a name the user never chose.
+	// A tiny session serves exactly one project, chosen with `tiny -p`, and
+	// that choice wins over whatever a caller passes. Substituting it in
+	// silence was the problem: a caller asking about project A got an answer
+	// about project B with nothing to indicate it, so a flow could be built
+	// somewhere its author never intended. The override stands; it now says so.
+	var substitutedProject string
 	if execCtx.ProjectName == "" {
 		execCtx.ProjectName = projectName
 	} else if projectName != "" && projectName != execCtx.ProjectName {
+		substitutedProject = projectName
 		params.Arguments["project"] = execCtx.ProjectName
 	}
 	execCtx.FlowName = flowName
@@ -299,6 +306,10 @@ func (s *Server) callTool(ctx context.Context, raw json.RawMessage) toolCallResu
 		finish(result.Success, result.Error)
 	}
 
+	if substitutedProject != "" {
+		result = noteProjectSubstitution(result, substitutedProject, execCtx.ProjectName)
+	}
+
 	text, err := marshalToolOutput(result)
 	if err != nil {
 		return errorResult(fmt.Sprintf("marshal tool output: %v", err))
@@ -308,6 +319,32 @@ func (s *Server) callTool(ctx context.Context, raw json.RawMessage) toolCallResu
 		Content: []contentBlock{{Type: "text", Text: text}},
 		IsError: !result.Success,
 	}
+}
+
+// noteProjectSubstitution tells the caller that the project it named was not
+// the one used, and that this session cannot be pointed elsewhere. Reported on
+// every affected call rather than once, because the caller that needs to hear
+// it is the one reading this particular answer.
+func noteProjectSubstitution(result sdktools.ToolResult, asked, used string) sdktools.ToolResult {
+	note := fmt.Sprintf(
+		"you asked for project %q, but this session serves %q and was started with `tiny -p %s` — "+
+			"the answer above is about %q. To work on %q, restart tiny with `-p %s`.",
+		asked, used, used, used, asked, asked)
+
+	if !result.Success {
+		result.Error = result.Error + " (" + note + ")"
+		return result
+	}
+	out, ok := result.Output.(map[string]interface{})
+	if !ok {
+		// Not a shape we can annotate: say it as the whole answer's context
+		// rather than dropping it.
+		result.Output = map[string]interface{}{"result": result.Output, "project_note": note}
+		return result
+	}
+	out["project_note"] = note
+	result.Output = out
+	return result
 }
 
 func marshalToolOutput(result sdktools.ToolResult) (string, error) {

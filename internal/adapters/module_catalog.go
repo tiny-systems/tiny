@@ -86,6 +86,14 @@ func moduleInfoFromCRD(m *v1alpha1.TinyModule) sdktools.ModuleInfo {
 			Info:        c.Info,
 		}
 		for _, p := range c.Ports {
+			// The settings port is filtered out of the wireable port lists —
+			// it is configuration, not a connection — but its schema is the
+			// only place that names a component's settings, including the
+			// flags that make optional ports appear. Withholding it meant an
+			// agent had to place a throwaway node to read it back.
+			if p.Name == v1alpha1.SettingsPort && len(p.Schema) > 0 {
+				compInfo.SettingsSchema = json.RawMessage(p.Schema)
+			}
 			if p.Source {
 				compInfo.OutputPorts = append(compInfo.OutputPorts, p.Name)
 				compInfo.OutputPortDetails = append(compInfo.OutputPortDetails, portDetailFromCRD(p))
