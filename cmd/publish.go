@@ -334,7 +334,17 @@ func buildSolutionExport(ctx context.Context, k *kube.Client, projectName, title
 			if name == "" {
 				name = s.Name
 			}
-			export.Scenarios = append(export.Scenarios, exportScenario{Name: name, Ports: s.Spec.Ports})
+			// Samples are captured from real traffic, so a credential the user
+			// supplied at runtime can end up recorded in one — putting back
+			// into the project the very thing the design keeps out of it.
+			// Elements are redacted by key name above, which cannot see a
+			// secret sitting in an ordinary payload field, so samples are
+			// matched on the shape of the secret instead.
+			ports, redactedPorts := redactScenarioPorts(s.Spec.Ports)
+			for _, p := range redactedPorts {
+				fmt.Printf("  redacted a credential from scenario %q sample %s\n", name, p)
+			}
+			export.Scenarios = append(export.Scenarios, exportScenario{Name: name, Ports: ports})
 		}
 	}
 
