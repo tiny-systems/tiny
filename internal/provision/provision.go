@@ -169,6 +169,13 @@ func EnsureNamespace(ctx context.Context, cfg *rest.Config, namespace string) er
 	return nil
 }
 
+// provisionTimeout bounds a helm install that has to pull images first. It is
+// generous on purpose: the failure it prevents is a first run on a fresh
+// cluster reporting "context deadline exceeded", which reads as broken rather
+// than slow, and there is nothing to gain by giving up early — a genuinely
+// stuck install is stuck for a reason the user has to look at either way.
+const provisionTimeout = 10 * time.Minute
+
 // InstallCRDs installs the CRD chart. Cluster-scoped resources, but the
 // release lives in the target namespace (single-owner cluster — none of the
 // multi-tenant CRD-ownership dance the platform needs).
@@ -179,7 +186,7 @@ func (c *Client) InstallCRDs(ctx context.Context) error {
 		Namespace:       c.namespace,
 		CreateNamespace: true,
 		Wait:            true,
-		Timeout:         3 * time.Minute,
+		Timeout:         provisionTimeout,
 		Atomic:          true,
 		Force:           true,
 		CleanupOnFail:   true,
@@ -189,6 +196,12 @@ func (c *Client) InstallCRDs(ctx context.Context) error {
 // InstallBroker installs the NATS/JetStream broker. Deliberately no Force:
 // the broker is a StatefulSet holding the durable run ledger, and forcing a
 // replace would risk its persistent state.
+//
+// The timeout covers pulling images onto a cluster that has never seen them.
+// Three minutes was enough on a machine with a warm cache and not enough on a
+// cold CI runner, where it failed as "context deadline exceeded" — which reads
+// as a broken install rather than a slow download, and is the first thing a
+// new user would ever see.
 func (c *Client) InstallBroker(ctx context.Context) error {
 	return c.install(ctx, &helmclient.ChartSpec{
 		ReleaseName:     natsChart,
@@ -196,7 +209,7 @@ func (c *Client) InstallBroker(ctx context.Context) error {
 		Namespace:       c.namespace,
 		CreateNamespace: true,
 		Wait:            true,
-		Timeout:         3 * time.Minute,
+		Timeout:         provisionTimeout,
 		Atomic:          true,
 		CleanupOnFail:   true,
 	})
@@ -210,7 +223,7 @@ func (c *Client) InstallOTEL(ctx context.Context) error {
 		Namespace:       c.namespace,
 		CreateNamespace: true,
 		Wait:            true,
-		Timeout:         3 * time.Minute,
+		Timeout:         provisionTimeout,
 		Atomic:          true,
 		Force:           true,
 		CleanupOnFail:   true,
@@ -230,7 +243,7 @@ func (c *Client) InstallModule(ctx context.Context, m *catalog.Module, natsURL s
 		Namespace:       c.namespace,
 		CreateNamespace: true,
 		Wait:            true,
-		Timeout:         5 * time.Minute,
+		Timeout:         provisionTimeout,
 		Atomic:          true,
 		Force:           true,
 		Replace:         true,
@@ -345,7 +358,7 @@ func (c *Client) UpgradeInstall(ctx context.Context, release, namespace, chart, 
 		Namespace:       namespace,
 		CreateNamespace: true,
 		Wait:            true,
-		Timeout:         5 * time.Minute,
+		Timeout:         provisionTimeout,
 		Atomic:          true,
 		Force:           true,
 		Replace:         true,
