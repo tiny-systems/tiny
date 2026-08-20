@@ -142,6 +142,13 @@ func nodeToElement(n *v1alpha1.TinyNode, flowTitles map[string]string) (map[stri
 		"status":                n.Status.Status,
 	}
 
+	// A settings key the component does not declare is dropped in silence by
+	// json.Unmarshal. The runtime logs it into the module's pod, where nobody
+	// building a flow will look, so it travels with the node instead.
+	if unknown := unknownSettingKeys(n, settings); len(unknown) > 0 {
+		data["settings_unknown_keys"] = unknown
+	}
+
 	flow := n.Labels[v1alpha1.FlowNameLabel]
 	title := flowTitles[flow]
 	if title == "" {
