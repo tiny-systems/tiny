@@ -3,6 +3,8 @@ package adapters
 import (
 	"strings"
 	"testing"
+
+	"github.com/tiny-systems/module/pkg/utils"
 )
 
 // TestMatchTraceIDPrefix pins the truncated-trace-id resolution rules.
@@ -50,4 +52,32 @@ func TestMatchTraceIDPrefix(t *testing.T) {
 			t.Fatalf("error should explain truncation: %v", err)
 		}
 	})
+}
+
+// The runtime masks a payload before it reaches a span — but a collector holds
+// spans written by whatever module version produced them, including versions
+// released before that existed. This is the surface an agent reads through
+// get_trace_detail, so it must not hand over a key whatever is in storage.
+func TestSpanPayloadsAreMaskedOnTheWayOut(t *testing.T) {
+	span := utils.Span{
+		Attributes: []utils.SpanAttribute{{Key: "to", Value: "flow.mod.n1:request"}},
+		Events: []utils.SpanEvent{{
+			Name: "data",
+			Attributes: []utils.SpanAttribute{
+				{Key: "payload", Value: `{"apiKey":"sk-ant-api03-` + strings.Repeat("A", 80) + `","alert":"disk full"}`},
+			},
+		}},
+	}
+
+	got := spanToInfo(span)
+	if len(got.Events) != 1 {
+		t.Fatalf("%d events", len(got.Events))
+	}
+	payload := got.Events[0].Data["payload"]
+	if strings.Contains(payload, "sk-ant-api03-AAAA") {
+		t.Fatal("a credential in stored span data reached the caller")
+	}
+	if !strings.Contains(payload, "disk full") {
+		t.Errorf("the rest of the payload was lost: %s", payload)
+	}
 }

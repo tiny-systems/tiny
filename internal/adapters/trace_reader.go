@@ -9,6 +9,7 @@ import (
 	"time"
 
 	m "github.com/tiny-systems/module/module"
+	"github.com/tiny-systems/module/pkg/redact"
 	sdktools "github.com/tiny-systems/module/pkg/tools"
 	"github.com/tiny-systems/module/pkg/utils"
 
@@ -228,7 +229,14 @@ func spanToInfo(s utils.Span) sdktools.TraceSpanInfo {
 	for _, e := range s.Events {
 		data := make(map[string]string, len(e.Attributes))
 		for _, a := range e.Attributes {
-			data[a.Key] = a.Value
+			// Masked again on the way out, not only on the way in. The
+			// runtime redacts a payload before it reaches a span, but a
+			// collector holds spans written by whatever module version
+			// produced them — including ones released before that existed.
+			// This is the surface an agent reads, so it is the one that must
+			// not hand over a key regardless of what is in storage.
+			value, _ := redact.TextByShape(a.Value)
+			data[a.Key] = value
 		}
 		events = append(events, sdktools.TraceEventInfo{
 			Name: e.Name,
