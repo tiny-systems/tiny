@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
@@ -73,9 +74,21 @@ type muxConn struct {
 	conn *websocket.Conn
 }
 
+// muxWriteWait bounds ONE frame write. Writes are serialised on this socket, so
+// a browser that stops reading — a suspended tab, a machine asleep — would
+// otherwise block the sending goroutine forever while holding the lock, and
+// every other stream sharing the socket stalls behind it. The deadline turns
+// that into an error the stream can end on. (http.Server's WriteTimeout does
+// not apply here: net/http clears the connection's deadlines when the
+// WebSocket upgrade hijacks it.)
+const muxWriteWait = 30 * time.Second
+
 func (c *muxConn) send(f muxFrame) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if err := c.conn.SetWriteDeadline(time.Now().Add(muxWriteWait)); err != nil {
+		return err
+	}
 	return c.conn.WriteJSON(f)
 }
 

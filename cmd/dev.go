@@ -26,12 +26,12 @@ func envPort(name string, def int) int {
 	return def
 }
 
-// runDev is the headline command — bare `tiny`. It serves the local MCP
-// endpoint against your cluster, so you point Claude Code / Cursor at it and
-// build agents by prompt. The browser editor — the other half of the dev
-// server — lands in a later release; until then bare `tiny` is the live MCP
-// endpoint. Needs a provisioned runtime:
-// run `tiny up` first on a fresh cluster.
+// runDev is the headline command — bare `tiny`. It serves two things against
+// your cluster: the local MCP endpoint, which you point Claude Code / Cursor
+// at to build agents by prompt, and the browser canvas, which is where you
+// watch what they built. `tiny edit` is the same server with the canvas
+// opened for you. Needs a provisioned runtime: run `tiny up` first on a fresh
+// cluster.
 func runDev(cmd *cobra.Command, _ []string) error {
 	if flagPrint {
 		printConnect()

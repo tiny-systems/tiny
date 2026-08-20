@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -130,12 +132,35 @@ func newStatusCmd() *cobra.Command {
 
 func newEditCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "edit [flow]",
+		Use:   "edit",
 		Short: "Open the web canvas against your local cluster",
+		Long: `Serve the local runtime and open the canvas in your browser.
+
+The same server bare 'tiny' runs — MCP endpoint for your editor, canvas for
+you. The only difference is that this one opens the browser for you.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("  " + styleSubtle.Render("the editor is served by the dev server — run `tiny` with no command."))
-			return nil
+			// The canvas can only be opened once something is listening on it,
+			// and the server below blocks until Ctrl-C — so the wait runs
+			// alongside it rather than before it.
+			go openWhenServing(fmt.Sprintf("127.0.0.1:%d", editorPort))
+			return runDev(cmd, args)
 		},
+	}
+}
+
+// openWhenServing opens the canvas as soon as the editor port answers, and
+// gives up quietly if it never does — a browser window is a convenience, and
+// failing to open one must not look like the server failed to start.
+func openWhenServing(addr string) {
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", addr, time.Second)
+		if err == nil {
+			_ = conn.Close()
+			openBrowser("http://" + addr)
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
 }
 
