@@ -151,6 +151,7 @@ func New(opts Options) (backend.Bundle, backend.Cleanup, error) {
 		SignalSender:           signalSender,
 		TraceReader:            traceReader,
 		EvalRunner:             adapters.NewEvalRunner(signalSender, traceReader),
+		EvalStore:              adapters.NewEvalStore(""),
 		ScenarioManager:        scenarioManager,
 		DashboardReader:        dashboardReader,
 		DashboardWriter:        dashboardWriter,
