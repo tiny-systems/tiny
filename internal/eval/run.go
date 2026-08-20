@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tiny-systems/module/api/v1alpha1"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	oteltrace "go.opentelemetry.io/otel/trace"
@@ -146,10 +147,17 @@ func (r *Runner) awaitRun(ctx context.Context, spec evals.Spec, traceID string, 
 		current := r.collect(ctx, spec, traceID, firedAt)
 		if len(current) > 0 {
 			spans = current
-			if len(current) != lastCount {
+			switch {
+			case len(current) != lastCount:
 				lastCount = len(current)
 				stableFrom = time.Now()
-			} else if !stableFrom.IsZero() && time.Since(stableFrom) >= settle {
+			case !started(current):
+				// Only the trigger's own hop has been recorded. The run has
+				// not begun, so "no new spans for a while" means waiting, not
+				// finished — a flow whose first component takes a few seconds
+				// would otherwise be judged as having done nothing.
+				stableFrom = time.Now()
+			case !stableFrom.IsZero() && time.Since(stableFrom) >= settle:
 				return spans, nil
 			}
 		}
@@ -163,6 +171,24 @@ func (r *Runner) awaitRun(ctx context.Context, spec evals.Spec, traceID string, 
 	// nothing. A flow that legitimately runs longer than the timeout should
 	// fail on its assertions, not on a stopwatch.
 	return spans, nil
+}
+
+// started reports whether anything happened beyond delivering the trigger.
+//
+// A trigger's control hop is recorded the instant it is published; everything
+// the flow does follows. Treating that first span as a finished run is how an
+// eval reports "nothing arrived" about a flow that was still starting.
+func started(spans []sdktools.TraceSpanInfo) bool {
+	for _, s := range spans {
+		target := s.To
+		if target == "" {
+			target = s.Port
+		}
+		if !strings.HasSuffix(target, ":"+v1alpha1.ControlPort) {
+			return true
+		}
+	}
+	return false
 }
 
 // collect merges the minted trace with the traces the trigger set off.

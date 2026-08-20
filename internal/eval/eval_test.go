@@ -173,3 +173,27 @@ func TestObserveCountsErrorsAndUsage(t *testing.T) {
 		t.Errorf("usage = %v, want summed across spans", got.Usage)
 	}
 }
+
+// A trigger's control hop is recorded the instant it is published; everything
+// the flow does follows. Settling on that first span reports "nothing arrived"
+// about a flow that was still starting — which is what happened the first time
+// this ran against a real sandbox_run flow.
+func TestARunThatHasNotStartedIsNotJudgedFinished(t *testing.T) {
+	reader := &fakeReader{rounds: [][]sdktools.TraceSpanInfo{
+		{spanTo("signal-1:_control", `{"send":true}`)},
+		{spanTo("signal-1:_control", `{"send":true}`)},
+		{spanTo("signal-1:_control", `{"send":true}`)},
+		{spanTo("signal-1:_control", `{"send":true}`), spanTo("d:in", `{"count":2}`)},
+	}}
+	r := &Runner{Project: "p", Sender: &fakeSender{}, Reader: reader, Settle: time.Millisecond, Sleep: func(time.Duration) {}}
+
+	result := r.Run(context.Background(), evals.Spec{
+		Name:    "slow starter",
+		Trigger: evals.Trigger{Node: "signal-1"},
+		Timeout: evals.Duration(2 * time.Second),
+		Expect:  evals.Expect{Arrives: []evals.Arrival{{At: "d:in", Path: "$.count", Equals: 2}}},
+	})
+	if !result.Passed() {
+		t.Fatalf("judged before the flow started: %v %v", result.Err, result.Failures)
+	}
+}
