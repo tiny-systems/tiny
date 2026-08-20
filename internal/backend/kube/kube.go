@@ -150,6 +150,7 @@ func New(opts Options) (backend.Bundle, backend.Cleanup, error) {
 		FlowDeleter:            flowLifecycle,
 		SignalSender:           signalSender,
 		TraceReader:            traceReader,
+		EvalRunner:             adapters.NewEvalRunner(signalSender, traceReader),
 		ScenarioManager:        scenarioManager,
 		DashboardReader:        dashboardReader,
 		DashboardWriter:        dashboardWriter,
