@@ -46,7 +46,11 @@ func (d *DashboardReader) ReadDashboard(ctx context.Context, projectName string)
 	for i := range nodes.Items {
 		node := &nodes.Items[i]
 		w := sdktools.DashboardWidget{
-			Name:     node.Status.Component.Description,
+			// A node's own name wins over its component's description, the
+			// same order the editor's dashboard uses. Without this, an agent
+			// that named its panels reads them back as "Display" and "Cron"
+			// and cannot tell whether the naming took.
+			Name:     widgetName(node),
 			NodeName: node.Name,
 			PortName: controlPort,
 		}
@@ -73,3 +77,15 @@ func (d *DashboardReader) ReadDashboard(ctx context.Context, projectName string)
 const controlPort = "_control"
 
 var _ sdktools.DashboardReader = (*DashboardReader)(nil)
+
+// widgetName is what a widget is called: the name someone gave the node, then
+// the component's description, then the node's resource name.
+func widgetName(node *v1alpha1.TinyNode) string {
+	if label := node.Annotations[v1alpha1.NodeLabelAnnotation]; label != "" {
+		return label
+	}
+	if desc := node.Status.Component.Description; desc != "" {
+		return desc
+	}
+	return node.Name
+}

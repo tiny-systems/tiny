@@ -1132,3 +1132,28 @@ func portNamesOf(node *v1alpha1.TinyNode) []string {
 	}
 	return names
 }
+
+// LabelNode names a node.
+//
+// The name is what the canvas shows on the node and what its dashboard widget
+// is titled — the dashboard reads this annotation in preference to the
+// component's description, so naming a node is how a page stops calling its
+// panels "Cron" and "Display".
+//
+// An empty name clears it, which is the only way back to the component's own
+// description once a node has been named.
+func (e *NodeEditor) LabelNode(ctx context.Context, projectName, flowName, nodeID, label string) error {
+	return e.patchNode(ctx, nodeID, func(node *v1alpha1.TinyNode) error {
+		if label == "" {
+			delete(node.Annotations, v1alpha1.NodeLabelAnnotation)
+			return nil
+		}
+		if node.Annotations == nil {
+			node.Annotations = map[string]string{}
+		}
+		node.Annotations[v1alpha1.NodeLabelAnnotation] = label
+		return nil
+	})
+}
+
+var _ sdktools.NodeLabeler = (*NodeEditor)(nil)
