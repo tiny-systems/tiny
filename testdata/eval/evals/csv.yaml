@@ -1,0 +1,35 @@
+- name: csv_decode keeps a quoted comma intact and infers numbers
+  flow: csv-smoke
+  trigger:
+    node: eval01.tinysystems-common-module-v0.signal-eval
+    data:
+      send: true
+      context: {run: eval}
+  timeout: 45s
+  expect:
+    errors: 0
+    arrives:
+      - at: debug-eval:in
+        path: $.count
+        equals: 2
+      - at: debug-eval:in
+        path: $.rows[1].name
+        equals: "web, edge"
+      - at: debug-eval:in
+        path: $.rows[1].restarts
+        equals: 7
+
+- name: a chunked document keeps its overlap
+  flow: csv-smoke
+  trigger:
+    node: eval01.tinysystems-common-module-v0.signal-eval
+    data: {send: true}
+  timeout: 45s
+  expect:
+    arrives:
+      - at: text-chunk-eval:response
+        path: $.count
+        min: 2
+      - at: text-chunk-eval:response
+        path: $.chunks[1].text
+        contains: "behave under load"

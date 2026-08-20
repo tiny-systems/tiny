@@ -1,0 +1,73 @@
+# Prove the runtime still runs flows, not just that it compiles.
+#
+# `go test` covers the code in this repository. It cannot tell you that a
+# signal still reaches a component, that an edge still carries a payload, or
+# that a module released this morning still decodes a CSV — and those are the
+# failures that reach users, because nothing else looks for them.
+#
+# So: stand up a real cluster, install the runtime and a module from the public
+# catalog, apply a flow, fire it, and check what came out. Under four minutes.
+#
+# Copy this into your own project's repository to check your own flows: the
+# only parts that change are which modules you install and which flow you
+# apply.
+
+name: eval
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  # A module can break a flow without anyone touching this repository — the
+  # modules release on their own schedule — so this also runs on a timer.
+  schedule:
+    - cron: "0 7 * * *"
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build tiny
+        run: go build -o tiny .
+
+      - name: Create a cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: tiny-eval
+          wait: 120s
+
+      - name: Provision the runtime
+        run: ./tiny up --context kind-tiny-eval -y
+
+      - name: Install the modules the flow needs
+        run: ./tiny install encoding-module -y --context kind-tiny-eval
+
+      - name: Apply the flow
+        run: |
+          kubectl --context kind-tiny-eval apply -f testdata/eval/flow.yaml
+          # Nodes publish their ports on first reconcile; firing before that
+          # reaches a component that has not been told what its ports are.
+          kubectl --context kind-tiny-eval wait --for=condition=Ready pod \
+            -l control-plane=controller-manager -n tinysystems --timeout=180s
+          sleep 15
+
+      - name: Run the evals
+        run: ./tiny eval testdata/eval/evals -p ci --context kind-tiny-eval
+
+      - name: What the cluster was doing when it failed
+        if: failure()
+        run: |
+          kubectl --context kind-tiny-eval get pods -n tinysystems
+          kubectl --context kind-tiny-eval get tinynodes -n tinysystems -o wide
+          kubectl --context kind-tiny-eval logs -n tinysystems \
+            -l control-plane=controller-manager --tail=100 --prefix=true

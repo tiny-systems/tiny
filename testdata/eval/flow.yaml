@@ -1,0 +1,98 @@
+# The flow the eval workflow checks: a signal fanning out to csv_decode and
+# text_chunk, with a debug sink to read the result from.
+#
+# Deliberately made of components that are pure — no network, no credentials,
+# no cluster state — so a red run means the runtime broke, not that an API was
+# down. An eval that fails for reasons outside the thing it checks gets muted,
+# and a muted check is worse than none.
+---
+apiVersion: operator.tinysystems.io/v1alpha1
+kind: TinyProject
+metadata:
+  name: ci
+  namespace: tinysystems
+spec: {}
+---
+apiVersion: operator.tinysystems.io/v1alpha1
+kind: TinyNode
+metadata:
+  name: eval01.tinysystems-common-module-v0.signal-eval
+  namespace: tinysystems
+  labels:
+    tinysystems.io/flow-name: csv-smoke
+    tinysystems.io/project-name: ci
+spec:
+  component: signal
+  module: tinysystems-common-module-v0
+  edges:
+  - flowID: eval01
+    id: eval01.tinysystems-common-module-v0.signal-eval_out-eval01.tinysystems-encoding-module-v0.csv-decode-eval_request
+    port: out
+    to: eval01.tinysystems-encoding-module-v0.csv-decode-eval:request
+  - flowID: eval01
+    id: eval01.tinysystems-common-module-v0.signal-eval_out-eval01.tinysystems-encoding-module-v0.text-chunk-eval_request
+    port: out
+    to: eval01.tinysystems-encoding-module-v0.text-chunk-eval:request
+---
+apiVersion: operator.tinysystems.io/v1alpha1
+kind: TinyNode
+metadata:
+  name: eval01.tinysystems-encoding-module-v0.csv-decode-eval
+  namespace: tinysystems
+  labels:
+    tinysystems.io/flow-name: csv-smoke
+    tinysystems.io/project-name: ci
+spec:
+  component: csv_decode
+  module: tinysystems-encoding-module-v0
+  edges:
+  - flowID: eval01
+    id: eval01.tinysystems-encoding-module-v0.csv-decode-eval_response-eval01.tinysystems-common-module-v0.debug-eval_in
+    port: response
+    to: eval01.tinysystems-common-module-v0.debug-eval:in
+  ports:
+  - flowID: eval01
+    port: request
+    from: eval01.tinysystems-common-module-v0.signal-eval:out
+    configuration: eyJlbmNvZGVkIjogIm5hbWUscmVzdGFydHMscmVhZHlcbmFwaS0xLDAsdHJ1ZVxuXCJ3ZWIsIGVkZ2VcIiw3LGZhbHNlXG4ifQ==
+  - flowID: eval01
+    port: _settings
+    configuration: eyJkZWxpbWl0ZXIiOiAiY29tbWEiLCAiaW5mZXJUeXBlcyI6IHRydWUsICJtYXhSb3dzIjogMTAwfQ==
+---
+apiVersion: operator.tinysystems.io/v1alpha1
+kind: TinyNode
+metadata:
+  name: eval01.tinysystems-encoding-module-v0.text-chunk-eval
+  namespace: tinysystems
+  labels:
+    tinysystems.io/flow-name: csv-smoke
+    tinysystems.io/project-name: ci
+spec:
+  component: text_chunk
+  module: tinysystems-encoding-module-v0
+  ports:
+  - flowID: eval01
+    port: request
+    from: eval01.tinysystems-common-module-v0.signal-eval:out
+    configuration: eyJ0ZXh0IjogIkFscGhhIHBhcmFncmFwaCBhYm91dCBwb2RzLlxuXG5CZXRhIHBhcmFncmFwaCBhYm91dCBub2RlcyBhbmQgaG93IHRoZXkgYmVoYXZlIHVuZGVyIGxvYWQuXG5cbkdhbW1hIHBhcmFncmFwaCwgdGhlIHRoaXJkIG9uZSwgZGVzY3JpYmluZyB3aGF0IGhhcHBlbnMgbmV4dC5cblxuRGVsdGEgcGFyYWdyYXBoIGNsb3NpbmcgdGhlIGRvY3VtZW50LiJ9
+  - flowID: eval01
+    port: _settings
+    configuration: eyJjaHVua1NpemUiOiAxMDAsICJvdmVybGFwIjogMjAsICJzcGxpdE9uIjogInBhcmFncmFwaCIsICJtYXhDaHVua3MiOiA1MH0=
+---
+apiVersion: operator.tinysystems.io/v1alpha1
+kind: TinyNode
+metadata:
+  name: eval01.tinysystems-common-module-v0.debug-eval
+  namespace: tinysystems
+  labels:
+    tinysystems.io/flow-name: csv-smoke
+    tinysystems.io/project-name: ci
+spec:
+  component: debug
+  module: tinysystems-common-module-v0
+  ports:
+  - flowID: eval01
+    port: in
+    from: eval01.tinysystems-encoding-module-v0.csv-decode-eval:response
+    configuration: eyJjb3VudCI6ICJ7eyQuY291bnR9fSIsICJyb3dzIjogInt7JC5yb3dzfX0ifQ==
+
