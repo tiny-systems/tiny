@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
+	m "github.com/tiny-systems/module/module"
 	sdktools "github.com/tiny-systems/module/pkg/tools"
 	"github.com/tiny-systems/module/pkg/utils"
 
@@ -198,6 +200,7 @@ func spanToInfo(s utils.Span) sdktools.TraceSpanInfo {
 	durationMs := float64(s.EndTimeUnixNano-s.StartTimeUnixNano) / 1_000_000
 
 	var from, to, port string
+	var usage map[string]float64
 	for _, attr := range s.Attributes {
 		switch attr.Key {
 		case "from":
@@ -206,6 +209,18 @@ func spanToInfo(s utils.Span) sdktools.TraceSpanInfo {
 			to = attr.Value
 		case "port":
 			port = attr.Value
+		default:
+			// Metered work: the unit is whatever the component named, and is
+			// carried through untouched. A unit this reader has never seen
+			// still totals correctly.
+			unit, amount, ok := usageAttr(attr)
+			if !ok {
+				continue
+			}
+			if usage == nil {
+				usage = map[string]float64{}
+			}
+			usage[unit] += amount
 		}
 	}
 
@@ -229,7 +244,28 @@ func spanToInfo(s utils.Span) sdktools.TraceSpanInfo {
 		Port:       port,
 		DurationMs: durationMs,
 		Events:     events,
+		Usage:      usage,
 	}
+}
+
+// usageAttr recognises a metered unit and reads its amount.
+//
+// The value arrives as a string because every span attribute does; a unit whose
+// amount cannot be parsed is skipped rather than counted as zero, since a wrong
+// total is worse than a missing one.
+func usageAttr(attr utils.SpanAttribute) (unit string, amount float64, ok bool) {
+	if !strings.HasPrefix(attr.Key, m.UsageAttrPrefix) {
+		return "", 0, false
+	}
+	unit = strings.TrimPrefix(attr.Key, m.UsageAttrPrefix)
+	if unit == "" {
+		return "", 0, false
+	}
+	amount, err := strconv.ParseFloat(attr.Value, 64)
+	if err != nil {
+		return "", 0, false
+	}
+	return unit, amount, true
 }
 
 var _ sdktools.TraceReader = (*TraceReader)(nil)
