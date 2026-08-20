@@ -99,6 +99,16 @@ func (d *DashboardWriter) PlaceWidget(ctx context.Context, projectName string, p
 	if port == "" {
 		port = v1alpha1.ControlPort
 	}
+	// Which ports can be a widget is this host's business — buildDashboard
+	// renders a node's control form and nothing else. Storing a placement for
+	// any other port would report a widget that can never appear, so refuse it
+	// here, where the rendering rule actually lives, rather than in the SDK
+	// where it would bind every host to tiny's choice.
+	if !p.Remove && port != v1alpha1.ControlPort {
+		return sdktools.DashboardPageInfo{}, fmt.Errorf(
+			"port %q cannot be a widget: the dashboard renders a node's %s form only — expose what you want shown through that node's control schema",
+			port, v1alpha1.ControlPort)
+	}
 	ref := p.NodeID + ":" + port
 
 	if p.Remove && p.Page == "" {

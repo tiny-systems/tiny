@@ -1,6 +1,8 @@
 package adapters
 
 import (
+	"context"
+	"strings"
 	"testing"
 
 	"github.com/tiny-systems/module/api/v1alpha1"
@@ -100,5 +102,23 @@ func TestRemovalMatchesEveryPortOfTheNode(t *testing.T) {
 	kept := widgetsWithout(widgets, "flow.mod.signal-1")
 	if len(kept) != 1 || kept[0].Port != "flow.mod.other-2:_control" {
 		t.Fatalf("survivors = %+v, want only the other node's widget", kept)
+	}
+}
+
+// The rendering rule lives here, not in the SDK: this host renders a node's
+// control form and nothing else, so a placement for any other port would
+// report a widget that can never appear. A host that renders more must be free
+// to accept more.
+func TestPlacementRefusesAPortThisHostCannotRender(t *testing.T) {
+	d := &DashboardWriter{}
+	_, err := d.PlaceWidget(context.Background(), "proj", sdktools.WidgetPlacement{
+		NodeID: "flow.mod.n1",
+		Port:   "_settings",
+	})
+	if err == nil {
+		t.Fatal("a port the dashboard cannot render was accepted")
+	}
+	if !strings.Contains(err.Error(), v1alpha1.ControlPort) {
+		t.Errorf("the error does not say which port works: %v", err)
 	}
 }
