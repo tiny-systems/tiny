@@ -48,7 +48,7 @@ One process serves both surfaces: the **MCP endpoint** your editor drives and th
 ## 🔒 Why self-hosted
 
 - 🏠 **Your cluster.** Agents run where your data already lives — no round-trip to someone else's cloud.
-- 🔑 **Your keys.** LLM calls use the key you set on the agent. `tiny` never holds it, and pinned sample data is secret-redacted before it ever touches etcd.
+- 🔑 **Your keys.** LLM calls use the key you set on the agent, supplied at runtime and never written into the flow. `tiny` never holds it. Pinned sample data is scrubbed on the way in — by field name *and* by the shape of the secret itself, because a key-value store returns its contents under `value` and a log line carries one mid-sentence, names that give nothing away. Publishing scrubs again, and the platform refuses a credential on import, so a client that skips the check cannot put one in a shared solution.
 - 📦 **Real workloads.** Every capability is a Helm-installable module reconciled by an operator, not a function in a hosted sandbox. `kubectl get pods` shows you your agent.
 - ⚡ **Empty to running.** Start from a bare `kind`, `k3s`, or cloud cluster. `tiny up` provisions the broker, the operator, and core modules. Anything else installs on demand — including automatically when a prompt-built agent reaches for a capability it doesn't have yet.
 - ✅ **Built for agents that build.** Flows validate green on the first `build_flow` call (schemas are derived, sample data auto-scaffolds), signals wait for the flow to wake before firing, and every warning reaches the model — so your editor's agent ships working automations instead of chasing ghosts.
@@ -61,6 +61,7 @@ Not "call an API and hope" — these run as workloads on your cluster:
 - 👀 **Watch and diagnose.** React to real pod events, read the logs, query metrics and logs from any Prometheus- or Loki-compatible backend (in-cluster or Grafana Cloud/AMP/Mimir — it's a URL), and inspect its own execution traces to debug the automations it built.
 - ✋ **Ask before it acts.** `ask` renders a form from a schema the flow supplies and blocks the branch until a human answers. Approval is just a form with two buttons.
 - 🧪 **Run code it wrote.** `sandbox_run` executes a script in a throwaway Job — non-root, read-only filesystem, no service-account token, dropped capabilities, CPU/memory limits, killed on a deadline. Real Python or Node, next to your data, in a box.
+- 📤 **Ship what it built.** `tiny publish` turns a project into a solution — flows, dashboard pages, sample data — that installs into somebody else's cluster fully configured, with the schedules, models and mappings intact.
 - 🔌 **Use any MCP server's tools.** `mcp_tools` discovers them, `mcp_call` invokes them — so an agent reaches GitHub, Sentry, or your own MCP server without a connector being written for each.
 
 ## 📦 Install
@@ -105,9 +106,12 @@ which builds `pod_watch → pod_logs_get → llm → ask → restart`. When a po
 | `tiny install <module>` | add a capability module from the configured repos |
 | `tiny repo …` | manage module repos — Helm-style static indexes, add your own |
 | `tiny status` | show the runtime + installed modules on the target cluster |
-| `tiny edit [flow]` | open the web canvas against your cluster |
+| `tiny publish` | publish the current project as a solution others can install |
+| `tiny login` / `logout` / `whoami` | sign in for publishing (everything else works signed out) |
 | `tiny upgrade` | update tiny to the latest release |
 | `tiny --print` | print the MCP client config and exit (don't serve) |
+
+The canvas is served by `tiny` itself. (`tiny edit` exists, but only to point you back here.)
 
 Every mutating command shows the exact context and namespace it will touch and asks before it acts. Pass `--yes` to skip in CI, or `--context` / `--namespace` / `--project` to target explicitly. 🎯
 
@@ -127,7 +131,8 @@ The runtime and SDK are open source. The [hosted platform](https://tinysystems.i
 - ✅ **v0.2** — `tiny` (dev): the live MCP endpoint and browser editor in one process, streaming agent activity into the terminal as your editor drives. Prompt-built agents on your own cluster, no hosted account.
 - ✅ **v0.3** — decentralized module repos (`tiny repo` — Helm-style indexes you can host anywhere), scenario pinning with secret redaction, first-build-green validation.
 - ✅ **v0.4** — agents that act on infrastructure safely: human-in-the-loop approval (`ask`), sandboxed code execution, MCP client so any MCP server's tools are reachable, observability (own traces, PromQL/LogQL), and loop budgets. Plus `module tools rbac-check`, which compares a module's declared RBAC against the Kubernetes calls its code actually makes.
-- 🔭 **next** — richer canvas, more modules, smoother day-2 (upgrades, multi-cluster).
+- ✅ **v0.5** — solutions you can publish and install, shared nodes across flow layers from the agent side, and a much cheaper session start (the component catalog says what each component requires and answers with, so an agent chooses without fetching everything).
+- 🔭 **next** — project lifecycle (`export` / `import` / `list`), dashboard pages an agent can lay out, richer canvas, smoother day-2 (upgrades, multi-cluster).
 
 Follow along or open an issue — this is being built in the open. 🛠
 
