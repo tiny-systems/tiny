@@ -136,7 +136,21 @@ func newRepoUpdateCmd() *cobra.Command {
 				fmt.Printf("  %s %v\n", styleWarn.Render("some repos failed:"), err)
 				return nil
 			}
+			// What arrived, not just that something did. A CDN edge serving
+			// the previous copy is indistinguishable from a successful fetch
+			// until you can see when the index was generated — which cost an
+			// hour of chasing a phantom override once.
 			fmt.Println("  " + styleOK.Render("✓") + " indexes updated")
+			for _, st := range s.Stamps() {
+				detail := "no cached index"
+				if st.Generated != "" {
+					detail = fmt.Sprintf("generated %s · %d modules", st.Generated, st.Modules)
+					if age, err := time.Parse(time.RFC3339, st.Generated); err == nil && time.Since(age) > 24*time.Hour {
+						detail += "  " + styleWarn.Render(fmt.Sprintf("(%dd old)", int(time.Since(age).Hours()/24)))
+					}
+				}
+				fmt.Printf("    %s %s\n", styleKey.Render(st.Repo), styleSubtle.Render(detail))
+			}
 			return nil
 		},
 	}

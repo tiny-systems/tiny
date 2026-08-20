@@ -125,6 +125,40 @@ func (s *Store) Merged() (*Merged, error) {
 	return NewMerged(order, byRepo), nil
 }
 
+// Stamps reports what each cached index says about itself: when it was
+// generated, and how many modules it lists.
+//
+// A fetch that returns the previous copy from a CDN edge looks exactly like a
+// fetch that worked. Reporting the timestamp is the difference between "you
+// have the latest" and "you have whatever was served" — one of which is a
+// claim the command cannot make.
+func (s *Store) Stamps() []Stamp {
+	dir, err := cacheDir()
+	if err != nil {
+		return nil
+	}
+	out := make([]Stamp, 0, len(s.cfg.Repos))
+	for _, r := range s.cfg.Repos {
+		st := Stamp{Repo: r.Name}
+		data, err := os.ReadFile(filepath.Join(dir, r.Name+".yaml"))
+		if err == nil {
+			if idx, perr := ParseIndex(data); perr == nil {
+				st.Generated = idx.Generated
+				st.Modules = len(idx.Modules)
+			}
+		}
+		out = append(out, st)
+	}
+	return out
+}
+
+// Stamp is one repo's cached index, described.
+type Stamp struct {
+	Repo      string
+	Generated string
+	Modules   int
+}
+
 // httpFetch is the default fetcher.
 func httpFetch(ctx context.Context, rawURL string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
