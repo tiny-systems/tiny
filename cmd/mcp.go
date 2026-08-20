@@ -347,6 +347,7 @@ func buildRegistry() *sdktools.Registry {
 	r.Register(sdktools.NewGetModuleInfoTool())
 	r.Register(sdktools.NewGetDashboardTool())
 	r.Register(sdktools.NewSetNodeDashboardTool())
+	r.Register(sdktools.NewDashboardPageTool())
 	r.Register(sdktools.NewInstallModuleTool())
 	r.Register(sdktools.NewUninstallModuleTool())
 	return r
