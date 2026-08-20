@@ -7,7 +7,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/tiny-systems/tiny/internal/adapters"
 	"github.com/tiny-systems/tiny/internal/eval"
+	"github.com/tiny-systems/tiny/internal/kube"
 )
 
 // `tiny eval` — run a project's flows against pinned inputs and report what
@@ -23,6 +25,7 @@ func newEvalCmd() *cobra.Command {
 		dir     string
 		settle  time.Duration
 		verbose bool
+		watch   bool
 	)
 
 	c := &cobra.Command{
@@ -48,8 +51,10 @@ module release.`,
 				path = eval.DefaultDir
 			}
 
-			specs, err := eval.Load(path)
-			if err != nil {
+			// Load once up front so a broken eval file is reported before a
+			// cluster connection is made — the error is about the file, and
+			// pairing it with a connection failure would bury it.
+			if _, err := eval.Load(path); err != nil {
 				return err
 			}
 
@@ -67,6 +72,20 @@ module release.`,
 				return fmt.Errorf("this cluster connection cannot fire signals or read traces — is the runtime installed? (`tiny up`)")
 			}
 
+			// Watching needs to notice a flow being edited or a module being
+			// upgraded, which is the direction breakage actually arrives from.
+			var fingerprint eval.ChangeSource
+			if watch {
+				kc, err := kube.NewClient(kube.Options{Context: flagContext, Namespace: flagNamespace})
+				if err != nil {
+					// Falling back to watching only the files would look like
+					// it was working while missing the direction breakage
+					// actually comes from.
+					return fmt.Errorf("watch needs a cluster connection to notice flow and module changes: %w", err)
+				}
+				fingerprint = adapters.NewProjectFingerprint(kc)
+			}
+
 			runner := &eval.Runner{
 				Project: flagProject,
 				Sender:  bundle.SignalSender,
@@ -74,32 +93,61 @@ module release.`,
 				Settle:  settle,
 			}
 
-			fmt.Println()
-			fmt.Printf("  %s %s\n\n", styleKey.Render("evals"), styleSubtle.Render(fmt.Sprintf("%d in %s · project %s", len(specs), path, flagProject)))
-
-			failed := 0
-			for _, spec := range specs {
-				result := runner.Run(cmd.Context(), spec)
-				printResult(result, verbose)
-				if !result.Passed() {
-					failed++
+			once := func() int {
+				// Reloaded every pass so an edit takes effect without a
+				// restart — the point of watching is not having to think
+				// about when things are picked up.
+				current, err := eval.Load(path)
+				if err != nil {
+					fmt.Printf("  %s %v\n", styleWarn.Render("evals:"), err)
+					return 1
 				}
+				fmt.Printf("  %s %s\n\n", styleKey.Render("evals"), styleSubtle.Render(fmt.Sprintf("%d in %s · project %s", len(current), path, flagProject)))
+
+				failed := 0
+				for _, spec := range current {
+					result := runner.Run(cmd.Context(), spec)
+					printResult(result, verbose)
+					if !result.Passed() {
+						failed++
+					}
+				}
+				fmt.Println()
+				if failed == 0 {
+					fmt.Printf("  %s %s\n", styleOK.Render("✓ all passed"), styleSubtle.Render(fmt.Sprintf("(%d)", len(current))))
+				} else {
+					fmt.Printf("  %s %s\n", styleWarn.Render(fmt.Sprintf("✗ %d of %d failed", failed, len(current))), styleSubtle.Render("the claim above each failure is what stopped being true"))
+				}
+				return failed
 			}
 
 			fmt.Println()
-			if failed == 0 {
-				fmt.Printf("  %s %s\n\n", styleOK.Render("✓ all passed"), styleSubtle.Render(fmt.Sprintf("(%d)", len(specs))))
+			if !watch {
+				if once() > 0 {
+					os.Exit(1)
+				}
+				fmt.Println()
 				return nil
 			}
-			fmt.Printf("  %s %s\n\n", styleWarn.Render(fmt.Sprintf("✗ %d of %d failed", failed, len(specs))), styleSubtle.Render("the claim above each failure is what stopped being true"))
-			os.Exit(1)
-			return nil
+
+			fmt.Printf("  %s %s\n\n", styleKey.Render("watching"), styleSubtle.Render("re-runs when the evals change, or when a flow or module does · ctrl-c to stop"))
+			return eval.Watch(cmd.Context(), eval.WatchOptions{
+				Path:    path,
+				Project: flagProject,
+				Cluster: fingerprint,
+			}, func(reason string) {
+				if reason != "first run" {
+					fmt.Printf("\n  %s %s\n\n", styleKey.Render("↻"), styleSubtle.Render(reason))
+				}
+				once()
+			})
 		},
 	}
 
 	c.Flags().StringVar(&dir, "dir", "", "directory or file holding the evals (default: ./evals)")
 	c.Flags().DurationVar(&settle, "settle", 3*time.Second, "how long a run must produce no new spans before it counts as finished")
 	c.Flags().BoolVarP(&verbose, "verbose", "v", false, "print the trace id of every eval, not only the failures")
+	c.Flags().BoolVarP(&watch, "watch", "w", false, "keep running: re-run when an eval changes, or when a flow or module does")
 	return c
 }
 
