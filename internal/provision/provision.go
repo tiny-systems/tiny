@@ -26,7 +26,6 @@ import (
 	"time"
 
 	helmclient "github.com/mittwald/go-helm-client"
-	"github.com/mittwald/go-helm-client/values"
 	"helm.sh/helm/v3/pkg/repo"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -34,8 +33,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/yaml"
-
-	"github.com/tiny-systems/tiny/internal/catalog"
 )
 
 const (
@@ -46,12 +43,6 @@ const (
 	natsChart     = "tinysystems-nats"
 	otelChart     = "tinysystems-otel-collector"
 	operatorChart = "tinysystems-operator"
-
-	// operatorVersion is pinned to the platform's validated version rather
-	// than resolving "latest" off a helm cache — the exact reason the
-	// platform pins it (a stale cache once shipped an operator predating the
-	// port-manager RBAC http_server needs).
-	operatorVersion = "0.2.10"
 
 	natsService    = "tinysystems-nats"
 	natsAuthSecret = "tinysystems-nats-auth"
@@ -230,118 +221,6 @@ func (c *Client) InstallOTEL(ctx context.Context) error {
 	})
 }
 
-// InstallModule installs one capability module as a tinysystems-operator
-// release parameterised by the module's image. Returns the helm release
-// name. natsURL wires the broker so durable execution is on out of the box;
-// pass "" to leave the module in blocking-only mode.
-func (c *Client) InstallModule(ctx context.Context, m *catalog.Module, natsURL string, settings Settings) (string, error) {
-	release := SanitizeResourceName(m.FullName)
-	spec := &helmclient.ChartSpec{
-		ReleaseName:     release,
-		ChartName:       repoName + "/" + operatorChart,
-		Version:         operatorVersion,
-		Namespace:       c.namespace,
-		CreateNamespace: true,
-		Wait:            true,
-		Timeout:         provisionTimeout,
-		Atomic:          true,
-		Force:           true,
-		Replace:         true,
-		CleanupOnFail:   true,
-		ValuesOptions:   values.Options{Values: c.moduleValues(m, release, natsURL, settings)},
-	}
-	if err := c.install(ctx, spec); err != nil {
-		return "", err
-	}
-	return release, nil
-}
-
-// moduleValues replicates the platform's operator.release_values for a
-// single-owner local install: image, name/version/namespace args (also on
-// the pre-install/pre-delete hook jobs, which don't get them from the chart
-// otherwise), the durable-transport env, secret resolution, and the broker
-// URL. --name is the workspace-qualified full name so the node IDs the agent
-// builds resolve to this operator.
-func (c *Client) moduleValues(m *catalog.Module, release, natsURL string, settings Settings) []string {
-	v := []string{
-		"controllerManager.manager.image.repository=" + m.Repo,
-		"controllerManager.manager.image.tag=" + m.Tag,
-		"fullnameOverride=" + release,
-		"controllerManager.manager.args[0]=run",
-		"controllerManager.manager.args[1]=--grpc-server-bind-address=:8483",
-		"controllerManager.manager.args[2]=--health-probe-bind-address=:8081",
-		"controllerManager.manager.args[3]=--metrics-bind-address=127.0.0.1:8080",
-		"controllerManager.manager.args[4]=--name=" + m.FullName,
-		"controllerManager.manager.args[5]=--version=" + m.Tag,
-		"controllerManager.manager.args[6]=--namespace=" + c.namespace,
-		"controllerManager.manager.deleteArgs[0]=pre-delete",
-		"controllerManager.manager.deleteArgs[1]=--name=" + m.FullName,
-		"controllerManager.manager.deleteArgs[2]=--namespace=" + c.namespace,
-		"controllerManager.manager.installArgs[0]=pre-install",
-		"controllerManager.manager.installArgs[1]=--name=" + m.FullName,
-		"controllerManager.manager.installArgs[2]=--namespace=" + c.namespace,
-		"controllerManager.manager.extraEnv[0].name=OTLP_DSN",
-		"controllerManager.manager.extraEnv[0].value=" + otelDSN,
-		// Durable wire by default: SDK reads TINY_NATS_TRANSPORT=jetstream and
-		// uses the WorkQueue stream (pod-death survival + per-edge retry).
-		"controllerManager.manager.extraEnv[1].name=TINY_NATS_TRANSPORT",
-		"controllerManager.manager.extraEnv[1].value=jetstream",
-	}
-	if natsURL != "" {
-		v = append(v, "natsURL="+natsURL)
-	}
-	// Baseline RBAC (pods, services, ingresses) is needed both by modules that
-	// manage cluster resources (RequiresKubernetesAccess) AND by any module
-	// that exposes a port (RequiresIngress) — the port-manager must `get pods`
-	// to find its own pod before it can expose/route the port. Without this,
-	// http_server starts listening but logs "failed to expose port" and gets
-	// no address.
-	if m.RequiresKubernetesAccess || m.RequiresIngress {
-		v = append(v, "rbac.enableKubernetesResourceAccess=true")
-	}
-
-	// Ingress: enable only when the module exposes HTTP and the cluster has an
-	// ingress class set. Otherwise leave it off (reachable by port-forward,
-	// the default on kind/minikube).
-	if m.RequiresIngress && settings.IngressClass != "" {
-		v = append(v,
-			"managerIngress.ingress.enabled=true",
-			"managerIngress.ingress.className="+settings.IngressClass,
-		)
-		if settings.DomainSuffix != "" {
-			v = append(v, "global.defaultDomainSuffix="+settings.DomainSuffix)
-		}
-		if settings.Issuer != "" {
-			// cert-manager TLS: annotate with the (cluster-)issuer. Dots in the
-			// annotation key are escaped so helm --set treats them as key, not
-			// nesting.
-			key := "cert-manager\\.io/issuer"
-			if settings.ClusterIssuer {
-				key = "cert-manager\\.io/cluster-issuer"
-			}
-			v = append(v, "managerIngress.ingress.annotations."+key+"="+settings.Issuer)
-		}
-	} else {
-		v = append(v, "managerIngress.ingress.enabled=false")
-	}
-
-	// Storage: wire the cluster's storage class for modules that need a PVC.
-	if m.RequiresStorage && settings.StorageClass != "" {
-		v = append(v,
-			"storage.enabled=true",
-			"storage.storageClassName="+settings.StorageClass,
-			"storage.size="+settings.storageSizeOr(),
-		)
-	}
-	return v
-}
-
-// UpgradeInstall installs or upgrades an arbitrary chart with a full values
-// map — the generic helm primitive the repo-model installer drives. It makes
-// *Client structurally satisfy repo.Helm (no import of the repo package needed;
-// Go interfaces are structural). Mirrors the install flags used elsewhere
-// (create-namespace, wait, atomic, cleanup-on-fail). Nothing calls it until the
-// install/up cutover; adding it is non-breaking.
 func (c *Client) UpgradeInstall(ctx context.Context, release, namespace, chart, version string, vals map[string]any) error {
 	var valuesYaml string
 	if len(vals) > 0 {
