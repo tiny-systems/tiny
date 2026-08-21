@@ -391,3 +391,26 @@ func TestARedactedMidChainPayloadIsRefusedWithADirection(t *testing.T) {
 		t.Errorf("the refusal does not say where to replay from instead: %v", res.Err)
 	}
 }
+
+// A delivery to _control is how a run gets started, not something the run did.
+// Comparing it reported "_control no longer receives anything" on every
+// trigger-fired replay — an artifact of how the replay began, and the kind of
+// noise that teaches people to ignore a diff.
+func TestSystemPortsAreNotCompared(t *testing.T) {
+	recorded := []sdktools.TraceSpanInfo{
+		span("c0", "", "signal", "sig:_control", `{"send":true}`),
+		emit("s0", "c0", "sig:out", `{"q":"why"}`),
+		span("aa", "s0", "sig:out", "llm:request", `{"q":"why"}`),
+	}
+	// The replay's run has no _control hop of its own to show here.
+	replayed := index([]sdktools.TraceSpanInfo{
+		emit("n0", "", "sig:out", `{"q":"why"}`),
+		span("n1", "n0", "sig:out", "llm:request", `{"q":"why"}`),
+	})
+
+	for _, c := range Diff(recorded, replayed, Hops(recorded)[0]) {
+		if strings.Contains(c.Port, ":_") {
+			t.Fatalf("a system port was compared: %+v", c)
+		}
+	}
+}

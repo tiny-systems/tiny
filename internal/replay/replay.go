@@ -358,7 +358,7 @@ func portsBelow(spans []sdktools.TraceSpanInfo, hop Hop) map[string]bool {
 			if target == "" {
 				target = child.Port
 			}
-			if target != "" {
+			if target != "" && !strings.HasPrefix(portOf(target), "_") {
 				ports[target] = true
 			}
 			walk(child.SpanID, depth+1)
@@ -508,6 +508,12 @@ func (r *Runner) detailsSince(ctx context.Context, summaries []sdktools.TraceSum
 }
 
 // index maps each port to the payloads that reached it.
+//
+// System ports are left out. A delivery to _control is the act of triggering a
+// run, not part of what the run did — and since a trigger-fired replay starts
+// its own trace, comparing it reported "_control no longer receives anything"
+// on every whole-run replay. That is an artifact of how the replay was started,
+// which is exactly the kind of noise that teaches people to ignore a diff.
 func index(spans []sdktools.TraceSpanInfo) map[string][]string {
 	out := map[string][]string{}
 	for _, s := range spans {
@@ -515,7 +521,7 @@ func index(spans []sdktools.TraceSpanInfo) map[string][]string {
 		if target == "" {
 			target = s.Port
 		}
-		if target == "" {
+		if target == "" || strings.HasPrefix(portOf(target), "_") {
 			continue
 		}
 		if payload, ok := dataPayload(s); ok {
