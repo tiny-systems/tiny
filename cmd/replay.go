@@ -113,11 +113,13 @@ workload restarts it again.`,
 				os.Exit(1)
 			}
 			if res.Unchanged() {
-				fmt.Printf("  %s %s %s\n\n", styleOK.Render("✓ unchanged"), styleSubtle.Render("— every port reached, same shapes"), took)
+				fmt.Printf("  %s %s %s\n\n", styleOK.Render("✓ unchanged"),
+					styleSubtle.Render(fmt.Sprintf("— %d port(s) compared, every one reached with the same shape", res.Compared)), took)
 				return nil
 			}
 
-			fmt.Printf("  %s %s\n\n", styleWarn.Render(fmt.Sprintf("✗ %d change(s)", len(res.Changes))), took)
+			fmt.Printf("  %s %s %s\n\n", styleWarn.Render(fmt.Sprintf("✗ %d change(s)", len(res.Changes))),
+				styleSubtle.Render(fmt.Sprintf("of %d port(s) compared", res.Compared)), took)
 			for _, ch := range res.Changes {
 				fmt.Printf("      %s\n", ch.String())
 			}
