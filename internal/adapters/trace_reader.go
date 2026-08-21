@@ -245,14 +245,18 @@ func spanToInfo(s utils.Span) sdktools.TraceSpanInfo {
 	}
 
 	return sdktools.TraceSpanInfo{
-		SpanID:     s.SpanID,
-		Name:       s.Name,
-		From:       from,
-		To:         to,
-		Port:       port,
-		DurationMs: durationMs,
-		Events:     events,
-		Usage:      usage,
+		SpanID: s.SpanID,
+		// Parentage is what turns a list of hops into the tree the run
+		// actually was — and what lets a re-driven branch be told apart from
+		// the run it re-drove, since both share a trace.
+		ParentSpanID: s.ParentSpanID,
+		Name:         s.Name,
+		From:         from,
+		To:           to,
+		Port:         port,
+		DurationMs:   durationMs,
+		Events:       events,
+		Usage:        usage,
 	}
 }
 

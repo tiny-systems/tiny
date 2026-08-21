@@ -15,11 +15,11 @@ import (
 // shelling helm/kubectl into the wrong context is the classic footgun,
 // so the target is always shown and (unless --yes) confirmed.
 var (
-	flagContext    string
-	flagNamespace  string
-	flagYes     bool
-	flagPrint   bool
-	flagProject string
+	flagContext   string
+	flagNamespace string
+	flagYes       bool
+	flagPrint     bool
+	flagProject   string
 
 	// Cluster install settings — properties of the target cluster, applied to
 	// module installs and persisted as tinysystems-namespace annotations.
@@ -74,6 +74,7 @@ Run with no command to start the dev server (MCP endpoint + editor).`,
 		newStatusCmd(),
 		newEditCmd(),
 		newEvalCmd(),
+		newReplayCmd(),
 		newUpgradeCmd(),
 	)
 	return root.Execute()
