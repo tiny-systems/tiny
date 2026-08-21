@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
@@ -119,6 +120,23 @@ func newStatusCmd() *cobra.Command {
 			default:
 				n := len(strings.Split(s, "\n"))
 				fmt.Printf("  %s %s\n", styleOK.Render("runtime present"), styleSubtle.Render(fmt.Sprintf("· %d module(s) installed", n)))
+			}
+
+			// What the guardrail quota is, and how close anything is to it. A
+			// ceiling nobody can see only ever announces itself as a component
+			// that mysteriously stopped working.
+			if cfg, cerr := kube.RestConfig(flagContext); cerr == nil {
+				if usage, qerr := provision.ReadQuota(cmd.Context(), cfg, flagNamespace); qerr == nil {
+					if len(usage) == 0 {
+						fmt.Printf("  %s %s\n", styleKey.Render("quota"), styleSubtle.Render("none — a flow may create as many jobs and volumes as it likes"))
+					} else {
+						sort.Slice(usage, func(i, j int) bool { return usage[i].Resource < usage[j].Resource })
+						for _, u := range usage {
+							fmt.Printf("  %s %s\n", styleKey.Render("quota"),
+								styleSubtle.Render(fmt.Sprintf("%s %s of %s", u.Resource, u.Used, u.Hard)))
+						}
+					}
+				}
 			}
 			fmt.Println()
 			return nil

@@ -27,8 +27,16 @@ var coreModules = []string{
 	"kubernetes-module",
 }
 
+// flagMaxJobs / flagMaxPVCs bound what components may create. -1 means "use the
+// default"; 0 means "do not bound this at all", which is a choice someone can
+// make deliberately and should not be able to make by accident.
+var (
+	flagMaxJobs = -1
+	flagMaxPVCs = -1
+)
+
 func newUpCmd() *cobra.Command {
-	return &cobra.Command{
+	c := &cobra.Command{
 		Use:   "up",
 		Short: "Provision the runtime on your cluster (broker + operator + core modules)",
 		Long: `Provision the Tiny Systems runtime onto the target cluster:
@@ -38,11 +46,21 @@ func newUpCmd() *cobra.Command {
   3. OpenTelemetry collector  — execution traces
   4. core modules             — common, http, llm, kubernetes
 
+A guardrail quota is set on the namespace: a ceiling on the Jobs and volumes
+a flow may create, since sandbox_run starts a Job per call and a looping agent
+starts as many as the loop runs. Object counts only — a quota touching cpu or
+memory would force every pod to declare requests and break the next install.
+
 Works on an empty cluster (kind, k3s, EKS, GKE — anything you can kubectl
 into). Everything past the core set installs on demand. The target
 context + namespace are shown and confirmed before anything is applied.`,
 		RunE: runUp,
 	}
+	c.Flags().IntVar(&flagMaxJobs, "max-jobs", -1,
+		"ceiling on concurrent Kubernetes Jobs a flow may create (sandbox_run's unit of work); 0 for no ceiling")
+	c.Flags().IntVar(&flagMaxPVCs, "max-volumes", -1,
+		"ceiling on volumes storage components may claim; 0 for no ceiling")
+	return c
 }
 
 func runUp(cmd *cobra.Command, _ []string) error {
@@ -62,6 +80,26 @@ func runUp(cmd *cobra.Command, _ []string) error {
 
 	fmt.Println()
 	if err := step("namespace "+flagNamespace, func() error { return provision.EnsureNamespace(ctx, cfg, flagNamespace) }); err != nil {
+		return err
+	}
+	// A ceiling on what a flow can create, before anything can start creating.
+	// Object counts only: a quota touching cpu or memory would force every pod
+	// in the namespace to declare requests, and the next module install would
+	// fail instead of the runaway loop this exists to stop.
+	quota := provision.DefaultQuota
+	if flagMaxJobs >= 0 {
+		quota.Jobs = int64(flagMaxJobs)
+	}
+	if flagMaxPVCs >= 0 {
+		quota.PersistentVolumeClaims = int64(flagMaxPVCs)
+	}
+	label := "guardrail quota"
+	if quota.Empty() {
+		label = "guardrail quota (none — unbounded)"
+	} else {
+		label = fmt.Sprintf("guardrail quota (%d jobs, %d volumes)", quota.Jobs, quota.PersistentVolumeClaims)
+	}
+	if err := step(label, func() error { return provision.EnsureQuota(ctx, cfg, flagNamespace, quota) }); err != nil {
 		return err
 	}
 	if err := step("CRDs (TinyModule / TinyNode / TinyFlow)", func() error { return hc.InstallCRDs(ctx) }); err != nil {
