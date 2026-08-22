@@ -67,7 +67,7 @@ func TestRenderValues(t *testing.T) {
 		t.Fatalf("RenderValues: %v", err)
 	}
 	want := map[string]any{
-		"image": "ghcr.io/x:1.0.0",
+		"image":   "ghcr.io/x:1.0.0",
 		"ingress": map[string]any{"className": "nginx"},
 	}
 	if !reflect.DeepEqual(got, want) {

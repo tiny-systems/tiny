@@ -118,3 +118,39 @@ func TestImageRepoStripsTagAndDigest(t *testing.T) {
 		}
 	}
 }
+
+// A module's source repository can move, which changes its image path without
+// changing whose module it is. Publishing from a monorepo turned
+// ghcr.io/tiny-systems/common-module into
+// ghcr.io/tiny-systems/modules/common-module — same registry, same
+// organisation, same module, relocated. The guard compared whole paths, so it
+// read that as a takeover and refused every upgrade.
+//
+// The identity that matters is registry + owner + module name. What sits
+// between is where the source happens to live.
+func TestRelocatedSourceIsStillTheSameModule(t *testing.T) {
+	same := []struct{ installed, planned string }{
+		{"ghcr.io/tiny-systems/common-module:0.11.0", "ghcr.io/tiny-systems/modules/common-module:0.12.0"},
+		{"ghcr.io/tiny-systems/modules/common-module:0.12.0", "ghcr.io/tiny-systems/common-module:0.11.0"},
+		{"ghcr.io/tiny-systems/a/b/http-module:1", "ghcr.io/tiny-systems/http-module:2"},
+	}
+	for _, c := range same {
+		if !sameModuleImage(c.installed, c.planned) {
+			t.Errorf("refused an upgrade of the same module:\n  installed %s\n  planned   %s", c.installed, c.planned)
+		}
+	}
+
+	// What the guard exists for still has to be refused: a different owner, or
+	// a different module, is somebody else's release.
+	different := []struct{ installed, planned string }{
+		{"ghcr.io/tiny-systems/common-module:1", "ghcr.io/someone-else/common-module:1"},
+		{"ghcr.io/tiny-systems/common-module:1", "ghcr.io/tiny-systems/http-module:1"},
+		{"ghcr.io/tiny-systems/modules/common-module:1", "ghcr.io/other/modules/common-module:1"},
+		{"docker.io/tiny-systems/common-module:1", "ghcr.io/tiny-systems/common-module:1"},
+	}
+	for _, c := range different {
+		if sameModuleImage(c.installed, c.planned) {
+			t.Errorf("allowed a takeover:\n  installed %s\n  planned   %s", c.installed, c.planned)
+		}
+	}
+}

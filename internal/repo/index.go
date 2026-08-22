@@ -44,12 +44,30 @@ type Module struct {
 // Returns "" if Source isn't a github.com coordinate. The platform/agent fetches
 // this on demand for detail views — install never needs it, so it stays online-
 // only while install data stays offline-cached.
+//
+// A Source may name a directory inside a repository
+// (github.com/org/repo/some-module), which is what a repository holding several
+// modules looks like. The raw host takes the ref BETWEEN the repo and the path,
+// so the first two segments are the repository and everything after is a
+// subdirectory — splicing HEAD onto the end of the whole thing would ask for
+// org/repo/some-module as a repository and quietly 404. Every module in such a
+// repository would show no README, or worse, the same root one.
 func (m *Module) ReadmeURL() string {
 	const gh = "github.com/"
 	if !strings.HasPrefix(m.Source, gh) {
 		return ""
 	}
-	return "https://raw.githubusercontent.com/" + strings.TrimPrefix(m.Source, gh) + "/HEAD/README.md"
+	coord := strings.Trim(strings.TrimPrefix(m.Source, gh), "/")
+	parts := strings.Split(coord, "/")
+	if len(parts) < 2 {
+		return ""
+	}
+	repo := strings.Join(parts[:2], "/")
+	path := "README.md"
+	if len(parts) > 2 {
+		path = strings.Join(parts[2:], "/") + "/README.md"
+	}
+	return "https://raw.githubusercontent.com/" + repo + "/HEAD/" + path
 }
 
 // Version is one installable release: the image + the values/chart coordinates
@@ -129,8 +147,8 @@ func (m *Module) find(v string) *Version {
 // Merged is a read-only view over every configured repo's index, ordered so
 // resolution is deterministic. Repo names are unique (config enforces it).
 type Merged struct {
-	order   []string          // repo names, in config order
-	byRepo  map[string]*Index // repo name -> index
+	order  []string          // repo names, in config order
+	byRepo map[string]*Index // repo name -> index
 }
 
 // NewMerged builds a merged view. order fixes precedence for ambiguity

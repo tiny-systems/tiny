@@ -96,7 +96,36 @@ func sameModuleImage(installed, planned string) bool {
 	if installed == "" {
 		return true
 	}
-	return imageRepo(installed) == imageRepo(planned)
+	if imageRepo(installed) == imageRepo(planned) {
+		return true
+	}
+	// A module's SOURCE can move without changing whose module it is.
+	// Publishing from a monorepo turned ghcr.io/tiny-systems/common-module into
+	// ghcr.io/tiny-systems/modules/common-module: same registry, same
+	// organisation, same module, relocated. Comparing whole paths read that as
+	// a takeover and refused every upgrade.
+	//
+	// Identity is registry + owner + module name. What sits between them is
+	// only where the source happens to live, so a different owner or a
+	// different module is still refused — which is what the guard is for.
+	i, iok := moduleIdentity(installed)
+	p, pok := moduleIdentity(planned)
+	return iok && pok && i == p
+}
+
+// moduleIdentity reduces an image ref to registry/owner/name, dropping any
+// intermediate path. Returns false when the ref has no owner segment to speak
+// of, so an unrecognisable ref never compares equal to anything.
+func moduleIdentity(ref string) (string, bool) {
+	parts := strings.Split(imageRepo(ref), "/")
+	if len(parts) < 3 {
+		return "", false
+	}
+	registry, owner, name := parts[0], parts[1], parts[len(parts)-1]
+	if registry == "" || owner == "" || name == "" {
+		return "", false
+	}
+	return registry + "/" + owner + "/" + name, true
 }
 
 // imageRepo strips the tag or digest from an image ref, leaving host/path.

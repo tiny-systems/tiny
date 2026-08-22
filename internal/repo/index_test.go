@@ -116,3 +116,26 @@ func TestResolveAmbiguityAcrossRepos(t *testing.T) {
 		t.Fatalf("unique module resolve failed: r=%+v err=%v", r, err)
 	}
 }
+
+// A Source may name a directory inside a repository, which is what a repo
+// holding several modules looks like. The raw host wants the ref between the
+// repo and the path; splicing HEAD onto the end asks for the subdirectory as a
+// repository and 404s, so every module in that repo would show no README — or
+// the same root one, which is worse because it looks like it worked.
+func TestReadmeURLHandlesAModuleInsideARepo(t *testing.T) {
+	cases := []struct{ source, want string }{
+		{"github.com/tiny-systems/common-module",
+			"https://raw.githubusercontent.com/tiny-systems/common-module/HEAD/README.md"},
+		{"github.com/tiny-systems/modules/common-module",
+			"https://raw.githubusercontent.com/tiny-systems/modules/HEAD/common-module/README.md"},
+		{"github.com/tiny-systems/modules/nested/deeper",
+			"https://raw.githubusercontent.com/tiny-systems/modules/HEAD/nested/deeper/README.md"},
+		{"gitlab.com/tiny-systems/modules", ""},
+		{"github.com/tiny-systems", ""},
+	}
+	for _, c := range cases {
+		if got := (&Module{Source: c.source}).ReadmeURL(); got != c.want {
+			t.Errorf("Source %q\n got %q\nwant %q", c.source, got, c.want)
+		}
+	}
+}
