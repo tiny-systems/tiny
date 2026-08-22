@@ -86,10 +86,21 @@ module release.`,
 				fingerprint = adapters.NewProjectFingerprint(kc)
 			}
 
+			// Resolve a bare node suffix to a full name, so an eval survives
+			// re-import: importing a project mints new flow-id prefixes and
+			// every eval addressing a full name breaks. Best-effort — without
+			// it a full name still works, which is what every eval written so
+			// far uses.
+			var nodes eval.NodeLister
+			if k, kerr := kube.NewClient(kube.Options{Context: flagContext, Namespace: flagNamespace}); kerr == nil {
+				nodes = adapters.NewNodeLister(k)
+			}
+
 			runner := &eval.Runner{
 				Project: flagProject,
 				Sender:  bundle.SignalSender,
 				Reader:  bundle.TraceReader,
+				Nodes:   nodes,
 				Settle:  settle,
 			}
 

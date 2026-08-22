@@ -72,14 +72,14 @@ func TestRunFiresTheTriggerAndChecksTheRun(t *testing.T) {
 
 	result := r.Run(context.Background(), evals.Spec{
 		Name:    "counts two",
-		Trigger: evals.Trigger{Node: "signal-1", Port: "_control", Data: map[string]interface{}{"send": true}},
+		Trigger: evals.Trigger{Node: "flow1.tinysystems-common-module-v0.signal-1", Port: "_control", Data: map[string]interface{}{"send": true}},
 		Expect:  evals.Expect{Arrives: []evals.Arrival{{At: "d:in", Path: "$.count", Equals: 2}}},
 	})
 
 	if !result.Passed() {
 		t.Fatalf("failed: %v %v", result.Err, result.Failures)
 	}
-	if sender.node != "signal-1" || sender.port != "_control" {
+	if sender.node != "flow1.tinysystems-common-module-v0.signal-1" || sender.port != "_control" {
 		t.Errorf("fired at %s:%s", sender.node, sender.port)
 	}
 	if string(sender.data) != `{"send":true}` {
@@ -94,7 +94,7 @@ func TestRunFiresTheTriggerAndChecksTheRun(t *testing.T) {
 // false, and must not be reported as one.
 func TestATriggerThatCannotFireIsAnErrorNotAFailure(t *testing.T) {
 	r := &Runner{Project: "p", Sender: &fakeSender{err: context.DeadlineExceeded}, Reader: &fakeReader{}, Sleep: func(time.Duration) {}}
-	result := r.Run(context.Background(), evals.Spec{Name: "x", Trigger: evals.Trigger{Node: "n"}})
+	result := r.Run(context.Background(), evals.Spec{Name: "x", Trigger: evals.Trigger{Node: "flow1.tinysystems-common-module-v0.n"}})
 	if result.Err == nil {
 		t.Fatal("a failed publish was reported as an assertion failure")
 	}
@@ -111,7 +111,7 @@ func TestNoTraceSaysWhatToCheck(t *testing.T) {
 		Settle: time.Millisecond, Sleep: func(time.Duration) {},
 	}
 	result := r.Run(context.Background(), evals.Spec{
-		Name: "x", Trigger: evals.Trigger{Node: "n"}, Timeout: evals.Duration(5 * time.Millisecond),
+		Name: "x", Trigger: evals.Trigger{Node: "flow1.tinysystems-common-module-v0.n"}, Timeout: evals.Duration(5 * time.Millisecond),
 	})
 	if result.Err == nil || !strings.Contains(result.Err.Error(), "node id") {
 		t.Fatalf("err = %v", result.Err)
@@ -129,7 +129,7 @@ func TestRunWaitsForTheTraceToStopGrowing(t *testing.T) {
 
 	result := r.Run(context.Background(), evals.Spec{
 		Name:    "waits",
-		Trigger: evals.Trigger{Node: "n"},
+		Trigger: evals.Trigger{Node: "flow1.tinysystems-common-module-v0.n"},
 		Expect:  evals.Expect{Arrives: []evals.Arrival{{At: "d:in", Path: "$.count", Equals: 2}}},
 	})
 	if !result.Passed() {
@@ -151,7 +151,7 @@ func TestRunCollectsTheTracesTheRunSpilledInto(t *testing.T) {
 
 	result := r.Run(context.Background(), evals.Spec{
 		Name:    "spills",
-		Trigger: evals.Trigger{Node: "signal-1"},
+		Trigger: evals.Trigger{Node: "flow1.tinysystems-common-module-v0.signal-1"},
 		Expect:  evals.Expect{Arrives: []evals.Arrival{{At: "d:in", Path: "$.count", Equals: 2}}},
 	})
 	if !result.Passed() {
@@ -189,7 +189,7 @@ func TestARunThatHasNotStartedIsNotJudgedFinished(t *testing.T) {
 
 	result := r.Run(context.Background(), evals.Spec{
 		Name:    "slow starter",
-		Trigger: evals.Trigger{Node: "signal-1"},
+		Trigger: evals.Trigger{Node: "flow1.tinysystems-common-module-v0.signal-1"},
 		Timeout: evals.Duration(2 * time.Second),
 		Expect:  evals.Expect{Arrives: []evals.Arrival{{At: "d:in", Path: "$.count", Equals: 2}}},
 	})

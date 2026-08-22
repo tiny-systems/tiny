@@ -64,22 +64,12 @@ func Load(path string) ([]evals.Spec, error) {
 		return nil, fmt.Errorf("no evals found in %s — files must end in .yaml or .yml", path)
 	}
 
-	// Resolve ${VAR} references in trigger payloads from the environment.
-	//
-	// A flow that calls a provider needs a real key, and neither obvious place
-	// to keep one is acceptable: the eval file is committed, and a node's
-	// settings are the Spec, which travels with every export. So the file names
-	// the variable and the value is supplied at fire time, reaching the trigger
-	// as transient port data.
-	//
-	// A missing variable fails here rather than at fire time. Firing without a
-	// credential produces an authentication error several hops downstream, and
-	// whoever reads that goes looking for a broken flow.
-	for i := range specs {
-		if err := specs[i].ExpandEnv(); err != nil {
-			return nil, err
-		}
-	}
+	// Note: ${VAR} references in trigger payloads are resolved at FIRE time, in
+	// the runner, not here. Resolving during load would abort the whole suite
+	// over one eval's missing variable — and the evals that need a provider
+	// credential are exactly the ones most likely to be missing it, so a
+	// developer without a key would lose the signal from every eval that
+	// doesn't need one.
 	return specs, nil
 }
 

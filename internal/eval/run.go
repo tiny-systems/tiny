@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -66,8 +67,18 @@ type Runner struct {
 	// the eval judges half a run.
 	Settle time.Duration
 
+	// Nodes resolves a bare node suffix to a full name. Optional: without it a
+	// trigger must be addressed by full name.
+	Nodes NodeLister
+
 	// Now and Sleep exist so tests do not wait in real time.
 	Sleep func(time.Duration)
+}
+
+// NodeLister names the nodes in a project so a trigger can be addressed by
+// suffix. Kept minimal deliberately: this needs names, nothing else.
+type NodeLister interface {
+	ListNodeNames(ctx context.Context, project string) ([]string, error)
 }
 
 // Run fires one eval and checks it.
@@ -90,6 +101,14 @@ func (r *Runner) Run(ctx context.Context, spec evals.Spec) Result {
 	payload, err := json.Marshal(spec.Trigger.Data)
 	if err != nil {
 		return Result{Spec: spec, TraceID: traceID, Err: fmt.Errorf("encode trigger data: %w", err), Duration: time.Since(started)}
+	}
+
+	// Resolve ${VAR} references in the payload from the environment. A missing
+	// variable fails THIS eval, loudly and by name, rather than firing with an
+	// empty credential — which surfaces as an authentication error several hops
+	// downstream, and sends whoever reads it looking for a broken flow.
+	if err := spec.ExpandEnv(); err != nil {
+		return Result{Spec: spec, Err: err, Duration: time.Since(started)}
 	}
 
 	node, err := r.resolveNode(ctx, spec.Trigger.Node)
@@ -116,13 +135,55 @@ func (r *Runner) Run(ctx context.Context, spec evals.Spec) Result {
 	}
 }
 
-// resolveNode is a hook for suffix resolution; the trigger address is used
-// as-is today, since the sender addresses nodes by their full name.
-func (r *Runner) resolveNode(_ context.Context, node string) (string, error) {
-	if strings.TrimSpace(node) == "" {
+// resolveNode turns a trigger address into a full node name.
+//
+// A full name is used as-is. A bare suffix ("signal-f2b7b") is matched against
+// the project's nodes, which is what the spec has always promised and what
+// makes an eval survive a re-import: importing a project mints new flow-id
+// prefixes, so every eval addressing a full name breaks, and the suffix is the
+// only part that persists.
+//
+// Ambiguity is an error rather than a choice. Picking the first match would
+// make an eval quietly assert against whichever node happened to sort first,
+// which is worse than not running at all.
+func (r *Runner) resolveNode(ctx context.Context, node string) (string, error) {
+	node = strings.TrimSpace(node)
+	if node == "" {
 		return "", fmt.Errorf("trigger node is empty")
 	}
-	return node, nil
+	// A full name carries the flow-id and module prefixes, which is what the
+	// publisher parses. Anything with a dot is already addressed.
+	if strings.Contains(node, ".") {
+		return node, nil
+	}
+	if r.Nodes == nil {
+		return "", fmt.Errorf("cannot resolve %q: no node lister configured — address the trigger by its full name", node)
+	}
+
+	names, err := r.Nodes.ListNodeNames(ctx, r.Project)
+	if err != nil {
+		return "", fmt.Errorf("resolve %q: %w", node, err)
+	}
+
+	var matches []string
+	for _, n := range names {
+		// On a boundary: "router-6d1b1" must not match "llm-router-6d1b1", or
+		// the ambiguity check below stops meaning anything.
+		if n == node || strings.HasSuffix(n, "."+node) {
+			matches = append(matches, n)
+		}
+	}
+
+	switch len(matches) {
+	case 1:
+		return matches[0], nil
+	case 0:
+		return "", fmt.Errorf("no node ending in %q in project %s", node, r.Project)
+	default:
+		sort.Strings(matches)
+		return "", fmt.Errorf("%q is ambiguous in project %s — matches %s; address it by full name",
+			node, r.Project, strings.Join(matches, ", "))
+	}
 }
 
 // awaitRun collects everything the trigger set off and waits for it to settle.
@@ -243,6 +304,14 @@ func observe(spans []sdktools.TraceSpanInfo) evals.Observed {
 					got.Payloads[target] = append(got.Payloads[target], payload)
 				}
 			case "error", "exception":
+				// A failure a component caught and routed out of an error port
+				// is the flow working, not a fault. The runner marks those
+				// handled=true; counting them would mean any flow with a
+				// recovery path could never assert `errors: 0`.
+				if e.Data["handled"] == "true" {
+					got.Handled++
+					continue
+				}
 				got.Errors++
 			}
 		}
