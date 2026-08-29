@@ -2,11 +2,10 @@
 
 **Claude Code & Codex sessions on your own Kubernetes.**
 
-Start a session with a task. It runs as a real pod with a persistent
-workspace and keeps working when you close your laptop — through rate
-limits, through pod restarts, through the night. When the agent needs a
-decision, its row lights up. Answer from the fleet screen, or from anywhere
-with `kubectl`.
+Start a session with a task. It runs as a pod with a persistent
+workspace and keeps working after you close your laptop, through rate
+limits and pod restarts. When the agent needs a decision, its row lights
+up; answer from the fleet screen, or from anywhere with `kubectl`.
 
 ```
 $ tiny new "fix the flaky checkout test, open a PR"
@@ -37,19 +36,21 @@ resumes itself.
 ## What makes it different
 
 - **It's the real CLI, not a wrapper.** Attach and you're in genuine
-  Claude Code (or Codex) over a TTY — every hotkey, slash command, plan
-  mode, subagents, skills from your repo, your `.mcp.json` servers. tiny
-  doesn't parse or proxy the agent; new features just appear.
+  Claude Code (or Codex) over a TTY: hotkeys, slash commands, plan mode,
+  subagents, skills from your repo, your `.mcp.json` servers. tiny does
+  not parse or proxy the agent, so new agent features work without us
+  shipping anything.
 - **Two agents, one flag.** `tiny new --agent codex` runs OpenAI's Codex
   instead of Claude; `--model` picks the model for either. Sign in with
   the plan you already pay for — Claude Pro/Max or ChatGPT Plus.
-- **Sessions survive anything.** The workspace is a persistent volume; the
-  pod is disposable. A rescheduled pod resumes the transcript and keeps
-  going — we test this by force-killing pods mid-task.
+- **Sessions survive pod loss.** The workspace is a persistent volume and
+  the pod is disposable: a rescheduled pod resumes the transcript and
+  keeps going. We test this by force-killing pods mid-task.
 - **Any image becomes an agent environment.** `--image golang:1.26`,
-  `--image maven:3-eclipse-temurin-21`, your own dev image — an init
-  container injects the agent (claude, a static tmux, the entrypoint) into
-  whatever you name. Contract: glibc, git, /bin/sh. Nothing to bake.
+  `--image maven:3-eclipse-temurin-21`, or your own dev image: an init
+  container injects the agent (claude, codex, a static tmux, the
+  entrypoint) into whatever you name. The contract is glibc, git and
+  /bin/sh; you don't maintain a special image.
 - **Sessions spawn sessions — through a human gate.** A light root session
   plans, then asks to start specialists in the right toolchain with the
   right cpu/memory. You approve each spawn from the fleet screen; children
@@ -76,8 +77,8 @@ q-8w6lw   root      …start a session in golang:1.26 (cpu 1) — allow?  allow
 
 ## How it works
 
-**There is no server. There is no operator pod. When no agents work,
-nothing of tiny runs.**
+**There is no server and no operator pod.** The namespace runs the
+sessions you started and the add-ons you switched on, and nothing else.
 
 - A **Session** is a Kubernetes object whose workload is a plain
   Deployment: the agent in a detachable tmux plus a small **tiny-mcp**
@@ -182,9 +183,9 @@ One repository, one version:
 
 ---
 
-> 🌱 Early and building in the open, watered by stars. If a fleet of
-> agents sounds like your kind of future, **a star up top is how you say
-> "keep growing this"** — it's also how other gardeners find us.
+> 🌱 Early and building in the open. We're small; stars are the main way
+> people find projects like this, so if you want it to keep going,
+> **a star up top genuinely helps.**
 
 Website & docs: **[tinysystems.io](https://tinysystems.io)** · field
 notes: [tinysystems.io/blog](https://tinysystems.io/blog/) · demo garden:
