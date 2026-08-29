@@ -2,6 +2,8 @@
 
 **Claude Code & Codex sessions on your own Kubernetes.**
 
+![tiny demo: a session is created, its pod is killed mid-task, and the fleet screen shows it still working](https://tinysystems.io/static/demo.gif)
+
 Start a session with a task. It runs as a pod with a persistent
 workspace and keeps working after you close your laptop, through rate
 limits and pod restarts. When the agent needs a decision, its row lights
