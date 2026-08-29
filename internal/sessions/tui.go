@@ -231,7 +231,7 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor--
 		}
 	case keyDown, "j":
-		if m.snap != nil && m.cursor < len(m.snap.Rows)+3 {
+		if m.snap != nil && m.cursor < len(m.snap.Rows)+4 {
 			m.cursor++
 		}
 	case keyEnter:
@@ -276,10 +276,7 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "b":
 		if m.snap != nil && len(m.snap.Rows) > 0 {
-			m.mode = modeBroadcast
-			m.input.Placeholder = "broadcast to every unfinished session"
-			m.input.SetValue("")
-			return m, m.input.Focus()
+			return m.openBroadcast()
 		}
 	case "d":
 		if row, ok := m.selected(); ok {
@@ -574,7 +571,7 @@ func (m Model) View() string {
 			b.WriteString(m.clip(line) + "\n")
 		}
 		newIdx := len(m.snap.Rows)
-		for i, label := range []string{"＋ new session", "⚙ new session with options…", "☰ namespace settings", "✕ quit"} {
+		for i, label := range []string{"✉ broadcast to all…", "＋ new session", "⚙ new session with options…", "☰ namespace settings", "✕ quit"} {
 			line := "  " + glyphGreen.Render("·") + " " + helpStyle.Render(label)
 			if m.cursor == newIdx+i {
 				line = rowSel.Render("▸ · " + label)
@@ -664,14 +661,24 @@ func fmtAge(d time.Duration) string {
 func (m Model) enterVirtualRow(idx int) (tea.Model, tea.Cmd) {
 	switch idx {
 	case 0:
-		return m.openQuickNew()
+		return m.openBroadcast()
 	case 1:
-		return m.openForm(), textinput.Blink
+		return m.openQuickNew()
 	case 2:
+		return m.openForm(), textinput.Blink
+	case 3:
 		return m.openSettings()
 	default:
 		return m, tea.Quit
 	}
+}
+
+// openBroadcast is the compose behind both the ✉ row and the b key.
+func (m Model) openBroadcast() (tea.Model, tea.Cmd) {
+	m.mode = modeBroadcast
+	m.input.Placeholder = "broadcast to every unfinished session"
+	m.input.SetValue("")
+	return m, m.input.Focus()
 }
 
 func (m Model) updateRunnerEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
