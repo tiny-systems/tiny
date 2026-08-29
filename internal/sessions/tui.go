@@ -265,6 +265,8 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "n":
 		return m.openQuickNew()
+	case "o":
+		return m.openForm(), textinput.Blink
 	case "m":
 		if row, ok := m.selected(); ok {
 			r := row
@@ -278,28 +280,36 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.snap != nil && len(m.snap.Rows) > 0 {
 			return m.openBroadcast()
 		}
-	case "d":
+	case "d", "y":
+		return m.updateDelete(msg.String())
+	case "r":
+		return m, m.load()
+	}
+	return m, nil
+}
+
+// updateDelete is the two-keystroke delete: d arms, y fires.
+func (m Model) updateDelete(key string) (tea.Model, tea.Cmd) {
+	if key == "d" {
 		if row, ok := m.selected(); ok {
 			// A session is a workspace and a transcript — never gone on one
 			// keystroke.
 			m.pendingDelete = row.Name
 			m.status = "delete " + row.Name + "? its workspace and transcript go too  [y/N]"
 		}
-	case "y":
-		if m.pendingDelete != "" {
-			name, store := m.pendingDelete, m.store
-			m.pendingDelete = ""
-			m.status = "deleting " + name
-			return m, func() tea.Msg {
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				defer cancel()
-				return actionDoneMsg{store.Delete(ctx, name)}
-			}
-		}
-	case "r":
-		return m, m.load()
+		return m, nil
 	}
-	return m, nil
+	if m.pendingDelete == "" {
+		return m, nil
+	}
+	name, store := m.pendingDelete, m.store
+	m.pendingDelete = ""
+	m.status = "deleting " + name
+	return m, func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return actionDoneMsg{store.Delete(ctx, name)}
+	}
 }
 
 func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -806,7 +816,7 @@ func (m Model) listHints() string {
 	if row, ok := m.selected(); ok && row.NeedsHuman() {
 		hints += "  [a] answer"
 	}
-	return hints + "  [m] message  [b] broadcast  [d] delete  [n] new  [q] quit"
+	return hints + "  [m] message  [b] broadcast  [d] delete  [n] new  [o] new with options  [q] quit"
 }
 
 func (m Model) glyph(row Row) string {
