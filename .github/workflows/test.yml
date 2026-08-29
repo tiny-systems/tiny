@@ -1,0 +1,31 @@
+name: test
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+# A newer push makes an in-flight run redundant.
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # make test regenerates manifests, vets, fetches envtest binaries and
+      # runs the whole tree with -race — the controller suite needs a real
+      # apiserver, the rest are plain go tests.
+      - name: Test
+        run: make test

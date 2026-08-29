@@ -1,0 +1,55 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  - pods
+  - services
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - agents.tinysystems.io
+  resources:
+  - questions
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - agents.tinysystems.io
+  resources:
+  - questions/status
+  - sessions/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - agents.tinysystems.io
+  resources:
+  - sessions
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - agents.tinysystems.io
+  resources:
+  - sessions/finalizers
+  verbs:
+  - update

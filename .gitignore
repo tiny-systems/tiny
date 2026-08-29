@@ -1,0 +1,18 @@
+# Binaries
+/tiny
+/dist/
+*.exe
+
+# Go
+*.test
+*.out
+vendor/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Kubebuilder tooling
+/bin/
+Dockerfile.cross

@@ -1,0 +1,155 @@
+# The tiny loop, all event-driven, no stored credentials:
+#   issue labeled `tiny`  -> courier job (seconds) delivers it to the root
+#                            session's inbox in the cluster
+#   root session works    -> pushes tiny/issue-N (code) or tiny/reply-N
+#                            (textual answer) using the deploy key
+#   push arrives          -> these jobs (seconds, GitHub's own token) turn
+#                            the push into a PR / an issue comment
+name: tiny
+on:
+  issues:
+    types: [labeled]
+  push:
+    branches: ["tiny/issue-*", "tiny/reply-*"]
+  schedule:
+    - cron: "*/5 * * * *"   # the outbox courier
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  deliver:
+    if: github.event_name == 'issues' && github.event.label.name == 'tiny'
+    runs-on: [self-hosted, tiny]
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      N: ${{ github.event.issue.number }}
+      # Issue title/body are ATTACKER-CONTROLLED: they enter only as env
+      # vars, never interpolated into this script.
+      ISSUE_TITLE: ${{ github.event.issue.title }}
+      ISSUE_BODY: ${{ github.event.issue.body }}
+    steps:
+      - name: deliver the issue to the root session
+        run: |
+          {
+            printf 'GitHub issue #%s of %s: %s\n\n' "$N" "$GITHUB_REPOSITORY" "$ISSUE_TITLE"
+            printf '%s\n\n' "$ISSUE_BODY"
+            echo "Handle it end to end. Conventions — you have NO git credentials; the outbox pushes for you:"
+            echo "- Code: commit on branch tiny/issue-$N, then: mkdir -p /workspace/outbox && git bundle create /workspace/outbox/tiny-issue-$N.bundle tiny/issue-$N — it reaches GitHub within ~5 minutes and a PR opens automatically."
+            echo "- Textual answer or blockers: commit REPLY.md on branch tiny/reply-$N and bundle that branch the same way — it becomes an issue comment."
+            echo "- Never try to push or call the GitHub API yourself; the bundle IS the send. One bundle per branch; re-bundle to update."
+            echo "- Spawn specialist sessions for other toolchains. Keep your title current. ask_human for real human decisions."
+          } | tiny deliver root --ensure --repo "https://github.com/$GITHUB_REPOSITORY.git"
+      - name: receipt
+        # curl, not gh: the runner image carries no gh CLI
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/$N/comments" \
+            -d '{"body":"🌱 tiny picked this up — the root session is on it. Code arrives as a PR; answers as comments."}' >/dev/null
+
+  export:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, tiny]
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: push pending outbox bundles
+        run: |
+          set -e
+          rm -rf outbox && tiny export
+          shopt -s nullglob
+          REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          for b in outbox/*.bundle; do
+            f=$(basename "$b"); branch="${f#*__}"; branch="${branch%.bundle}"; branch="${branch/tiny-issue-/tiny/issue-}"; branch="${branch/tiny-reply-/tiny/reply-}"
+            # Rebase onto current main: a bundle grown from an older clone
+            # carries an old workflow file in its tree, and job tokens may
+            # not "update" workflow files even incidentally.
+            rm -rf work && git clone -q --depth 50 "$REMOTE" work && cd work
+            git config user.name "tiny" && git config user.email "dev@tinysystems.io"
+            git fetch -q "../$b" "$branch"
+            git checkout -q -b "$branch" FETCH_HEAD
+            git rebase -q origin/main || { git rebase --abort; echo "::error::$branch does not rebase cleanly onto main — resolve in the session"; cd ..; continue; }
+            git push -f origin "$branch"
+            # Token-pushed branches trigger no workflows (recursion guard):
+            # this job finishes the story itself.
+            N="${branch##*-}"
+            API="https://api.github.com/repos/${GITHUB_REPOSITORY}"
+            AUTH="Authorization: Bearer ${GH_TOKEN}"
+            case "$branch" in
+              tiny/issue-*)
+                # Create the PR. 201 opened, 422 already exists; 403 means the
+                # org forbids Actions creating PRs — fail WITHOUT acking so the
+                # bundle retries itself once the toggle is flipped.
+                CODE=$(curl -s -X POST -H "$AUTH" "$API/pulls" \
+                  -d "{\"title\":\"tiny: fix issue #$N\",\"head\":\"$branch\",\"base\":\"main\",\"body\":\"Closes #$N - opened by the tiny outbox courier.\"}" \
+                  -o pr.json -w "%{http_code}") || CODE=000
+                echo "PR create for $branch: HTTP $CODE"
+                case "$CODE" in
+                  201)
+                    PRURL=$(python3 -c "import json;print(json.load(open('pr.json'))['html_url'])" 2>/dev/null || echo "")
+                    curl -s -X POST -H "$AUTH" "$API/issues/$N/comments" \
+                      -d "{\"body\":\"🌱 pull request opened: $PRURL\"}" -o /dev/null || true
+                    ;;
+                  422) echo "PR already exists — fine" ;;
+                  403)
+                    echo "::error::GitHub refuses PR creation by Actions. Flip: org Settings → Actions → General → Workflow permissions → 'Allow GitHub Actions to create and approve pull requests'. The branch is pushed; this bundle will retry."
+                    cat pr.json; rm -f pr.json; exit 1
+                    ;;
+                  *) echo "::error::PR create failed (HTTP $CODE)"; cat pr.json; rm -f pr.json; exit 1 ;;
+                esac
+                rm -f pr.json
+                ;;
+              tiny/reply-*)
+                BODY_FILE=reply_body.txt
+                git show "$branch:REPLY.md" > "../$BODY_FILE" 2>/dev/null || echo "(reply body missing)" > "../$BODY_FILE"
+                ( cd .. && python3 -c "import json;print(json.dumps({'body':open('reply_body.txt').read()}))" > reply_payload.json \
+                  && curl -s -X POST -H "$AUTH" "$API/issues/$N/comments" -d @reply_payload.json -o /dev/null || true )
+                curl -s -X DELETE -H "$AUTH" "$API/git/refs/heads/$branch" -o /dev/null || true
+                rm -f ../reply_body.txt ../reply_payload.json
+                ;;
+            esac
+            cd .. 2>/dev/null || true
+            rm -rf work
+            tiny export --ack "${f%.bundle}.bundle"
+            echo "pushed $branch"
+          done
+
+  open-pr:
+    if: github.event_name == 'push' && startsWith(github.ref_name, 'tiny/issue-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: open or update the PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          N="${BRANCH#tiny/issue-}"
+          gh pr view "$BRANCH" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && exit 0
+          gh pr create --repo "$GITHUB_REPOSITORY" --head "$BRANCH" \
+            --title "tiny: $(gh issue view "$N" --repo "$GITHUB_REPOSITORY" --json title -q .title)" \
+            --body "Closes #$N — opened automatically from the \`$BRANCH\` push."
+          gh issue comment "$N" --repo "$GITHUB_REPOSITORY" \
+            --body "🌱 pull request opened from \`$BRANCH\`."
+
+  reply:
+    if: github.event_name == 'push' && startsWith(github.ref_name, 'tiny/reply-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: post the reply and clean up
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          N="${BRANCH#tiny/reply-}"
+          gh issue comment "$N" --repo "$GITHUB_REPOSITORY" --body-file REPLY.md
+          git push origin --delete "$BRANCH"

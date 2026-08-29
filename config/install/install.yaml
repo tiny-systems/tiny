@@ -1,0 +1,48 @@
+# The tiny runtime, namespace-scoped — and MANAGER-LESS. Nothing of tiny
+# runs while no sessions run. This manifest is only identities:
+#
+#   tiny-session  — what session pods run as: may create Questions, read
+#                   sessions, and write its own session's status. The
+#                   voice; never the hands.
+#
+# Sessions are Deployments Kubernetes itself keeps alive; whoever creates
+# a session (your CLI, a runner job) materialises its workload with their
+# own credentials, and the human ANSWERING a gate question performs its
+# action with theirs.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tiny-session
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tiny-session
+rules:
+  - apiGroups: ["agents.tinysystems.io"]
+    resources: ["questions"]
+    verbs: ["get", "list", "create"]
+  # Sessions are readable (session_list) and their STATUS is writable — the
+  # agent keeps title/activity/usage current. Status only: spec, pods and
+  # everything that acts stays with humans.
+  - apiGroups: ["agents.tinysystems.io"]
+    resources: ["sessions"]
+    verbs: ["get", "list"]
+  - apiGroups: ["agents.tinysystems.io"]
+    resources: ["sessions/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tiny-session
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tiny-session
+subjects:
+  - kind: ServiceAccount
+    name: tiny-session

@@ -1,0 +1,153 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: questions.agents.tinysystems.io
+spec:
+  group: agents.tinysystems.io
+  names:
+    kind: Question
+    listKind: QuestionList
+    plural: questions
+    singular: question
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.session.name
+      name: Session
+      type: string
+    - jsonPath: .spec.text
+      name: Question
+      type: string
+    - jsonPath: .status.answer
+      name: Answer
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          Question is one parked request for a human decision: an agent asked
+          something it must not answer for itself, and the run waits. Everything
+          else — who shows it, who answers it, how the agent resumes — is clients
+          reading and patching this object.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: QuestionSpec is what the agent asked.
+            properties:
+              action:
+                description: |-
+                  Action, when set, is what an "allow" answer authorizes. The sidecar
+                  only ever writes this request; the controller is the one with the
+                  permissions to carry it out. That split is the security model.
+                properties:
+                  params:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      Params of the act, by type:
+                      exposePort: port, pod, name. createSession: task, repo, image.
+                    type: object
+                  type:
+                    description: 'Type of act: exposePort or createSession.'
+                    enum:
+                    - exposePort
+                    - createSession
+                    type: string
+                required:
+                - type
+                type: object
+              askedBy:
+                description: |-
+                  AskedBy is the tool caller's self-description, informational
+                  ("claude-code", "codex").
+                type: string
+              options:
+                description: Options offered as one-press answers. Empty means free
+                  text.
+                items:
+                  type: string
+                type: array
+              reason:
+                description: |-
+                  Reason distinguishes how the question arose: "tool" (the agent called
+                  ask_human) or "notification" (the safety net saw the agent waiting).
+                type: string
+              session:
+                description: Session the question came from, best effort.
+                properties:
+                  kind:
+                    description: Kind of the referent, informational ("Session", "Pod").
+                    type: string
+                  name:
+                    description: |-
+                      Name of the session as its runner knows it (a kelos Session name, a
+                      plain pod name — whatever the environment could determine).
+                    type: string
+                  pod:
+                    description: Pod that asked, when known. What attach targets.
+                    type: string
+                type: object
+              text:
+                description: Text is the question put to the human.
+                minLength: 1
+                type: string
+            required:
+            - text
+            type: object
+          status:
+            description: |-
+              QuestionStatus is the human's side. Writing a non-empty answer resolves the
+              question: the blocked ask_human call returns it to the agent.
+            properties:
+              actionDone:
+                description: |-
+                  ActionDone marks the action carried out (or terminally refused), so
+                  the controller acts exactly once.
+                type: boolean
+              answer:
+                description: 'Answer as the human gave it: one of the options, or
+                  free text.'
+                type: string
+              answeredAt:
+                description: AnsweredAt is when the answer landed.
+                format: date-time
+                type: string
+              answeredBy:
+                description: |-
+                  AnsweredBy is the answering client's self-description ("tiny tui",
+                  "kubectl"), informational.
+                type: string
+              result:
+                description: |-
+                  Result of the action after an allow: the controller reports what it
+                  did (a URL, a session name) or the error it hit. The sidecar hands
+                  this back to the waiting agent.
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
