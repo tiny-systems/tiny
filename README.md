@@ -180,6 +180,14 @@ One repository, one version:
 | `api/`, `config/` | the Session + Question CRDs and the embedded install manifests |
 | `images/agent` | the agent image and the injectable payload |
 
-> 🌱 Early and building in the open.
+---
+
+> 🌱 Early and building in the open, watered by stars. If a fleet of
+> agents sounds like your kind of future, **a star up top is how you say
+> "keep growing this"** — it's also how other gardeners find us.
+
+Website & docs: **[tinysystems.io](https://tinysystems.io)** · field
+notes: [tinysystems.io/blog](https://tinysystems.io/blog/) · demo garden:
+[seedling](https://github.com/tiny-systems/seedling)
 
 MIT.
