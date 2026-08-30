@@ -171,6 +171,38 @@ One-time GitHub setting for the PR half: org **Settings → Actions →
 General → Workflow permissions → allow GitHub Actions to create and
 approve pull requests**.
 
+## Honest limitations
+
+Things this does not do well yet, so you don't discover them the hard way:
+
+- **Mid-turn work is lost on pod death.** Resume is transcript-level, the
+  same as `claude --continue` on your laptop: a replacement pod picks up
+  the conversation, not a half-finished tool call. The win is that nobody
+  has to be present for it, not that recovery is magic.
+- **The model is not self-hosted.** Agents sign in with a Claude or
+  ChatGPT subscription and call cloud APIs. That credential lives in the
+  agent pod; if your namespace allows egress, an injected agent could
+  burn your quota. Scope the account, restrict egress if your CNI can.
+- **You need a machine that stays on.** kind on a laptop is fine for
+  trying it, but sessions there die with the laptop — the point is a
+  cluster that outlives your lid: k3s on an old PC is enough.
+- **No background reconcile.** We deleted the operator on purpose, so
+  hand-deleted resources stay deleted until some client next touches the
+  session. Kubernetes still replaces dead pods; drift beyond that waits
+  for a human.
+- **Frontend has a friction point.** Code, tests and screenshot
+  self-checks work in-cluster (`expose_port` + port-forward for
+  previews), but the tight look-and-tweak loop of visual polish is still
+  more comfortable on localhost at the end.
+- **Claude's usage-limit auto-resume is battle-tested; Codex's isn't
+  yet.** The wiring exists for both, but only Claude's has been through
+  a real limit for us.
+- **Images must be glibc with git for Claude** — alpine works only for
+  Codex sessions (its binary is static musl).
+- **Weeks old.** The pieces above are real and tested, but this is a
+  young codebase; read it before pointing it at anything precious. It is
+  small on purpose.
+
 ## Layout
 
 One repository, one version:
