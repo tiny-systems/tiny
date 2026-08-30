@@ -15,6 +15,7 @@ package workload
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -31,8 +32,8 @@ import (
 )
 
 const (
-	DefaultAgentImage   = "ghcr.io/tiny-systems/agent:main"
-	DefaultSidecarImage = "ghcr.io/tiny-systems/controller:main"
+	defaultAgentRepo   = "ghcr.io/tiny-systems/agent"
+	defaultSidecarRepo = "ghcr.io/tiny-systems/controller"
 
 	tinyVolume      = "tiny"
 	workspaceVolume = "workspace"
@@ -50,9 +51,30 @@ type Images struct {
 	Sidecar string
 }
 
+// DefaultImageTag pins the ghcr default images to the CLI's own release.
+// A released binary pulls the images built from the same tag; a dev build
+// ("dev", commit stamps) follows main. Set once at startup from the CLI's
+// version stamp.
+var DefaultImageTag = "main"
+
+// SetDefaultImageTag accepts the CLI's version and adopts it when it looks
+// like a release tag (v1.2.3). Anything else keeps the default.
+func SetDefaultImageTag(version string) {
+	if regexp.MustCompile(`^v\d+\.\d+\.\d+$`).MatchString(version) {
+		DefaultImageTag = version
+	}
+}
+
+// DefaultAgentImage is the agent image a session gets when nothing
+// overrides it.
+func DefaultAgentImage() string { return defaultAgentRepo + ":" + DefaultImageTag }
+
+// DefaultSidecarImage is the tiny-mcp sidecar's default image.
+func DefaultSidecarImage() string { return defaultSidecarRepo + ":" + DefaultImageTag }
+
 // ResolveImages reads per-namespace overrides — the dev loop's home.
 func ResolveImages(ctx context.Context, c client.Client, ns string) Images {
-	img := Images{Agent: DefaultAgentImage, Sidecar: DefaultSidecarImage}
+	img := Images{Agent: DefaultAgentImage(), Sidecar: DefaultSidecarImage()}
 	cm := &corev1.ConfigMap{}
 	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: settings.Name}, cm); err == nil {
 		if v := cm.Data["agentImage"]; v != "" {

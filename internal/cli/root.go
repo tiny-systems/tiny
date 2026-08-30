@@ -19,6 +19,8 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/spf13/cobra"
 	"k8s.io/klog/v2"
+
+	"github.com/tiny-systems/tiny/internal/workload"
 )
 
 // Persistent target selection. Every mutating command resolves the cluster
@@ -38,6 +40,7 @@ const defaultNamespace = "tiny"
 // Execute runs the CLI.
 func Execute(version string) error {
 	cliVersion = version
+	workload.SetDefaultImageTag(version)
 	// client-go logs unhandled stream errors straight to stderr — over the
 	// TUI. Errors we care about come back through our own calls.
 	klog.SetLogger(logr.Discard())

@@ -11,6 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	agentsv1 "github.com/tiny-systems/tiny/api/v1alpha1"
+	"github.com/tiny-systems/tiny/internal/workload"
 )
 
 // EnsureShellPod makes sure an inspection pod for the session's workspace
@@ -30,7 +31,7 @@ func (s *Store) EnsureShellPod(ctx context.Context, session string) (string, err
 		image := se.Spec.Image
 		if image == "" {
 			// Match the runtime's default so the shell has the agent's tools.
-			image = "ghcr.io/tiny-systems/agent:main"
+			image = workload.DefaultAgentImage()
 		}
 		pod = &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
