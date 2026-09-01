@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security issue
+    url: https://tinysystems.io/docs/threat-model/
+    about: Read the threat model first; report privately to hello@tinysystems.io rather than in a public issue.

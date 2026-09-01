@@ -1,0 +1,16 @@
+name: Feature request
+description: Something tiny should do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do and where tiny gets in the way. The workflow matters more than the proposed feature.
+    validations:
+      required: true
+  - type: textarea
+    id: shape
+    attributes:
+      label: How you imagine it working
+      description: Optional. CLI flag, fleet-screen key, add-on, agent tool?

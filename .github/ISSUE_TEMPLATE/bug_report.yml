@@ -1,0 +1,30 @@
+name: Bug report
+description: Something broke
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: fleet
+    attributes:
+      label: Fleet row / error text
+      description: "Paste the session's line from the fleet screen (`tiny`), or the exact error. The WHAT column usually names the cause."
+      render: text
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: "`tiny --version`, Kubernetes flavor (kind, k3s, EKS...), agent (claude/codex), custom --image if any."
+    validations:
+      required: true
+  - type: textarea
+    id: pod
+    attributes:
+      label: Pod details (if the session is stuck)
+      description: "`kubectl -n <ns> describe pod -l tinysystems.io/session=<name>` — the Events section at the end matters most."
+      render: text
