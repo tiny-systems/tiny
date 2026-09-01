@@ -82,6 +82,44 @@ q-8w6lw   root      …start a session in golang:1.26 (cpu 1) — allow?  allow
 **There is no server and no operator pod.** The namespace runs the
 sessions you started and the add-ons you switched on, and nothing else.
 
+```mermaid
+flowchart LR
+  subgraph you["any machine with kubectl"]
+    cli["tiny CLI · fleet screen"]
+  end
+  subgraph ns["your cluster · one namespace"]
+    crd["Session + Question CRDs"]
+    subgraph sess["session pod · Deployment, replicas 1, Recreate"]
+      agent["agent container<br/>claude / codex in tmux"]
+      mcp["tiny-mcp sidecar<br/>ask_human · set_title · session_create"]
+    end
+    ws[("workspace PVC<br/>transcript · inbox · outbox")]
+    subgraph addons["add-ons · one checkbox each"]
+      zot["zot registry cache"]
+      minio["minio artifact store"]
+      runner["GitHub Actions runner"]
+    end
+  end
+  subgraph gh["GitHub"]
+    issue["issue labeled tiny"]
+    pr["pull request"]
+  end
+  cli -- "creates workloads,<br/>answers questions —<br/>with YOUR credentials" --> crd
+  crd --> sess
+  agent --- mcp
+  sess --- ws
+  mcp -- "blocked call parks as Question<br/>until a human answers" --> crd
+  issue --> runner
+  runner -- "tiny deliver → inbox" --> crd
+  runner -- "tiny export ← git bundles" --> ws
+  runner -- "push + PR, job's own<br/>short-lived token" --> pr
+  agent -. "image pulls go through" .-> zot
+  agent -. "mc cp build.tar store/" .-> minio
+```
+
+Dead pods are replaced by the ReplicaSet, not by anything of ours; the
+replacement mounts the same workspace and resumes the transcript.
+
 - A **Session** is a Kubernetes object whose workload is a plain
   Deployment: the agent in a detachable tmux plus a small **tiny-mcp**
   sidecar on localhost — the agent's toolbox (`ask_human`, `set_title`,
