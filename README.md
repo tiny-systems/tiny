@@ -84,37 +84,33 @@ sessions you started and the add-ons you switched on, and nothing else.
 
 ```mermaid
 flowchart LR
-  subgraph you["any machine with kubectl"]
-    cli["tiny CLI · fleet screen"]
-  end
-  subgraph ns["your cluster · one namespace"]
+  cli["tiny CLI / fleet screen<br/>(any machine with kubectl)"]
+  subgraph ns["your cluster - one namespace"]
     crd["Session + Question CRDs"]
-    subgraph sess["session pod · Deployment, replicas 1, Recreate"]
-      agent["agent container<br/>claude / codex in tmux"]
-      mcp["tiny-mcp sidecar<br/>ask_human · set_title · session_create"]
+    subgraph pod["session pod - Deployment"]
+      agent["agent: claude or codex<br/>in tmux"]
+      mcp["tiny-mcp sidecar<br/>ask_human, set_title, spawn"]
     end
-    ws[("workspace PVC<br/>transcript · inbox · outbox")]
-    subgraph addons["add-ons · one checkbox each"]
+    ws[("workspace PVC<br/>transcript, inbox, outbox")]
+    subgraph addons["add-ons, one checkbox each"]
       zot["zot registry cache"]
       minio["minio artifact store"]
       runner["GitHub Actions runner"]
     end
   end
-  subgraph gh["GitHub"]
-    issue["issue labeled tiny"]
-    pr["pull request"]
-  end
-  cli -- "creates workloads,<br/>answers questions —<br/>with YOUR credentials" --> crd
-  crd --> sess
-  agent --- mcp
-  sess --- ws
-  mcp -- "blocked call parks as Question<br/>until a human answers" --> crd
+  issue["GitHub issue<br/>labeled tiny"]
+  pr["pull request"]
+  cli -->|"creates workloads, answers<br/>questions - with YOUR credentials"| crd
+  crd --> pod
+  agent --> mcp
+  pod --> ws
+  mcp -->|"blocked calls park as Questions<br/>until a human answers"| crd
   issue --> runner
-  runner -- "tiny deliver → inbox" --> crd
-  runner -- "tiny export ← git bundles" --> ws
-  runner -- "push + PR, job's own<br/>short-lived token" --> pr
-  agent -. "image pulls go through" .-> zot
-  agent -. "mc cp build.tar store/" .-> minio
+  runner -->|"tiny deliver, into the inbox"| crd
+  ws -->|"git bundles, tiny export"| runner
+  runner -->|"push + PR with the job's<br/>short-lived token"| pr
+  agent -.->|"image pulls"| zot
+  agent -.->|"mc cp artifacts"| minio
 ```
 
 Dead pods are replaced by the ReplicaSet, not by anything of ours; the
