@@ -13,7 +13,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -112,12 +111,6 @@ func newInitCmd() *cobra.Command {
 			return nil
 		},
 	}
-}
-
-// kubectlOutput shells out to kubectl and returns stdout.
-func kubectlOutput(args ...string) (string, error) {
-	out, err := exec.Command("kubectl", args...).Output()
-	return string(out), err
 }
 
 // targetContext returns the context to act on — the pinned one.

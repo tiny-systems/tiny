@@ -4,11 +4,12 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"k8s.io/client-go/tools/clientcmd"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 // pinnedConfig is tiny's one piece of local state: which cluster this

@@ -63,8 +63,7 @@ func setupAgentToken(ctx context.Context, k *kube.Client) error {
 		// Present is not the same as working — an expired token satisfies
 		// this check, so offer the swap.
 		fmt.Print("  ✓ agent token present (tiny-agent-env) — replace it? [y/N] ")
-		var answer string
-		_, _ = fmt.Scanln(&answer)
+		answer := readLine()
 		if !confirmed(answer) {
 			return nil
 		}
@@ -120,8 +119,7 @@ func setupCodexToken(ctx context.Context, k *kube.Client) error {
 	}
 	if secretExists && (len(existing.Data["TINY_CODEX_AUTH_JSON"]) > 0 || len(existing.Data["OPENAI_API_KEY"]) > 0) {
 		fmt.Print("  ✓ codex credential present (tiny-agent-env) — replace it? [y/N] ")
-		var answer string
-		_, _ = fmt.Scanln(&answer)
+		answer := readLine()
 		if !confirmed(answer) {
 			return nil
 		}
@@ -132,8 +130,7 @@ func setupCodexToken(ctx context.Context, k *kube.Client) error {
 	authPath := filepath.Join(home, ".codex", "auth.json")
 	if raw, err := os.ReadFile(authPath); err == nil && len(raw) > 0 {
 		fmt.Print("  Found a ChatGPT login for codex (~/.codex/auth.json) — store it for codex sessions? [Y/n] ")
-		var answer string
-		_, _ = fmt.Scanln(&answer)
+		answer := readLine()
 		if answer == "" || confirmed(answer) {
 			data["TINY_CODEX_AUTH_JSON"] = string(raw)
 		}
@@ -185,8 +182,7 @@ func setupRepoKey(ctx context.Context, k *kube.Client) error {
 			fmt.Printf("    public key: %s", string(pub))
 		}
 		fmt.Print("    Rotate it? The old key stops working everywhere it was added. [y/N] ")
-		var answer string
-		_, _ = fmt.Scanln(&answer)
+		answer := readLine()
 		if !confirmed(answer) {
 			return nil
 		}
@@ -195,8 +191,7 @@ func setupRepoKey(ctx context.Context, k *kube.Client) error {
 			return getErr
 		}
 		fmt.Print("\n  Sessions can clone private repos over SSH with a deploy key\n  minted just for this cluster. Create one? [y/N] ")
-		var answer string
-		_, _ = fmt.Scanln(&answer)
+		answer := readLine()
 		if !confirmed(answer) {
 			fmt.Println("  – skipped; public repos and HTTPS tokens still work")
 			return nil
