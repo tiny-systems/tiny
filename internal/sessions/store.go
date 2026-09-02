@@ -122,13 +122,19 @@ func (s *Store) Load(ctx context.Context) (*Snapshot, error) {
 	return join(sessions.Items, questions.Items, live, time.Now()), nil
 }
 
+// allContainerStatuses walks init and main containers as one list — the
+// stuck reason can hide in either.
+func allContainerStatuses(p *corev1.Pod) []corev1.ContainerStatus {
+	return append(append([]corev1.ContainerStatus{}, p.Status.InitContainerStatuses...), p.Status.ContainerStatuses...)
+}
+
 // livePhase reads a session's coarse state off its pod: the agent
 // container is the session.
 func livePhase(p *corev1.Pod) (phase, pod, message string) {
 	if p == nil {
 		return "starting", "", ""
 	}
-	for _, cs := range append(append([]corev1.ContainerStatus{}, p.Status.InitContainerStatuses...), p.Status.ContainerStatuses...) {
+	for _, cs := range allContainerStatuses(p) {
 		if w := cs.State.Waiting; w != nil && w.Reason != "" && w.Reason != creatingReason && w.Reason != initingReason {
 			msg := w.Reason
 			if w.Message != "" {
@@ -407,7 +413,7 @@ func (s *Store) Birth(ctx context.Context, name string) (stage, pod, failure str
 	}
 	// Pending: name the specific wait, and surface pull errors as terminal —
 	// they self-retry forever and the user should see the reason now.
-	for _, cs := range append(append([]corev1.ContainerStatus{}, p.Status.InitContainerStatuses...), p.Status.ContainerStatuses...) {
+	for _, cs := range allContainerStatuses(p) {
 		if w := cs.State.Waiting; w != nil {
 			switch w.Reason {
 			case "ErrImagePull", "ImagePullBackOff", "InvalidImageName":
@@ -591,7 +597,7 @@ func (s *Store) addonState(ctx context.Context, name string, enabled bool) strin
 	pods := &corev1.PodList{}
 	if err := s.Kube.Client.List(ctx, pods, client.InNamespace(s.Kube.Namespace), client.MatchingLabels{appLabelKey: name}); err == nil {
 		for _, p := range pods.Items {
-			all := append(append([]corev1.ContainerStatus{}, p.Status.InitContainerStatuses...), p.Status.ContainerStatuses...)
+			all := allContainerStatuses(&p)
 			for _, cs := range all {
 				if w := cs.State.Waiting; w != nil && w.Reason != "" && w.Reason != creatingReason && w.Reason != initingReason {
 					if w.Message != "" {

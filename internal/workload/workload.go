@@ -40,7 +40,8 @@ const (
 	workspaceMount  = "/workspace"
 	agentContainer  = "agent"
 	appLabel        = "app"
-	// SessionLabel marks a session's pods (mirrors tools.SessionLabel).
+	// SessionLabel marks a session's pods and questions — the one label
+	// every selector in the system uses.
 	SessionLabel = "tinysystems.io/session"
 )
 

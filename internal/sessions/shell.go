@@ -41,7 +41,7 @@ func (s *Store) ensureShellPod(ctx context.Context, session string, attempt int)
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      name,
 				Namespace: s.Kube.Namespace,
-				Labels:    map[string]string{appLabelKey: "tiny-shell", "tinysystems.io/session": session},
+				Labels:    map[string]string{appLabelKey: "tiny-shell", workload.SessionLabel: session},
 				// The session owns the shell pod: deleting the session sweeps it.
 				OwnerReferences: []metav1.OwnerReference{{
 					APIVersion: agentsv1.GroupVersion.String(),

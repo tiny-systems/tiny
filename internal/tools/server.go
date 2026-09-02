@@ -348,70 +348,73 @@ func (s *Server) createQuestion(ctx context.Context, spec tinyv1.QuestionSpec) (
 	return q, nil
 }
 
-// waitForResult blocks like waitFor but returns the controller's action
-// result: the question must be answered AND its action carried out. A deny is
-// an error naming the human's words; an interruption names the question id so
-// the model can resume.
-func (s *Server) waitForResult(ctx context.Context, name string) (string, error) {
+// pollQuestion blocks until done(q) says the wait is over, the context
+// ends, or the question is gone. An interruption is reported WITH the
+// question id so the model resumes with await_answer instead of asking
+// again — asking again would put a duplicate card in front of the human.
+func (s *Server) pollQuestion(ctx context.Context, name string, done func(*tinyv1.Question) (bool, error)) error {
 	interval := s.PollInterval
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
 	t := time.NewTicker(interval)
 	defer t.Stop()
+	interrupted := fmt.Errorf("interrupted while waiting — call await_answer with questionId %q to keep waiting", name)
 
 	for {
 		q := &tinyv1.Question{}
 		err := s.Client.Get(ctx, types.NamespacedName{Namespace: s.Namespace, Name: name}, q)
 		switch {
 		case err != nil && ctx.Err() != nil:
-			return "", fmt.Errorf("interrupted while waiting — call await_answer with questionId %q to keep waiting", name)
+			return interrupted
 		case err != nil:
-			return "", fmt.Errorf("question %s is gone: %w", name, err)
-		case q.Answered() && !tinyv1.AllowsAction(q.Status.Answer):
-			return "", fmt.Errorf("denied by the human operator: %s", q.Status.Answer)
-		case q.Answered() && q.Status.ActionDone:
-			return q.Status.Result, nil
+			return fmt.Errorf("question %s is gone: %w", name, err)
+		default:
+			if ok, derr := done(q); derr != nil || ok {
+				return derr
+			}
 		}
 
 		select {
 		case <-ctx.Done():
-			return "", fmt.Errorf("interrupted while waiting — call await_answer with questionId %q to keep waiting", name)
+			return interrupted
 		case <-t.C:
 		}
 	}
 }
 
-// waitFor blocks until the named question carries an answer, the context ends,
-// or the question is gone. An interruption is reported WITH the question id so
-// the model resumes with await_answer instead of asking again — asking again
-// would put a duplicate card in front of the human.
-func (s *Server) waitFor(ctx context.Context, name string) (*mcp.CallToolResult, AskOutput, error) {
-	interval := s.PollInterval
-	if interval <= 0 {
-		interval = 2 * time.Second
-	}
-	t := time.NewTicker(interval)
-	defer t.Stop()
-
-	for {
-		q := &tinyv1.Question{}
-		err := s.Client.Get(ctx, types.NamespacedName{Namespace: s.Namespace, Name: name}, q)
+// waitForResult waits until the question is answered AND its action carried
+// out, returning the action's result. A deny is an error naming the human's
+// words.
+func (s *Server) waitForResult(ctx context.Context, name string) (string, error) {
+	var result string
+	err := s.pollQuestion(ctx, name, func(q *tinyv1.Question) (bool, error) {
 		switch {
-		case err != nil && ctx.Err() != nil:
-			return nil, AskOutput{}, fmt.Errorf("interrupted while waiting — call await_answer with questionId %q to keep waiting", name)
-		case err != nil:
-			return nil, AskOutput{}, fmt.Errorf("question %s is gone: %w", name, err)
-		case q.Answered():
-			return nil, AskOutput{Answer: q.Status.Answer}, nil
+		case q.Answered() && !tinyv1.AllowsAction(q.Status.Answer):
+			return false, fmt.Errorf("denied by the human operator: %s", q.Status.Answer)
+		case q.Answered() && q.Status.ActionDone:
+			result = q.Status.Result
+			return true, nil
 		}
+		return false, nil
+	})
+	return result, err
+}
 
-		select {
-		case <-ctx.Done():
-			return nil, AskOutput{}, fmt.Errorf("interrupted while waiting — call await_answer with questionId %q to keep waiting", name)
-		case <-t.C:
+// waitFor blocks until the named question carries an answer.
+func (s *Server) waitFor(ctx context.Context, name string) (*mcp.CallToolResult, AskOutput, error) {
+	var answer string
+	err := s.pollQuestion(ctx, name, func(q *tinyv1.Question) (bool, error) {
+		if q.Answered() {
+			answer = q.Status.Answer
+			return true, nil
 		}
+		return false, nil
+	})
+	if err != nil {
+		return nil, AskOutput{}, err
 	}
+	return nil, AskOutput{Answer: answer}, nil
 }
 
 // sessionFor works out which session asked, with zero configuration: the

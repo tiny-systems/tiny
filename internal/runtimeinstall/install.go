@@ -37,6 +37,10 @@ import (
 	"github.com/tiny-systems/tiny/internal/kube"
 )
 
+// ConfirmPrompt is what the CLI shows before first-contact install — kept
+// beside the manifests so the words can't drift from what gets applied.
+const ConfirmPrompt = "install the tiny session runtime (2 CRDs + a ServiceAccount — no pods)"
+
 // Installed reports whether the runtime is already present — listing
 // Sessions proves the CRD is served. Only a missing kind means "not
 // installed"; RBAC denials and transient errors must not trigger a

@@ -20,6 +20,7 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/klog/v2"
 
+	"github.com/tiny-systems/tiny/internal/runtimeinstall"
 	"github.com/tiny-systems/tiny/internal/workload"
 )
 
@@ -100,7 +101,7 @@ func newInitCmd() *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), 120*time.Second)
 			defer cancel()
-			if err := confirmTarget("install the tiny session runtime (2 CRDs + a ServiceAccount — no pods)"); err != nil {
+			if err := confirmTarget(runtimeinstall.ConfirmPrompt); err != nil {
 				return err
 			}
 			if err := applyRuntime(ctx, k); err != nil {
