@@ -17,6 +17,7 @@ import (
 	"io/fs"
 	"strings"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -37,13 +38,16 @@ import (
 )
 
 // Installed reports whether the runtime is already present — listing
-// Sessions proves the CRD is served.
+// Sessions proves the CRD is served. Only a missing kind means "not
+// installed"; RBAC denials and transient errors must not trigger a
+// surprise re-apply.
 func Installed(ctx context.Context, k *kube.Client) bool {
 	list := &agentsv1.SessionList{}
-	if err := k.Client.List(ctx, list, client.InNamespace(k.Namespace)); err != nil {
-		return false
+	err := k.Client.List(ctx, list, client.InNamespace(k.Namespace))
+	if err == nil {
+		return true
 	}
-	return true
+	return !meta.IsNoMatchError(err) && !apierrors.IsNotFound(err)
 }
 
 // Apply installs everything embedded: cluster-scoped CRDs as-is, namespaced

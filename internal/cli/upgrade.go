@@ -2,7 +2,10 @@ package cli
 
 import (
 	"archive/tar"
+	"bufio"
+	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -52,11 +55,13 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 	}
 
 	want := fmt.Sprintf("_%s_%s", runtime.GOOS, runtime.GOARCH)
-	var assetURL string
+	var assetURL, assetName, sumsURL string
 	for _, a := range rel.Assets {
-		if strings.Contains(a.Name, want) && (strings.HasSuffix(a.Name, ".tar.gz") || strings.HasSuffix(a.Name, ".zip")) {
-			assetURL = a.URL
-			break
+		if a.Name == "checksums.txt" {
+			sumsURL = a.URL
+		}
+		if assetURL == "" && strings.Contains(a.Name, want) && (strings.HasSuffix(a.Name, ".tar.gz") || strings.HasSuffix(a.Name, ".zip")) {
+			assetURL, assetName = a.URL, a.Name
 		}
 	}
 	if assetURL == "" {
@@ -72,7 +77,7 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 	}
 
 	fmt.Printf("  %s %s → %s\n", styleKey.Render("upgrade"), styleSubtle.Render(current), styleTitle.Render(rel.TagName))
-	if err := applyUpdate(assetURL); err != nil {
+	if err := applyUpdate(assetURL, assetName, sumsURL); err != nil {
 		return fmt.Errorf("apply update: %w", err)
 	}
 	fmt.Printf("  %s updated to %s\n", styleOK.Render("✓"), styleTitle.Render(rel.TagName))
@@ -84,7 +89,10 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 
 func latestRelease() (*ghRelease, error) {
 	client := &http.Client{Timeout: 20 * time.Second}
-	req, _ := http.NewRequest(http.MethodGet, releasesAPI, nil)
+	req, err := http.NewRequest(http.MethodGet, releasesAPI, nil)
+	if err != nil {
+		return nil, err
+	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	resp, err := client.Do(req)
 	if err != nil {
@@ -105,7 +113,7 @@ func latestRelease() (*ghRelease, error) {
 // swaps it over the running executable. On unix a rename over a running
 // binary is safe; we write to a temp file in the same dir first so the
 // replace is atomic and stays on one filesystem.
-func applyUpdate(archiveURL string) error {
+func applyUpdate(archiveURL, archiveName, sumsURL string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
@@ -126,7 +134,17 @@ func applyUpdate(archiveURL string) error {
 		return fmt.Errorf("download returned %d", resp.StatusCode)
 	}
 
-	bin, err := extractBinary(resp.Body)
+	// Buffer the archive so it can be checksummed before anything from it
+	// is executed or written over the running binary.
+	archive, err := io.ReadAll(io.LimitReader(resp.Body, 512<<20))
+	if err != nil {
+		return err
+	}
+	if err := verifyChecksum(archive, archiveName, sumsURL); err != nil {
+		return err
+	}
+
+	bin, err := extractBinary(bytes.NewReader(archive))
 	if err != nil {
 		return err
 	}
@@ -157,6 +175,37 @@ func applyUpdate(archiveURL string) error {
 		return err
 	}
 	return os.Rename(tmpName, exe)
+}
+
+// verifyChecksum compares the downloaded archive against the release's
+// checksums.txt (goreleaser publishes it alongside the assets). A release
+// without one, or one that omits this asset, fails loud — a self-update
+// must never install bytes nothing vouches for.
+func verifyChecksum(archive []byte, name, sumsURL string) error {
+	if sumsURL == "" {
+		return fmt.Errorf("release has no checksums.txt — refusing to self-update")
+	}
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Get(sumsURL)
+	if err != nil {
+		return fmt.Errorf("fetch checksums: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("checksums download returned %d", resp.StatusCode)
+	}
+	sum := fmt.Sprintf("%x", sha256.Sum256(archive))
+	sc := bufio.NewScanner(resp.Body)
+	for sc.Scan() {
+		fields := strings.Fields(sc.Text())
+		if len(fields) == 2 && fields[1] == name {
+			if fields[0] == sum {
+				return nil
+			}
+			return fmt.Errorf("checksum mismatch for %s — expected %s, downloaded %s", name, fields[0], sum)
+		}
+	}
+	return fmt.Errorf("checksums.txt does not list %s — refusing to self-update", name)
 }
 
 // extractBinary pulls the `tiny` binary out of a .tar.gz release archive to

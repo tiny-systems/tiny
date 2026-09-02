@@ -50,7 +50,10 @@ func savePinned(c *pinnedConfig) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	raw, _ := json.MarshalIndent(c, "", "  ")
+	raw, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return err
+	}
 	return os.WriteFile(path, append(raw, '\n'), 0o600)
 }
 

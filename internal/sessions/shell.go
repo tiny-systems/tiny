@@ -20,6 +20,10 @@ import (
 // the agent's own toolset, without waking the agent. Callers exec into it;
 // DeleteShellPod cleans up.
 func (s *Store) EnsureShellPod(ctx context.Context, session string) (string, error) {
+	return s.ensureShellPod(ctx, session, 0)
+}
+
+func (s *Store) ensureShellPod(ctx context.Context, session string, attempt int) (string, error) {
 	se := &agentsv1.Session{}
 	if err := s.Kube.Client.Get(ctx, client.ObjectKey{Namespace: s.Kube.Namespace, Name: session}, se); err != nil {
 		return "", err
@@ -88,7 +92,12 @@ func (s *Store) EnsureShellPod(ctx context.Context, session string) (string, err
 				if err := s.Kube.Client.Delete(ctx, pod); err != nil && !apierrors.IsNotFound(err) {
 					return "", err
 				}
-				return s.EnsureShellPod(ctx, session)
+				// One replacement attempt; a second corpse means something
+				// is actually wrong and recursing forever would hide it.
+				if attempt >= 1 {
+					return "", fmt.Errorf("shell pod %s keeps dying (phase %s) — check the image and the workspace PVC", name, pod.Status.Phase)
+				}
+				return s.ensureShellPod(ctx, session, attempt+1)
 			}
 		}
 		select {

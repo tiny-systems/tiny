@@ -30,7 +30,11 @@ func waitForSession(ctx context.Context, store *sessions.Store, name string) (st
 		if stage == "" { // running — but a broken image dies within a second; let it settle
 			settled := true
 			for range 3 {
-				time.Sleep(time.Second)
+				select {
+				case <-ctx.Done():
+					return "", ctx.Err()
+				case <-time.After(time.Second):
+				}
 				st, _, fail, err := store.Birth(ctx, name)
 				if err != nil {
 					return "", err

@@ -133,8 +133,8 @@ func (s *Server) setTitle(ctx context.Context, _ *mcp.CallToolRequest, in TitleI
 	if title == "" {
 		return nil, TitleOutput{}, fmt.Errorf("title is empty")
 	}
-	if len(title) > 120 {
-		title = title[:120]
+	if r := []rune(title); len(r) > 120 {
+		title = string(r[:120])
 	}
 	ref := s.sessionFor(ctx)
 	if ref.Name == "" {

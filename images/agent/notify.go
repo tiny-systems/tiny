@@ -175,8 +175,8 @@ func lastTurnSummary(stdin io.Reader) string {
 	if last == "" {
 		return fallback
 	}
-	if len(last) > 160 {
-		last = last[:160] + "…"
+	if r := []rune(last); len(r) > 160 {
+		last = string(r[:160]) + "…"
 	}
 	return last
 }

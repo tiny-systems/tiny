@@ -40,7 +40,10 @@ func pickTarget(current, defaultNS string) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	final := out.(pickerModel)
+	final, ok := out.(pickerModel)
+	if !ok {
+		return "", "", fmt.Errorf("picker returned unexpected model %T", out)
+	}
 	if final.aborted {
 		return "", "", fmt.Errorf("no target chosen — rerun and pick, or pass --context <name>")
 	}

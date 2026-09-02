@@ -56,7 +56,9 @@ func (s *Store) Attach(ctx context.Context, session, pod string) error {
 	sizes := make(chan remotecommand.TerminalSize, 1)
 	winch := make(chan os.Signal, 1)
 	stopWinch := notifyResize(winch)
-	defer stopWinch()
+	// Stop delivering, then close, so the pump goroutine ends with the
+	// attach instead of leaking one per attach.
+	defer func() { stopWinch(); close(winch) }()
 	go func() {
 		push := func() {
 			if w, h, err := term.GetSize(fd); err == nil {

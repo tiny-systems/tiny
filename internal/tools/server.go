@@ -123,7 +123,7 @@ func (s *Server) MCP() *mcp.Server {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", withCallerIP(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return s.MCP() }, nil)))
-	mux.HandleFunc("/attention", s.handleAttention)
+	mux.Handle("/attention", withCallerIP(http.HandlerFunc(s.handleAttention)))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 	return mux
 }

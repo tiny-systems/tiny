@@ -244,10 +244,14 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			// Attaching is the acknowledgement — idle "waiting for you"
-			// cards clear the moment the human looks.
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			m.store.ClearAttention(ctx, row.Name)
-			cancel()
+			// cards clear the moment the human looks. In the background:
+			// a slow API server must not freeze the event loop.
+			store, name := m.store, row.Name
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				store.ClearAttention(ctx, name)
+			}()
 			return m, m.attach(row)
 		}
 	case "a":
@@ -867,13 +871,14 @@ func detail(row Row) string {
 }
 
 func trunc(s string, n int) string {
-	if len(s) <= n {
+	r := []rune(s)
+	if len(r) <= n {
 		return s
 	}
 	if n <= 1 {
-		return s[:n]
+		return string(r[:n])
 	}
-	return s[:n-1] + "…"
+	return string(r[:n-1]) + "…"
 }
 
 // kubectlAttach hands the terminal to the session's tmux. kubectl carries

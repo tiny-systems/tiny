@@ -531,16 +531,15 @@ func (r *Applier) ensureRunner(ctx context.Context, ns, repo, controllerImage st
 	dep := &appsv1.Deployment{}
 	err := r.Get(ctx, types.NamespacedName{Namespace: ns, Name: runnerName}, dep)
 	if err == nil {
-		// Repo change: recreate.
-		if dep.Spec.Template.Spec.Containers[0].Env[0].Value != repo {
-			if err := r.Delete(ctx, dep); err != nil {
-				return err
-			}
-			return fmt.Errorf("runner repo changed; recreating")
+		if runnerRepoOf(dep) == repo {
+			return nil
 		}
-		return nil
-	}
-	if !apierrors.IsNotFound(err) {
+		// Repo changed: replace the deployment and fall through to create
+		// the new one — a settings save must not fail on its success path.
+		if err := r.Delete(ctx, dep); err != nil {
+			return fmt.Errorf("replace runner deployment: %w", err)
+		}
+	} else if !apierrors.IsNotFound(err) {
 		return err
 	}
 	one := int32(1)
@@ -639,3 +638,22 @@ func (r *Applier) teardownRunner(ctx context.Context, ns string) error {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// runnerRepoOf digs the configured repo out of an existing runner
+// deployment without trusting its shape — a hand-edited deployment must
+// not panic the CLI.
+func runnerRepoOf(dep *appsv1.Deployment) string {
+	cs := dep.Spec.Template.Spec.Containers
+	if len(cs) == 0 {
+		return ""
+	}
+	for _, e := range cs[0].Env {
+		if e.Name == "RUNNER_REPO" || e.Name == "REPO" {
+			return e.Value
+		}
+	}
+	if len(cs[0].Env) > 0 {
+		return cs[0].Env[0].Value
+	}
+	return ""
+}

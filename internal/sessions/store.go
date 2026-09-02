@@ -20,6 +20,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	agentsv1 "github.com/tiny-systems/tiny/api/v1alpha1"
@@ -650,19 +651,23 @@ func (s *Store) SendText(ctx context.Context, session, text string) error {
 	if strings.TrimSpace(text) == "" {
 		return fmt.Errorf("empty message")
 	}
-	se := &agentsv1.Session{}
-	if err := s.Kube.Client.Get(ctx, client.ObjectKey{Namespace: s.Kube.Namespace, Name: session}, se); err != nil {
-		return err
-	}
-	se.Spec.Inbox = append(se.Spec.Inbox, agentsv1.InboxMessage{
-		ID:   fmt.Sprintf("m-%d", time.Now().UnixNano()),
-		Text: text,
+	// The sidecar updates status on its own clock; a read-modify-write
+	// without retry silently drops messages on conflict.
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		se := &agentsv1.Session{}
+		if err := s.Kube.Client.Get(ctx, client.ObjectKey{Namespace: s.Kube.Namespace, Name: session}, se); err != nil {
+			return err
+		}
+		se.Spec.Inbox = append(se.Spec.Inbox, agentsv1.InboxMessage{
+			ID:   fmt.Sprintf("m-%d", time.Now().UnixNano()),
+			Text: text,
+		})
+		// The mailbox is not a log: keep the tail, the pod prunes nothing.
+		if len(se.Spec.Inbox) > 20 {
+			se.Spec.Inbox = se.Spec.Inbox[len(se.Spec.Inbox)-20:]
+		}
+		return s.Kube.Client.Update(ctx, se)
 	})
-	// The mailbox is not a log: keep the tail, the pod prunes nothing.
-	if len(se.Spec.Inbox) > 20 {
-		se.Spec.Inbox = se.Spec.Inbox[len(se.Spec.Inbox)-20:]
-	}
-	return s.Kube.Client.Update(ctx, se)
 }
 
 // UploadFile puts a local file into the session's workspace under
