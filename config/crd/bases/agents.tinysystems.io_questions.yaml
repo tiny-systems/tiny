@@ -80,11 +80,6 @@ spec:
                 required:
                 - type
                 type: object
-              askedBy:
-                description: |-
-                  AskedBy is the tool caller's self-description, informational
-                  ("claude-code", "codex").
-                type: string
               options:
                 description: Options offered as one-press answers. Empty means free
                   text.

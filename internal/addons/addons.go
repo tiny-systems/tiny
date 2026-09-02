@@ -56,15 +56,14 @@ func (r *Applier) EnsureZot(ctx context.Context, ns string, nodeTrust bool) erro
 	if ip == "" {
 		return fmt.Errorf("zot service has no ClusterIP yet — retry")
 	}
-	ca, err := r.ensureTLS(ctx, ns, ip)
-	if err != nil {
+	if _, err := r.ensureTLS(ctx, ns, ip); err != nil {
 		return err
 	}
 	if err := r.ensureZot(ctx, ns); err != nil {
 		return err
 	}
 	if nodeTrust {
-		return r.ensureTrustDS(ctx, ns, ip, ca)
+		return r.ensureTrustDS(ctx, ns, ip)
 	}
 	return r.deleteIfExists(ctx, &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: trustName}})
 }
@@ -310,7 +309,7 @@ func (r *Applier) ensureZot(ctx context.Context, ns string) error {
 // ensureTrustDS drops the cache's CA where BOTH container runtimes look —
 // /etc/docker/certs.d and /etc/containerd/certs.d read per-pull, no daemon
 // restart. Privileged only in the sense of hostPath; consented separately.
-func (r *Applier) ensureTrustDS(ctx context.Context, ns, ip string, ca []byte) error {
+func (r *Applier) ensureTrustDS(ctx context.Context, ns, ip string) error {
 	hostPort := fmt.Sprintf("%s:%d", ip, zotPort)
 	script := fmt.Sprintf(`mkdir -p /host-docker/%[1]s /host-containerd/%[1]s
 cp /ca/ca.crt /host-docker/%[1]s/ca.crt
@@ -352,7 +351,6 @@ echo trusted; sleep 2147483647`, hostPort)
 			},
 		},
 	}
-	_ = ca // the CA travels via the secret volume; param kept for future rotation logic
 	return r.Create(ctx, ds)
 }
 

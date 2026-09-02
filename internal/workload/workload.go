@@ -315,7 +315,7 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 				// Credentials by convention, plus — for spawner-born
 				// sessions — the trigger's own secret (the GitHub token
 				// that opens the PR), verified against the spawner.
-				EnvFrom: sessionEnvFrom(s, envSecret),
+				EnvFrom: sessionEnvFrom(envSecret),
 				Env: []corev1.EnvVar{
 					{Name: "TINY_TASK", Value: s.Spec.Task},
 					{Name: "TINY_REPO", Value: s.Spec.Repo},
@@ -388,7 +388,7 @@ func verifiedEnvSecret(ctx context.Context, c client.Client, s *agentsv1.Session
 	return extra
 }
 
-func sessionEnvFrom(s *agentsv1.Session, extra string) []corev1.EnvFromSource {
+func sessionEnvFrom(extra string) []corev1.EnvFromSource {
 	out := []corev1.EnvFromSource{
 		{SecretRef: &corev1.SecretEnvSource{
 			LocalObjectReference: corev1.LocalObjectReference{Name: "tiny-agent-env"},
@@ -399,7 +399,6 @@ func sessionEnvFrom(s *agentsv1.Session, extra string) []corev1.EnvFromSource {
 			Optional:             ptr(true),
 		}},
 	}
-	_ = s
 	if extra != "" {
 		out = append(out, corev1.EnvFromSource{SecretRef: &corev1.SecretEnvSource{
 			LocalObjectReference: corev1.LocalObjectReference{Name: extra},

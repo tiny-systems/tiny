@@ -717,13 +717,6 @@ func (s *Store) uploadFile(ctx context.Context, session, localPath string, annou
 	return remote, nil
 }
 
-// UploadFileQuiet is UploadFile without the inbox announcement — used by
-// the attached-terminal drop, where the substituted paste IS the
-// announcement.
-func (s *Store) UploadFileQuiet(ctx context.Context, session, localPath string, progress func(done, total int64)) (string, error) {
-	return s.uploadFile(ctx, session, localPath, false, progress)
-}
-
 // droppedPath recognizes a terminal file-drop: pastes arrive as the path,
 // possibly single-quoted (iTerm) or with backslash-escaped spaces.
 func droppedPath(paste string) (string, bool) {

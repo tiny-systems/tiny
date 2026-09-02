@@ -30,16 +30,13 @@ import (
 )
 
 func main() {
-	role := "serve"
 	args := os.Args[1:]
-	if len(args) > 0 && (args[0] == "serve" || args[0] == "manager") {
-		role = args[0]
+	// One role remains; "serve" as a first arg is accepted for
+	// compatibility with old pod specs.
+	if len(args) > 0 && args[0] == "serve" {
 		args = args[1:]
 	}
-	switch role {
-	default:
-		serve(args)
-	}
+	serve(args)
 }
 
 func scheme() *runtime.Scheme {

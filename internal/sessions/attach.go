@@ -75,7 +75,7 @@ func (s *Store) Attach(ctx context.Context, session, pod string) error {
 	}()
 
 	return exec.StreamWithContext(ctx, remotecommand.StreamOptions{
-		Stdin:             &pasteInterceptor{src: os.Stdin, store: s, session: session, pod: pod, ctx: ctx},
+		Stdin:             &pasteInterceptor{src: os.Stdin, store: s, session: session, pod: pod},
 		Stdout:            os.Stdout,
 		Tty:               true,
 		TerminalSizeQueue: sizeQueue(sizes),
@@ -118,7 +118,6 @@ type pasteInterceptor struct {
 	store   *Store
 	session string
 	pod     string
-	ctx     context.Context
 
 	buf     []byte // pending output
 	paste   []byte // accumulating paste content

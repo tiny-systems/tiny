@@ -90,7 +90,6 @@ func newNewCmd() *cobra.Command {
 			}
 			if task == "" {
 				fmt.Println("  attaching — detach with ctrl-q d")
-				_ = pod
 				return store.Attach(cmd.Context(), se.Name, pod)
 			}
 			if !noAttachHint {

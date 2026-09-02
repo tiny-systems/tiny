@@ -51,10 +51,6 @@ type QuestionSpec struct {
 	// Session the question came from, best effort.
 	// +optional
 	Session SessionRef `json:"session,omitempty"`
-	// AskedBy is the tool caller's self-description, informational
-	// ("claude-code", "codex").
-	// +optional
-	AskedBy string `json:"askedBy,omitempty"`
 	// Reason distinguishes how the question arose: "tool" (the agent called
 	// ask_human) or "notification" (the safety net saw the agent waiting).
 	// +optional

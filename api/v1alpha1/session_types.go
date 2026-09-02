@@ -90,7 +90,6 @@ type SessionPhase string
 
 // Session phases.
 const (
-	SessionPending SessionPhase = "Pending"
 	SessionRunning SessionPhase = "Running"
 	SessionDone    SessionPhase = "Done"
 	SessionFailed  SessionPhase = "Failed"
