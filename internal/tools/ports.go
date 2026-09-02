@@ -10,6 +10,10 @@ import (
 )
 
 // ExposeInput asks for a port on the caller's own pod to be reachable.
+// paramSession names the requesting session in gated-action params — the
+// selector target, distinct from the human-chosen service name.
+const paramSession = "session"
+
 type ExposeInput struct {
 	Port int32  `json:"port" jsonschema:"The port your process is listening on."`
 	Name string `json:"name,omitempty" jsonschema:"Short name for the service. Defaults to your session name."`
@@ -41,9 +45,10 @@ func (s *Server) exposePort(ctx context.Context, _ *mcp.CallToolRequest, in Expo
 		agentsv1.QuestionAction{
 			Type: agentsv1.ActionExposePort,
 			Params: map[string]string{
-				"port": fmt.Sprintf("%d", in.Port),
-				"pod":  caller.Pod,
-				"name": name,
+				"port":       fmt.Sprintf("%d", in.Port),
+				"pod":        caller.Pod,
+				"name":       name,
+				paramSession: caller.Name,
 			},
 		})
 	if err != nil {

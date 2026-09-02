@@ -12,6 +12,7 @@ the humans' own.
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
 	"net/http"
@@ -71,6 +72,9 @@ func serve(args []string) {
 	}
 
 	srv := &tools.Server{Client: c, Namespace: namespace}
+	// The manager used to write Session phases; now the session announces
+	// itself. Best effort — a status write must never block serving.
+	srv.AnnounceRunning(context.Background())
 	log.Printf("tiny-mcp serving on %s (namespace %s): /mcp, /attention, /healthz", addr, namespace)
 	s := &http.Server{
 		Addr:    addr,

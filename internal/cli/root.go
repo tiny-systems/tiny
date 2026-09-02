@@ -100,7 +100,7 @@ func newInitCmd() *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), 120*time.Second)
 			defer cancel()
-			if err := confirmTarget("install the tiny session runtime (2 CRDs + one small manager pod)"); err != nil {
+			if err := confirmTarget("install the tiny session runtime (2 CRDs + a ServiceAccount — no pods)"); err != nil {
 				return err
 			}
 			if err := applyRuntime(ctx, k); err != nil {

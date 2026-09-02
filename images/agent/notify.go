@@ -35,7 +35,7 @@ const (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: tiny-notify <message> [reason] | tiny-notify --stop")
+		fmt.Fprintln(os.Stderr, "usage: tiny-notify <message> [reason] | tiny-notify --stop | tiny-notify --exited <code>")
 		os.Exit(2)
 	}
 	var body map[string]string
@@ -57,7 +57,13 @@ func main() {
 		if len(os.Args) > 2 {
 			msg = strings.TrimSpace(os.Args[2])
 		}
-		body = map[string]string{keyReason: "limit", "message": msg}
+		body = map[string]string{keyReason: "limit", keyMessage: msg}
+	case "--exited":
+		code := "1"
+		if len(os.Args) > 2 {
+			code = os.Args[2]
+		}
+		body = map[string]string{keyReason: "exited", keyMessage: code}
 	case "--stop":
 		// A completed turn retires any pending resume-nudge: the next pod
 		// replacement may nudge again.
@@ -66,7 +72,7 @@ func main() {
 		if summary == "" {
 			return // a turn with nothing to say updates nothing
 		}
-		body = map[string]string{"message": summary, "reason": "stop"}
+		body = map[string]string{keyMessage: summary, keyReason: "stop"}
 	default:
 		body = map[string]string{keyMessage: os.Args[1]}
 		if len(os.Args) > 2 {

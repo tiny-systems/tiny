@@ -1,8 +1,8 @@
 /*
 Package runtimeinstall makes `tiny new` self-sufficient: the session runtime
-(two CRDs + the namespace-scoped manager) travels inside the binary and is
-applied on first contact, so the first command a person learns is the one
-that does their work.
+(two CRDs and the sidecar's ServiceAccount — no pods) travels inside the
+binary and is applied on first contact, so the first command a person
+learns is the one that does their work.
 
 The manifests are embedded straight from this repo's config/ — the same
 files the controller is developed against, so client and runtime cannot
@@ -36,8 +36,8 @@ import (
 	"github.com/tiny-systems/tiny/internal/kube"
 )
 
-// Installed reports whether the runtime is already present: the Session CRD
-// answers for the CRDs, a tiny-manager deployment for the manager.
+// Installed reports whether the runtime is already present — listing
+// Sessions proves the CRD is served.
 func Installed(ctx context.Context, k *kube.Client) bool {
 	list := &agentsv1.SessionList{}
 	if err := k.Client.List(ctx, list, client.InNamespace(k.Namespace)); err != nil {

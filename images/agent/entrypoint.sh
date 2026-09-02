@@ -239,6 +239,8 @@ if [ -f "$MARKER" ]; then
 # entrypoint nudges through tmux once the TUI is up. Approvals and sandbox
 # are settled in config.toml, model rides TINY_MODEL.
 codex resume --last ${TINY_MODEL:+-c model="$TINY_MODEL"}
+code=$?
+tiny-notify --exited "$code" 2>/dev/null || true
 echo
 echo "tiny: agent exited — session stays for inspection"
 while :; do sleep 3600; done
@@ -258,6 +260,8 @@ else
   claude ${TINY_MODEL:+--model "$TINY_MODEL"} --continue --permission-mode bypassPermissions \
     "The infrastructure restarted your session. Pick up your task where the transcript leaves off; if it was already complete, say so and stop."
 fi
+code=$?
+tiny-notify --exited "$code" 2>/dev/null || true
 echo
 echo "tiny: agent exited — session stays for inspection"
 while :; do sleep 3600; done
@@ -270,6 +274,8 @@ else
     cat > "$RUN" <<'RUNEOF'
 #!/bin/sh
 codex ${TINY_MODEL:+-m "$TINY_MODEL"} "${TINY_TASK:-No task was given. Call set_title with 'waiting for instructions' now, then wait for the human here. Output no greeting - just wait.}"
+code=$?
+tiny-notify --exited "$code" 2>/dev/null || true
 echo
 echo "tiny: agent exited — session stays for inspection"
 while :; do sleep 3600; done
@@ -278,6 +284,8 @@ RUNEOF
     cat > "$RUN" <<'RUNEOF'
 #!/bin/sh
 claude ${TINY_MODEL:+--model "$TINY_MODEL"} --permission-mode bypassPermissions "${TINY_TASK:-No task was given. Call set_title with 'waiting for instructions' now, then wait for the human here. Output no greeting - just wait.}"
+code=$?
+tiny-notify --exited "$code" 2>/dev/null || true
 echo
 echo "tiny: agent exited — session stays for inspection"
 while :; do sleep 3600; done

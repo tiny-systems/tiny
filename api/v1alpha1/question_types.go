@@ -85,11 +85,12 @@ func AllowsAction(answer string) bool { return answer == AnswerAllow || answer =
 
 // QuestionAction is a requested act, parked until a human allows it.
 type QuestionAction struct {
-	// Type of act: exposePort or createSession.
-	// +kubebuilder:validation:Enum=exposePort;createSession
+	// Type of act: exposePort, createSession or enableFeature.
+	// +kubebuilder:validation:Enum=exposePort;createSession;enableFeature
 	Type string `json:"type"`
-	// Params of the act, by type:
-	// exposePort: port, pod, name. createSession: task, repo, image.
+	// Params of the act, by type. exposePort: port, pod, name, session.
+	// createSession: task, repo, image, cpu, memory, user.
+	// enableFeature: feature.
 	// +optional
 	Params map[string]string `json:"params,omitempty"`
 }

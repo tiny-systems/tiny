@@ -66,14 +66,16 @@ spec:
                     additionalProperties:
                       type: string
                     description: |-
-                      Params of the act, by type:
-                      exposePort: port, pod, name. createSession: task, repo, image.
+                      Params of the act, by type. exposePort: port, pod, name, session.
+                      createSession: task, repo, image, cpu, memory, user.
+                      enableFeature: feature.
                     type: object
                   type:
-                    description: 'Type of act: exposePort or createSession.'
+                    description: 'Type of act: exposePort, createSession or enableFeature.'
                     enum:
                     - exposePort
                     - createSession
+                    - enableFeature
                     type: string
                 required:
                 - type

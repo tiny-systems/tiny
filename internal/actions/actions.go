@@ -32,7 +32,11 @@ func Execute(ctx context.Context, c client.Client, q *agentsv1.Question) (string
 	p := q.Spec.Action.Params
 	switch q.Spec.Action.Type {
 	case agentsv1.ActionExposePort:
-		return exposePort(ctx, c, q.Namespace, p["pod"], p["name"], p["port"])
+		session := p["session"]
+		if session == "" {
+			session = p["name"] // questions from before the session param
+		}
+		return exposePort(ctx, c, q.Namespace, p["pod"], p["name"], session, p["port"])
 	case agentsv1.ActionCreateSession:
 		return createSession(ctx, c, q, p)
 	case agentsv1.ActionEnableFeature:
@@ -42,7 +46,7 @@ func Execute(ctx context.Context, c client.Client, q *agentsv1.Question) (string
 	}
 }
 
-func exposePort(ctx context.Context, c client.Client, namespace, pod, name, portStr string) (string, error) {
+func exposePort(ctx context.Context, c client.Client, namespace, pod, name, session, portStr string) (string, error) {
 	port, err := strconv.ParseInt(portStr, 10, 32)
 	if err != nil || port <= 0 || port > 65535 {
 		return "", fmt.Errorf("port %q is not a port", portStr)
@@ -58,11 +62,11 @@ func exposePort(ctx context.Context, c client.Client, namespace, pod, name, port
 			Labels:    map[string]string{"app.kubernetes.io/managed-by": "tiny"},
 		},
 		Spec: corev1.ServiceSpec{
-			Selector: map[string]string{workload.SessionLabel: name},
+			Selector: map[string]string{workload.SessionLabel: session},
 			Ports:    []corev1.ServicePort{{Port: int32(port), TargetPort: intstr.FromInt32(int32(port))}},
 		},
 	}
-	if se := sessionByName(ctx, c, namespace, name); se != nil {
+	if se := sessionByName(ctx, c, namespace, session); se != nil {
 		_ = controllerRef(c, se, svc) // best effort: ports die with their session
 	}
 	if err := c.Create(ctx, svc); err != nil && !apierrors.IsAlreadyExists(err) {

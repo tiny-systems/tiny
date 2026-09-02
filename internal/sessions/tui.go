@@ -166,7 +166,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The list ends two rows past the sessions: the "new" items are
 		// real cursor targets and a refresh must not evict the cursor
 		// from them.
-		if maxIdx := len(m.snap.Rows) + 3; m.cursor > maxIdx {
+		if maxIdx := len(m.snap.Rows) + 4; m.cursor > maxIdx {
 			m.cursor = maxIdx
 		}
 		return m, nil
@@ -804,12 +804,14 @@ func (m Model) listHints() string {
 	}
 	switch m.cursor - len(m.snap.Rows) {
 	case 0:
-		return "[enter] start a blank session  [q] quit"
+		return "[enter] broadcast to every unfinished session  [q] quit"
 	case 1:
-		return "[enter] open the options form  [q] quit"
+		return "[enter] start a blank session  [q] quit"
 	case 2:
-		return "[enter] open settings  [q] quit"
+		return "[enter] open the options form  [q] quit"
 	case 3:
+		return "[enter] open settings  [q] quit"
+	case 4:
 		return "[enter] quit"
 	}
 	hints := "[enter] attach"

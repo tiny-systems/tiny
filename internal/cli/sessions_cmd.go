@@ -40,7 +40,7 @@ func ensureRuntime(ctx context.Context, k *kube.Client) error {
 	if runtimeinstall.Installed(ctx, k) {
 		return nil
 	}
-	if err := confirmTarget("install the tiny session runtime (2 CRDs + one small manager pod)"); err != nil {
+	if err := confirmTarget("install the tiny session runtime (2 CRDs + a ServiceAccount — no pods)"); err != nil {
 		return err
 	}
 	if err := runtimeinstall.Apply(ctx, k.RESTConfig, k.Namespace); err != nil {

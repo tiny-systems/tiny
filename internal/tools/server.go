@@ -267,9 +267,27 @@ func (s *Server) handleAttention(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"questionId": q.Name})
 }
 
+// AnnounceRunning marks the sidecar's own session Running and records its
+// pod — the phase writers the deleted manager left orphaned. Called once at
+// serve start; no-op outside a session pod.
+func (s *Server) AnnounceRunning(ctx context.Context) {
+	ref := s.sessionFor(ctx)
+	if ref.Name == "" {
+		return
+	}
+	se := &tinyv1.Session{}
+	if err := s.Client.Get(ctx, s.key(ref.Name), se); err != nil {
+		return
+	}
+	se.Status.Phase = tinyv1.SessionRunning
+	se.Status.Pod = ref.Pod
+	se.Status.Message = ""
+	_ = s.Client.Status().Update(ctx, se)
+}
+
 // recordStatus mutates the caller's session status for the self-reported
-// signals: cgroup usage, and the pane-scraped usage-limit banner (a paused
-// session should LOOK paused on the fleet).
+// signals: cgroup usage, the pane-scraped usage-limit banner (a paused
+// session should LOOK paused on the fleet), and the agent's exit.
 func (s *Server) recordStatus(ctx context.Context, in attentionRequest) {
 	ref := s.sessionFor(ctx)
 	if ref.Name == "" {
@@ -279,12 +297,23 @@ func (s *Server) recordStatus(ctx context.Context, in attentionRequest) {
 	if err := s.Client.Get(ctx, s.key(ref.Name), se); err != nil {
 		return
 	}
+	if ref.Pod != "" {
+		se.Status.Pod = ref.Pod
+	}
 	switch in.Reason {
 	case "usage":
 		if in.CPU == "" && in.Memory == "" {
 			return
 		}
 		se.Status.Usage = &tinyv1.SessionUsage{CPU: in.CPU, Memory: in.Memory}
+	case "exited":
+		if in.Message == "0" {
+			se.Status.Phase = tinyv1.SessionDone
+			se.Status.Message = ""
+		} else {
+			se.Status.Phase = tinyv1.SessionFailed
+			se.Status.Message = "agent exited with code " + in.Message
+		}
 	case "limit":
 		switch {
 		case in.Message != "":
