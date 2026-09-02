@@ -647,7 +647,6 @@ func orDash(v string) string {
 	return v
 }
 
-// fmtAge renders a duration the way a fleet reads it: 45s, 21m, 10h, 3d.
 // clip hard-truncates a rendered line to the terminal width — a wrapped
 // line desynchronizes bubbletea's diff and leaves ghost copies of rows
 // behind (seen live when a terminal banner shrank the window).
@@ -658,6 +657,7 @@ func (m Model) clip(line string) string {
 	return ansi.Truncate(line, m.width, "")
 }
 
+// fmtAge renders a duration the way a fleet reads it: 45s, 21m, 10h, 3d.
 func fmtAge(d time.Duration) string {
 	switch {
 	case d < time.Minute:
@@ -794,7 +794,6 @@ func (m Model) handleDrop(paste string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// listHints names only the keys that do something for the current cursor.
 func (m Model) runnerStateLabel() string {
 	if m.settings.RunnerRepo == "" {
 		return ""
@@ -802,6 +801,7 @@ func (m Model) runnerStateLabel() string {
 	return "watching " + m.settings.RunnerRepo
 }
 
+// listHints names only the keys that do something for the current cursor.
 func (m Model) listHints() string {
 	if m.snap == nil {
 		return "[q] quit"
@@ -881,9 +881,6 @@ func trunc(s string, n int) string {
 	return string(r[:n-1]) + "…"
 }
 
-// kubectlAttach hands the terminal to the session's tmux. kubectl carries
-// the TTY plumbing; reimplementing SPDY+raw-mode here would be a lot of code
-// to replace one dependency every target user already has.
 // storeAttach hands the terminal to tiny's own attach — the one that turns
 // a file dropped onto the window into a workspace upload.
 func storeAttach(store *Store) func(Row) tea.Cmd {

@@ -68,8 +68,8 @@ func NewClient(opts Options) (*Client, error) {
 }
 
 // NewClientFromConfig builds a Client from an already-resolved rest.Config —
-// for callers (like the FlowService) that resolved the config themselves and
-// just need the typed, scheme-aware client over it.
+// for callers that resolved the config themselves and just need the typed,
+// scheme-aware client over it.
 func NewClientFromConfig(restCfg *rest.Config, namespace string) (*Client, error) {
 	if namespace == "" {
 		namespace = defaultNS

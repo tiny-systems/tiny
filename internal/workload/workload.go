@@ -307,14 +307,13 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 					RunAsUser:    ptr(agentUID(s)),
 					RunAsNonRoot: ptr(true),
 				},
-				// Credentials by convention: a Secret named tiny-agent-env
-				// in the namespace (ANTHROPIC_API_KEY and friends) lands in
-				// the agent's environment. Optional — a cluster without it
-				// still schedules; the agent then reports the missing key
-				// as a question instead of crashlooping.
-				// Credentials by convention, plus — for spawner-born
-				// sessions — the trigger's own secret (the GitHub token
-				// that opens the PR), verified against the spawner.
+				// Credentials by convention: the tiny-agent-env Secret
+				// (ANTHROPIC_API_KEY and friends) lands in the agent's env,
+				// plus — for spawner-born sessions — the trigger's own
+				// secret, verified against the spawner. All optional: a
+				// cluster without them still schedules, and the agent
+				// reports a missing key as a question instead of
+				// crashlooping.
 				EnvFrom: sessionEnvFrom(envSecret),
 				Env: []corev1.EnvVar{
 					{Name: "TINY_TASK", Value: s.Spec.Task},
@@ -366,9 +365,6 @@ func agentMounts(workspace, tinyHome corev1.VolumeMount, envSecret string) []cor
 	return m
 }
 
-// sessionEnvFrom assembles the agent container's secret env: the agent
-// token and store credentials by convention (both optional), and any
-// secret a spawner pinned via annotation.
 // verifiedEnvSecret returns the annotation-named secret ONLY when that
 // secret is itself labeled for this exact session — publishing a secret
 // requires Secret-create rights, so the annotation can never smuggle a
@@ -388,6 +384,9 @@ func verifiedEnvSecret(ctx context.Context, c client.Client, s *agentsv1.Session
 	return extra
 }
 
+// sessionEnvFrom assembles the agent container's secret env: the agent
+// token and store credentials by convention (both optional), and any
+// secret a spawner pinned via annotation.
 func sessionEnvFrom(extra string) []corev1.EnvFromSource {
 	out := []corev1.EnvFromSource{
 		{SecretRef: &corev1.SecretEnvSource{

@@ -40,8 +40,8 @@ type Applier struct {
 // MinioSecret is where the store's credentials live.
 const MinioSecret = minioSecret
 
-// EnsureMinio / TeardownMinio, EnsureZot / TeardownZot, EnsureRunner /
-// TeardownRunner are the public verbs.
+// EnsureMinio / TeardownMinioAddon, EnsureZot / TeardownZotAddon and
+// EnsureRunnerAddon / TeardownRunnerAddon are the public verbs.
 func (r *Applier) EnsureMinio(ctx context.Context, ns string) error { return r.ensureMinio(ctx, ns) }
 func (r *Applier) TeardownMinioAddon(ctx context.Context, ns string) error {
 	return r.teardownMinio(ctx, ns)

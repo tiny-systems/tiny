@@ -242,8 +242,8 @@ func extractBinary(r io.Reader) (string, error) {
 	}
 }
 
-// isHomebrew reports whether the executable lives under a Homebrew prefix,
-// so `tiny upgrade` can defer to `brew upgrade` instead of fighting it.
+// isHomebrew detects a brew-managed install so the summary can note that
+// brew's recorded version goes stale after an in-place self-update.
 func isHomebrew(exe string) bool {
 	if exe == "" {
 		return false

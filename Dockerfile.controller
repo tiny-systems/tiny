@@ -1,4 +1,4 @@
-# Build the manager binary
+# Build the tiny-mcp sidecar binary
 FROM golang:1.26 AS builder
 ARG TARGETOS
 ARG TARGETARCH
@@ -22,7 +22,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager cmd/controller/main.go \
  && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o tiny-cli ./cmd/tiny
 
-# Use distroless as minimal base image to package the manager binary
+# Distroless base for the sidecar binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
 FROM gcr.io/distroless/static:nonroot
 WORKDIR /

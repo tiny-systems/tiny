@@ -313,7 +313,6 @@ func firstLine(text string) string {
 	return text
 }
 
-// Create starts a session.
 // CreateOpts is everything a new session can be born with.
 type CreateOpts struct {
 	Name   string
@@ -572,7 +571,7 @@ const (
 	initingReason  = "PodInitializing"
 )
 
-// AddonState is one add-on's observed truth: "" (off), "running",
+// addonState is one add-on's observed truth: "" (off), "running",
 // "starting", or a failure reason worth reading.
 func (s *Store) addonState(ctx context.Context, name string, enabled bool) string {
 	if !enabled {

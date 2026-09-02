@@ -126,8 +126,8 @@ func readUsage() (cpu, mem string) {
 }
 
 // lastTurnSummary digs the final assistant text out of the transcript the
-// Stop hook points at. Any failure returns a plain marker — the hook must
-// never break the agent over cosmetics.
+// Stop hook points at. Any failure returns "" (no activity update) — the
+// hook must never break the agent over cosmetics.
 func lastTurnSummary(stdin io.Reader) string {
 	const fallback = ""
 	var hook struct {

@@ -1,4 +1,4 @@
-// Package cmd is the tiny CLI: coding-agent sessions as Kubernetes workloads.
+// Package cli is the tiny CLI: coding-agent sessions as Kubernetes workloads.
 //
 // The whole surface:
 //

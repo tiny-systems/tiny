@@ -242,7 +242,8 @@ func setupRepoKey(ctx context.Context, k *kube.Client) error {
 
 // githubKnownHosts pins github.com's published host keys — baked in so setup
 // works offline and nothing trusts first use.
-// Source: https://docs.github.com/en/authentication/keychain (2024 keys).
+// Source: https://docs.github.com/en/authentication/keychains-and-github (see
+// "GitHub's SSH key fingerprints"); keys as published 2024.
 func githubKnownHosts() string {
 	return `github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
 github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
