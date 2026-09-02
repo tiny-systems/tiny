@@ -165,6 +165,7 @@ transcript resumes.
 | `tiny new --image quay.io/buildah/stable --user 1000 "…"` | a builder — agents build images and push them to the namespace registry |
 | `tiny new --agent codex --model gpt-5.2-codex "…"` | the same session, OpenAI's Codex inside |
 | `tiny broadcast "demo at 10 — wrap up"` | one message into every unfinished session's inbox |
+| `tiny attach <session>` | join the session's terminal directly (detach: `ctrl-q d`) |
 | `tiny shell <session>` | shell on a session's workspace — finished sessions too |
 | `tiny answer <question> <text>` | answer a ✳ card — and perform its action, as you |
 | `echo "…" \| tiny deliver <session> --ensure` | pipe a message into a session's inbox (what event sources call) |
