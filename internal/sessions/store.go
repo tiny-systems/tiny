@@ -333,12 +333,18 @@ type CreateOpts struct {
 	// EnvSecret names a secret (labeled for this session) whose keys land
 	// in the agent's env — the Actions job token path.
 	EnvSecret string
+	// Handoff marks the session as receiving a laptop session's workspace
+	// and transcript after start — the entrypoint waits for them.
+	Handoff bool
 }
 
 func (s *Store) Create(ctx context.Context, o CreateOpts) (*agentsv1.Session, error) {
 	se := &agentsv1.Session{
 		ObjectMeta: metav1.ObjectMeta{Namespace: s.Kube.Namespace},
 		Spec:       agentsv1.SessionSpec{Task: o.Task, Repo: o.Repo, Image: o.Image, Agent: o.Agent, Model: o.Model},
+	}
+	if o.Handoff {
+		se.Annotations = map[string]string{workload.HandoffAnnotation: "true"}
 	}
 	if o.CPU != "" || o.Memory != "" {
 		se.Spec.Resources = &agentsv1.SessionResources{CPU: o.CPU, Memory: o.Memory}

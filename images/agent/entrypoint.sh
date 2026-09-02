@@ -218,6 +218,23 @@ if [ ! -f "$WORKSPACE/AGENTS.md" ]; then
   cp "$WORKSPACE/CLAUDE.md" "$WORKSPACE/AGENTS.md" 2>/dev/null || true
 fi
 
+# Handoff: the CLI ships a laptop session's workspace and transcript AFTER
+# the pod starts. The agent must not start first — it would mint a fresh
+# transcript and --continue would resume the wrong life.
+if [ "${TINY_HANDOFF:-}" = "true" ] && [ ! -f "$MARKER" ]; then
+  echo "tiny: handoff — waiting for the workspace and transcript from the laptop"
+  waited=0
+  while [ ! -f "$WORKSPACE/.tiny/handoff-complete" ]; do
+    sleep 2
+    waited=$((waited+2))
+    if [ "$waited" -ge 600 ]; then
+      die "handoff never arrived after 10 minutes — delete this session and rerun tiny handoff"
+    fi
+  done
+  date -u +%FT%TZ > "$MARKER"
+  echo "tiny: handoff received — resuming the laptop transcript"
+fi
+
 # First run: bring the repo in, if there is one.
 if [ ! -f "$MARKER" ] && [ -n "${TINY_REPO:-}" ]; then
   echo "tiny: cloning $TINY_REPO"

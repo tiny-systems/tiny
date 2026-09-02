@@ -48,6 +48,10 @@ const (
 	workspaceMount  = "/workspace"
 	agentContainer  = "agent"
 	appLabel        = "app"
+	// HandoffAnnotation marks a session whose first workspace and
+	// transcript arrive from a laptop after the pod starts; the entrypoint
+	// waits for them instead of starting the agent fresh.
+	HandoffAnnotation = "tinysystems.io/handoff"
 	// SessionLabel marks a session's pods and questions — the one label
 	// every selector in the system uses.
 	SessionLabel = "tinysystems.io/session"
@@ -328,6 +332,7 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 					{Name: "TINY_TASK", Value: s.Spec.Task},
 					{Name: "TINY_REPO", Value: s.Spec.Repo},
 					{Name: "TINY_AGENT", Value: s.Spec.Agent},
+					{Name: "TINY_HANDOFF", Value: s.Annotations[HandoffAnnotation]},
 					{Name: "TINY_MODEL", Value: s.Spec.Model},
 					{Name: "TINY_SESSION_NAME", Value: s.Name},
 					{Name: "TINY_REGISTRY", Value: registryEnv},
