@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"k8s.io/client-go/tools/clientcmd"
 	"os"
 	"path/filepath"
 	"slices"
@@ -115,29 +117,35 @@ func resolveTarget() (ctxName, namespace string, err error) {
 	return ctxName, namespace, nil
 }
 
-// kubeContexts lists context names from the kubeconfig, sorted, via kubectl —
-// the one binary every user of this tool has.
+// kubeContexts lists context names from the kubeconfig, sorted — read the
+// way kubectl reads it (KUBECONFIG, merges included), without spawning a
+// kubectl child for it.
 func kubeContexts() ([]string, error) {
-	out, err := kubectlOutput("config", "get-contexts", "-o", "name")
+	raw, err := clientcmd.NewDefaultClientConfigLoadingRules().Load()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load kubeconfig: %w", err)
 	}
-	var names []string
-	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			names = append(names, line)
-		}
+	names := make([]string, 0, len(raw.Contexts))
+	for name := range raw.Contexts {
+		names = append(names, name)
 	}
 	slices.Sort(names)
 	return names, nil
 }
 
 func currentKubeContext() string {
-	out, err := kubectlOutput("config", "current-context")
+	raw, err := clientcmd.NewDefaultClientConfigLoadingRules().Load()
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(out)
+	return raw.CurrentContext
+}
+
+// readLine reads one trimmed line from stdin — the single prompt reader,
+// so every y/N question behaves the same (Scanln stopped at first space).
+func readLine() string {
+	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	return strings.TrimSpace(line)
 }
 
 // confirmed reads one line and reports whether the human said yes.

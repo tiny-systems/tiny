@@ -19,6 +19,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/tiny-systems/tiny/internal/kube"
+	"github.com/tiny-systems/tiny/internal/workload"
 )
 
 // newSetupCmd is the wizard that replaces a page of kubectl incantations:
@@ -56,7 +57,7 @@ func newSetupCmd() *cobra.Command {
 // the agent can start with.
 func setupAgentToken(ctx context.Context, k *kube.Client) error {
 	existing := &corev1.Secret{}
-	getErr := k.Client.Get(ctx, kube.Key(k.Namespace, "tiny-agent-env"), existing)
+	getErr := k.Client.Get(ctx, kube.Key(k.Namespace, workload.AgentEnvSecret), existing)
 	secretExists := getErr == nil
 	if secretExists && (len(existing.Data["CLAUDE_CODE_OAUTH_TOKEN"]) > 0 || len(existing.Data["ANTHROPIC_API_KEY"]) > 0) {
 		// Present is not the same as working — an expired token satisfies
@@ -90,7 +91,7 @@ func setupAgentToken(ctx context.Context, k *kube.Client) error {
 		key = "ANTHROPIC_API_KEY"
 	}
 	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "tiny-agent-env", Namespace: k.Namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: workload.AgentEnvSecret, Namespace: k.Namespace},
 		StringData: map[string]string{key: token},
 	}
 	if secretExists { // the ReadPassword err above must not shadow this fact
@@ -112,7 +113,7 @@ func setupAgentToken(ctx context.Context, k *kube.Client) error {
 // authenticate until it's set.
 func setupCodexToken(ctx context.Context, k *kube.Client) error {
 	existing := &corev1.Secret{}
-	getErr := k.Client.Get(ctx, kube.Key(k.Namespace, "tiny-agent-env"), existing)
+	getErr := k.Client.Get(ctx, kube.Key(k.Namespace, workload.AgentEnvSecret), existing)
 	secretExists := getErr == nil
 	if getErr != nil && !apierrors.IsNotFound(getErr) {
 		return getErr
@@ -160,7 +161,7 @@ func setupCodexToken(ctx context.Context, k *kube.Client) error {
 			return fmt.Errorf("update tiny-agent-env: %w", err)
 		}
 	} else if err := k.Client.Create(ctx, &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "tiny-agent-env", Namespace: k.Namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: workload.AgentEnvSecret, Namespace: k.Namespace},
 		StringData: data,
 	}); err != nil {
 		return fmt.Errorf("create tiny-agent-env: %w", err)
@@ -176,7 +177,7 @@ func setupCodexToken(ctx context.Context, k *kube.Client) error {
 // one step only they can do. Personal ~/.ssh keys are never read.
 func setupRepoKey(ctx context.Context, k *kube.Client) error {
 	existing := &corev1.Secret{}
-	getErr := k.Client.Get(ctx, kube.Key(k.Namespace, "tiny-repo-keys"), existing)
+	getErr := k.Client.Get(ctx, kube.Key(k.Namespace, workload.RepoKeysSecret), existing)
 	keyExists := getErr == nil
 	if keyExists {
 		fmt.Println("  ✓ repo key present (tiny-repo-keys)")
@@ -217,7 +218,7 @@ func setupRepoKey(ctx context.Context, k *kube.Client) error {
 	pubLine := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPub))) + " tiny-sessions\n"
 
 	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "tiny-repo-keys", Namespace: k.Namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: workload.RepoKeysSecret, Namespace: k.Namespace},
 		StringData: map[string]string{
 			"id_ed25519":     string(pem.EncodeToMemory(privPEM)),
 			"id_ed25519.pub": pubLine,

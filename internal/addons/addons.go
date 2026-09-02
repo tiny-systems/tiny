@@ -475,13 +475,15 @@ func (r *Applier) teardownMinio(ctx context.Context, ns string) error {
 }
 
 const (
-	tinyBinVol   = "tiny-bin"
-	tinyBinDir   = "/tiny-bin"
-	verbGet      = "get"
-	verbCreate   = "create"
-	verbList     = "list"
-	runnerName   = "tiny-runner"
-	runnerImage  = "ghcr.io/actions/actions-runner:latest"
+	tinyBinVol = "tiny-bin"
+	tinyBinDir = "/tiny-bin"
+	verbGet    = "get"
+	verbCreate = "create"
+	verbList   = "list"
+	runnerName = "tiny-runner"
+	// Pinned like every other add-on image — a floating tag means two
+	// namespaces "on the same version" can run different runners.
+	runnerImage  = "ghcr.io/actions/actions-runner:2.321.0"
 	runnerRegSec = "tiny-runner-reg"
 )
 

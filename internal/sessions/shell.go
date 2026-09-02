@@ -53,7 +53,7 @@ func (s *Store) ensureShellPod(ctx context.Context, session string, attempt int)
 			Spec: corev1.PodSpec{
 				RestartPolicy: corev1.RestartPolicyNever,
 				SecurityContext: &corev1.PodSecurityContext{
-					FSGroup: ptr(int64(61000)),
+					FSGroup: ptr(workload.AgentUID),
 				},
 				Volumes: []corev1.Volume{{
 					Name: "workspace",
@@ -67,7 +67,7 @@ func (s *Store) ensureShellPod(ctx context.Context, session string, attempt int)
 					Command:    []string{"sh", "-c", "sleep 43200"}, // half a day, then it reaps itself
 					WorkingDir: "/workspace",
 					SecurityContext: &corev1.SecurityContext{
-						RunAsUser:    ptr(int64(61000)),
+						RunAsUser:    ptr(workload.AgentUID),
 						RunAsNonRoot: ptr(true),
 					},
 					VolumeMounts: []corev1.VolumeMount{{Name: "workspace", MountPath: "/workspace"}},

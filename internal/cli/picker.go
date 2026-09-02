@@ -34,7 +34,7 @@ func pickTarget(current, defaultNS string) (string, string, error) {
 	// One context = no choice to make; go straight to the namespace step.
 	if len(contexts) == 1 {
 		m.chosenCtx = contexts[0]
-		m.step = 1
+		m.step = stepLoadingNamespaces
 	}
 	out, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 	if err != nil {
@@ -57,8 +57,18 @@ type nsListMsg struct {
 	err   error
 }
 
+// pickerStep is where the two-stage picker currently is.
+type pickerStep int
+
+const (
+	stepContexts pickerStep = iota
+	stepLoadingNamespaces
+	stepNamespaces
+	stepTypeNewNamespace
+)
+
 type pickerModel struct {
-	step      int // 0 contexts, 1 loading ns, 2 namespaces, 3 type new ns
+	step      pickerStep
 	contexts  []string
 	current   string
 	cursor    int
@@ -73,7 +83,7 @@ type pickerModel struct {
 }
 
 func (m pickerModel) Init() tea.Cmd {
-	if m.step == 1 {
+	if m.step == stepLoadingNamespaces {
 		return listNamespaces(m.chosenCtx)
 	}
 	return nil
@@ -94,7 +104,7 @@ func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.nsErr = "cannot reach " + m.chosenCtx + ": " + e
 			}
 			m.nsItems = nil
-			m.step = 3
+			m.step = stepTypeNewNamespace
 			m.input.Focus()
 			return m, textinput.Blink
 		}
@@ -105,7 +115,7 @@ func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.nsCursor = i
 			}
 		}
-		m.step = 2
+		m.step = stepNamespaces
 		return m, nil
 
 	case tea.KeyMsg:
@@ -140,7 +150,7 @@ func (m pickerModel) updateContexts(key string) (tea.Model, tea.Cmd) {
 		}
 	case keyEnter:
 		m.chosenCtx = m.contexts[m.cursor]
-		m.step = 1
+		m.step = stepLoadingNamespaces
 		return m, listNamespaces(m.chosenCtx)
 	}
 	return m, nil
@@ -158,7 +168,7 @@ func (m pickerModel) updateNamespaces(key string) (tea.Model, tea.Cmd) {
 		}
 	case keyEnter:
 		if m.nsItems[m.nsCursor] == createNewSentinel {
-			m.step = 3
+			m.step = stepTypeNewNamespace
 			m.input.Focus()
 			return m, textinput.Blink
 		}
@@ -172,12 +182,12 @@ func (m pickerModel) updateNewNS(key string, msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
 		if len(m.nsItems) > 0 {
-			m.step = 2
+			m.step = stepNamespaces
 			return m, nil
 		}
 		// No namespace list means we came from a failed probe — back to
 		// the context list, not out the door.
-		m.step = 0
+		m.step = stepContexts
 		m.nsErr = ""
 		return m, nil
 	case keyEnter:

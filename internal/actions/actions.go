@@ -96,7 +96,7 @@ func createSession(ctx context.Context, c client.Client, q *agentsv1.Question, p
 	if name := p["name"]; name != "" {
 		s.Name = name
 	} else {
-		s.GenerateName = "tiny-"
+		s.GenerateName = "s-" // same prefix as tiny new — a session is a session
 	}
 	if q.Spec.Session.Name != "" {
 		s.Labels = map[string]string{"tinysystems.io/parent": q.Spec.Session.Name}

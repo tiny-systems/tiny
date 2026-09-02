@@ -271,7 +271,7 @@ func (s *Store) Answer(ctx context.Context, questionName, answer string) error {
 	}
 	q := &agentsv1.Question{}
 	if err := s.Kube.Client.Get(ctx, client.ObjectKey{Namespace: s.Kube.Namespace, Name: questionName}, q); err != nil {
-		return err
+		return fmt.Errorf("get question %s: %w", questionName, err)
 	}
 	now := metav1.Now()
 	q.Status.Answer = answer

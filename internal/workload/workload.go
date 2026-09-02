@@ -35,6 +35,14 @@ const (
 	defaultAgentRepo   = "ghcr.io/tiny-systems/agent"
 	defaultSidecarRepo = "ghcr.io/tiny-systems/controller"
 
+	// AgentEnvSecret is the by-convention credentials secret every agent
+	// container loads (agent tokens, store creds). Written by tiny setup.
+	AgentEnvSecret = "tiny-agent-env"
+	// RepoKeysSecret holds the deploy key tiny setup mints.
+	RepoKeysSecret = "tiny-repo-keys"
+	// AgentUID is the fixed non-root uid agent and shell pods run as.
+	AgentUID int64 = 61000
+
 	tinyVolume      = "tiny"
 	workspaceVolume = "workspace"
 	workspaceMount  = "/workspace"
@@ -243,7 +251,7 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 		// The agent runs unprivileged (uid 61000); fsGroup makes the
 		// freshly-provisioned workspace volume writable for it.
 		SecurityContext: &corev1.PodSecurityContext{
-			FSGroup: ptr(int64(61000)),
+			FSGroup: ptr(AgentUID),
 		},
 		// hostPath-backed provisioners (minikube, kind) ignore fsGroup, so
 		// ownership is set explicitly, once, by a root init container.
@@ -252,7 +260,7 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 			{
 				Name:    "workspace-perms",
 				Image:   initImage,
-				Command: []string{"sh", "-c", "chown 61000:61000 " + workspaceMount},
+				Command: []string{"sh", "-c", fmt.Sprintf("chown %d:%d %s", AgentUID, AgentUID, workspaceMount)},
 				SecurityContext: &corev1.SecurityContext{
 					RunAsUser: ptr(int64(0)),
 				},
@@ -288,7 +296,7 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 				Name: "repo-keys",
 				VolumeSource: corev1.VolumeSource{
 					Secret: &corev1.SecretVolumeSource{
-						SecretName: "tiny-repo-keys",
+						SecretName: RepoKeysSecret,
 						Optional:   ptr(true),
 					},
 				},
@@ -391,7 +399,7 @@ func verifiedEnvSecret(ctx context.Context, c client.Client, s *agentsv1.Session
 func sessionEnvFrom(extra string) []corev1.EnvFromSource {
 	out := []corev1.EnvFromSource{
 		{SecretRef: &corev1.SecretEnvSource{
-			LocalObjectReference: corev1.LocalObjectReference{Name: "tiny-agent-env"},
+			LocalObjectReference: corev1.LocalObjectReference{Name: AgentEnvSecret},
 			Optional:             ptr(true),
 		}},
 		{SecretRef: &corev1.SecretEnvSource{
@@ -408,12 +416,12 @@ func sessionEnvFrom(extra string) []corev1.EnvFromSource {
 	return out
 }
 
-// agentUID is 61000 unless the session claims an image-native uid.
+// agentUID is AgentUID unless the session claims an image-native uid.
 func agentUID(s *agentsv1.Session) int64 {
 	if s.Spec.User != nil && *s.Spec.User > 0 {
 		return *s.Spec.User
 	}
-	return 61000
+	return AgentUID
 }
 
 // zotIP finds the cache Service's ClusterIP — the address node runtimes can

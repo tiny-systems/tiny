@@ -49,6 +49,10 @@ linters:
       - linters:
           - lll
         path: api/*
+      # KNOWN DEBT (2026-09-02 audit): dupl stays off for internal/ because
+      # the remaining twins are deliberate — the two setup token flows read
+      # better separate, and the addons ensure* walls await a real refactor.
+      # Re-enable when either goes.
       - linters:
           - dupl
           - lll
