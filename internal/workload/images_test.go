@@ -9,12 +9,12 @@ import "testing"
 func TestDefaultImageTagFollowsReleaseVersionsOnly(t *testing.T) {
 	t.Cleanup(func() { DefaultImageTag = "main" })
 	cases := map[string]string{
-		"v0.7.2":     "v0.7.2",
-		"v10.20.30":  "v10.20.30",
+		"0.7.2":      "0.7.2", // goreleaser's ldflags form
+		"v0.7.2":     "0.7.2", // git-tag form, normalized
+		"v10.20.30":  "10.20.30",
 		"dev":        "main",
 		"dev-abc123": "main",
 		"v0.7":       "main",
-		"0.7.2":      "main",
 		"v0.7.2-rc1": "main",
 	}
 	for version, want := range cases {
@@ -26,7 +26,7 @@ func TestDefaultImageTagFollowsReleaseVersionsOnly(t *testing.T) {
 	}
 	DefaultImageTag = "main"
 	SetDefaultImageTag("v0.7.2")
-	if got := DefaultAgentImage(); got != "ghcr.io/tiny-systems/agent:v0.7.2" {
+	if got := DefaultAgentImage(); got != "ghcr.io/tiny-systems/agent:0.7.2" {
 		t.Errorf("DefaultAgentImage() = %q", got)
 	}
 }

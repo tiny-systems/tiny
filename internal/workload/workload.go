@@ -70,11 +70,15 @@ type Images struct {
 // version stamp.
 var DefaultImageTag = "main"
 
-// SetDefaultImageTag accepts the CLI's version and adopts it when it looks
-// like a release tag (v1.2.3). Anything else keeps the default.
+// SetDefaultImageTag adopts the CLI's version as the image tag when it is a
+// release, with or without the leading v — the ldflags stamp is "0.8.0"
+// while a git tag reads "v0.8.0". Either way we pin to the form the
+// published image actually carries: docker's semver metadata tags it
+// WITHOUT the v ("0.8.0"). Dev/dirty stamps keep :main.
 func SetDefaultImageTag(version string) {
-	if regexp.MustCompile(`^v\d+\.\d+\.\d+$`).MatchString(version) {
-		DefaultImageTag = version
+	v := strings.TrimPrefix(version, "v")
+	if regexp.MustCompile(`^\d+\.\d+\.\d+$`).MatchString(v) {
+		DefaultImageTag = v
 	}
 }
 
