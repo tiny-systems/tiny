@@ -101,12 +101,10 @@ func setupAgentToken(ctx context.Context, k *kube.Client) error {
 		}
 	}
 	fmt.Print("  Paste token (input hidden, empty to skip): ")
-	raw, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Println()
+	token, err := readSecret()
 	if err != nil {
 		return err
 	}
-	token := strings.TrimSpace(string(raw))
 	if token == "" {
 		fmt.Println("  – skipped; sessions will start but claude cannot authenticate")
 		return nil
@@ -182,12 +180,10 @@ func setupCodexToken(ctx context.Context, k *kube.Client) error {
 	}
 	if len(data) == 0 {
 		fmt.Print("  Paste OpenAI API key (input hidden, empty to skip): ")
-		raw, err := term.ReadPassword(int(os.Stdin.Fd()))
-		fmt.Println()
+		key, err := readSecret()
 		if err != nil {
 			return err
 		}
-		key := strings.TrimSpace(string(raw))
 		if key == "" {
 			fmt.Println("  – skipped; codex sessions won't authenticate until a credential is set")
 			return nil
@@ -288,4 +284,43 @@ func githubKnownHosts() string {
 github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
 github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=
 `
+}
+
+// readSecret reads a hidden line but echoes a mask per byte — pasting a
+// long token with zero feedback reads as a frozen terminal (it isn't),
+// so the dots prove the keystrokes are landing.
+func readSecret() (string, error) {
+	fd := int(os.Stdin.Fd())
+	if !term.IsTerminal(fd) {
+		raw, err := term.ReadPassword(fd)
+		return strings.TrimSpace(string(raw)), err
+	}
+	oldState, err := term.MakeRaw(fd)
+	if err != nil {
+		raw, rerr := term.ReadPassword(fd)
+		return strings.TrimSpace(string(raw)), rerr
+	}
+	defer func() { _ = term.Restore(fd, oldState); fmt.Println() }()
+	var buf []byte
+	b := make([]byte, 1)
+	for {
+		n, rerr := os.Stdin.Read(b)
+		if n == 0 || rerr != nil {
+			return strings.TrimSpace(string(buf)), rerr
+		}
+		switch b[0] {
+		case '\r', '\n':
+			return strings.TrimSpace(string(buf)), nil
+		case 3: // ctrl-c
+			return "", fmt.Errorf("cancelled")
+		case 127, 8: // backspace
+			if len(buf) > 0 {
+				buf = buf[:len(buf)-1]
+				fmt.Print("\b \b")
+			}
+		default:
+			buf = append(buf, b[0])
+			fmt.Print("•")
+		}
+	}
 }
