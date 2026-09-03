@@ -22,6 +22,9 @@ type pinnedConfig struct {
 	// Profiles are named targets: `tiny -p work` instead of remembering
 	// which GKE string is which. The pin stays the no-flag default.
 	Profiles map[string]profileTarget `json:"profiles,omitempty"`
+	// LastProfile is what the start picker preselects — enter-enter
+	// repeats yesterday's choice.
+	LastProfile string `json:"lastProfile,omitempty"`
 }
 
 type profileTarget struct {
@@ -57,6 +60,16 @@ func loadPinned() *pinnedConfig {
 func saveConfig(c *pinnedConfig) error { return savePinned(c) }
 
 func savePinned(c *pinnedConfig) error {
+	// Merge, don't clobber: a caller re-pinning the default must not wipe
+	// the profiles (or the last-used marker) another path saved.
+	if existing := loadPinned(); existing != nil {
+		if c.Profiles == nil {
+			c.Profiles = existing.Profiles
+		}
+		if c.LastProfile == "" {
+			c.LastProfile = existing.LastProfile
+		}
+	}
 	path, err := configPath()
 	if err != nil {
 		return err
@@ -190,15 +203,33 @@ func confirmed(answer string) bool {
 // with the last one preselected so enter-enter repeats it. Flags (or a
 // non-TTY stdin) skip the ceremony.
 func pickEveryStart() error {
-	if flagContext != "" || flagYes {
+	if flagContext != "" || flagProfile != "" || flagYes {
 		return nil
 	}
 	if fi, err := os.Stdin.Stat(); err == nil && fi.Mode()&os.ModeCharDevice == 0 {
 		return nil // piped/scripted: use the stored target
 	}
+	pinned := loadPinned()
+
+	// With saved profiles the picker speaks their language: work, home,
+	// enter-enter repeats yesterday's. "other…" falls back to the raw
+	// context/namespace walk for the cluster that has no name yet.
+	if pinned != nil && len(pinned.Profiles) > 0 {
+		choice, err := pickProfile(pinned)
+		if err != nil {
+			return err
+		}
+		if choice != "" {
+			flagProfile = choice
+			pinned.LastProfile = choice
+			return savePinned(pinned)
+		}
+		// fall through: "other…"
+	}
+
 	current := currentKubeContext()
 	defNS := defaultNamespace
-	if pinned := loadPinned(); pinned != nil {
+	if pinned != nil && pinned.Context != "" {
 		current = pinned.Context
 		if pinned.Namespace != "" {
 			defNS = pinned.Namespace

@@ -180,8 +180,9 @@ On the fleet screen: `m` types a message straight into a session's prompt
 usage-limit pauses), and **dropping a file onto the terminal** — fleet screen
 or attached session — streams it to `/workspace/uploads/` with live
 progress and hands the agent the path.
-Every start opens with an arrow-key picker for the cluster and namespace
-(enter-enter repeats yesterday's; `--context` and `-n` skip it).
+With profiles saved, the bare `tiny` start asks which fleet (work, home)
+with last-used preselected — enter-enter repeats yesterday's. `--context`,
+`-n` and `-p` skip the prompt; scripts never see it.
 
 Attached-session tricks (it's tmux, prefix `ctrl-q` — `ctrl-b` works
 too): `ctrl-q d` detach, `ctrl-q c` a plain shell beside the agent,
