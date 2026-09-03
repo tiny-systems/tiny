@@ -171,6 +171,7 @@ transcript resumes.
 | `tiny answer <question> <text>` | answer a ✳ card — and perform its action, as you |
 | `echo "…" \| tiny deliver <session> --ensure` | pipe a message into a session's inbox (what event sources call) |
 | `tiny setup` | interactive setup — and rotation: token, repo key |
+| `tiny profile save work` | name a cluster/namespace target; use anywhere with `-p work` |
 | `tiny init` | scriptable runtime install for CI (`--context X -n Y --yes`) |
 | `tiny upgrade` | update the binary |
 

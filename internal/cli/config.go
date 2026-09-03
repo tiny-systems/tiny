@@ -19,6 +19,14 @@ import (
 type pinnedConfig struct {
 	Context   string `json:"context"`
 	Namespace string `json:"namespace,omitempty"`
+	// Profiles are named targets: `tiny -p work` instead of remembering
+	// which GKE string is which. The pin stays the no-flag default.
+	Profiles map[string]profileTarget `json:"profiles,omitempty"`
+}
+
+type profileTarget struct {
+	Context   string `json:"context"`
+	Namespace string `json:"namespace,omitempty"`
 }
 
 func configPath() (string, error) {
@@ -39,11 +47,14 @@ func loadPinned() *pinnedConfig {
 		return nil
 	}
 	c := &pinnedConfig{}
-	if json.Unmarshal(raw, c) != nil || c.Context == "" {
+	if json.Unmarshal(raw, c) != nil || (c.Context == "" && len(c.Profiles) == 0) {
 		return nil
 	}
 	return c
 }
+
+// saveConfig writes the whole config (pin and profiles) back.
+func saveConfig(c *pinnedConfig) error { return savePinned(c) }
 
 func savePinned(c *pinnedConfig) error {
 	path, err := configPath()
@@ -77,10 +88,25 @@ func resolveTarget() (ctxName, namespace string, err error) {
 	}
 	pinned := loadPinned()
 
+	if flagProfile != "" {
+		if pinned == nil || pinned.Profiles[flagProfile].Context == "" {
+			return "", "", fmt.Errorf("no profile %q — create it: tiny profile save %s --context <ctx> -n <ns>", flagProfile, flagProfile)
+		}
+		p := pinned.Profiles[flagProfile]
+		ns := p.Namespace
+		if flagNamespace != "" {
+			ns = flagNamespace
+		}
+		if ns == "" {
+			ns = defaultNamespace
+		}
+		return p.Context, ns, nil
+	}
+
 	switch {
 	case flagContext != "":
 		ctxName = flagContext
-	case pinned != nil:
+	case pinned != nil && pinned.Context != "":
 		ctxName = pinned.Context
 	default:
 		ctxName = currentKubeContext()
@@ -102,7 +128,7 @@ func resolveTarget() (ctxName, namespace string, err error) {
 	// CHOICE the human makes from a list, not a side effect. An explicit
 	// --context flag (or --yes) is that choice already; otherwise the
 	// kubeconfig's contexts are offered and one is picked.
-	if pinned == nil {
+	if pinned == nil || pinned.Context == "" {
 		if flagContext == "" && !flagYes {
 			picked, ns, err := pickTarget(ctxName, namespace)
 			if err != nil {
@@ -110,7 +136,11 @@ func resolveTarget() (ctxName, namespace string, err error) {
 			}
 			ctxName, namespace = picked, ns
 		}
-		if err := savePinned(&pinnedConfig{Context: ctxName, Namespace: namespace}); err == nil {
+		toSave := &pinnedConfig{Context: ctxName, Namespace: namespace}
+		if pinned != nil {
+			toSave.Profiles = pinned.Profiles
+		}
+		if err := savePinned(toSave); err == nil {
 			path, _ := configPath()
 			fmt.Printf("  ✓ target pinned: %s/%s  (change by editing %s)\n", ctxName, namespace, path)
 		}
