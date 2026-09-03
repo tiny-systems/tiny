@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"golang.org/x/mod/semver"
 	"io"
 	"net/http"
 	"os"
@@ -51,6 +52,16 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 	cur := strings.TrimPrefix(current, "v")
 	if cur != "dev" && cur == latest {
 		fmt.Printf("  %s already on the latest version (%s)\n", styleOK.Render("✓"), styleTitle.Render(current))
+		return nil
+	}
+	// Never move backwards. A dev build takes any release; a real release
+	// only steps UP — GitHub's /releases/latest can briefly point at an
+	// older tag while a newer release is mid-publish, and an upgrade that
+	// silently downgrades is worse than doing nothing.
+	if cur != "dev" && semver.IsValid("v"+cur) && semver.IsValid(rel.TagName) &&
+		semver.Compare(rel.TagName, "v"+cur) <= 0 {
+		fmt.Printf("  %s latest release (%s) is not newer than %s — staying put\n",
+			styleOK.Render("✓"), styleTitle.Render(rel.TagName), styleTitle.Render(current))
 		return nil
 	}
 
