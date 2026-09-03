@@ -103,3 +103,32 @@ func newProfileDeleteCmd() *cobra.Command {
 		},
 	}
 }
+
+// pickAndOfferProfile is the interactive target journey: the arrow-key
+// context picker (which proves connectivity by listing namespaces), the
+// namespace list with create-new, then the offer to keep the result under
+// a name. An empty name keeps the choice for this run only.
+func pickAndOfferProfile() (ctxName, ns, name string, err error) {
+	ctxName, ns, err = pickTarget(currentKubeContext(), defaultNamespace)
+	if err != nil {
+		return "", "", "", err
+	}
+	fmt.Printf("  save %s/%s as a profile? name it (enter skips): ", ctxName, ns)
+	name = readLine()
+	if name != "" {
+		c := loadPinned()
+		if c == nil {
+			c = &pinnedConfig{}
+		}
+		if c.Profiles == nil {
+			c.Profiles = map[string]profileTarget{}
+		}
+		c.Profiles[name] = profileTarget{Context: ctxName, Namespace: ns}
+		c.LastProfile = name
+		if err := saveConfig(c); err != nil {
+			return "", "", "", err
+		}
+		fmt.Printf("  ✓ profile %s saved — next time: tiny -p %s\n", name, name)
+	}
+	return ctxName, ns, name, nil
+}

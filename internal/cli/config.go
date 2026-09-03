@@ -204,11 +204,17 @@ func confirmed(answer string) bool {
 // cluster and which group of agents you look at is a per-start choice,
 // with the last one preselected so enter-enter repeats it. Flags (or a
 // non-TTY stdin) skip the ceremony.
+// stdinIsTTY reports whether a human is on the other end of stdin.
+func stdinIsTTY() bool {
+	fi, err := os.Stdin.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+}
+
 func pickEveryStart() error {
 	if flagContext != "" || flagProfile != "" || flagYes {
 		return nil
 	}
-	if fi, err := os.Stdin.Stat(); err == nil && fi.Mode()&os.ModeCharDevice == 0 {
+	if !stdinIsTTY() {
 		return nil // piped/scripted: use the stored target
 	}
 	pinned := loadPinned()
@@ -226,7 +232,17 @@ func pickEveryStart() error {
 			pinned.LastProfile = choice
 			return savePinned(pinned)
 		}
-		// fall through: "other…"
+		// "＋ create a new profile…": the full journey, then use it now.
+		ctxName, ns, name, err := pickAndOfferProfile()
+		if err != nil {
+			return err
+		}
+		if name != "" {
+			flagProfile = name
+		} else {
+			flagContext, flagNamespace = ctxName, ns
+		}
+		return nil
 	}
 
 	current := currentKubeContext()

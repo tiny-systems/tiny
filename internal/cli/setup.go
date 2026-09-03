@@ -7,6 +7,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -30,7 +31,21 @@ func newSetupCmd() *cobra.Command {
 		Use:   "setup",
 		Short: "Interactive setup: cluster, runtime, agent token, repo key",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			k, err := sessionKube() // pins the target on first contact (asks)
+			var k *kube.Client
+			var err error
+			// Unflagged on a terminal, setup IS the journey: pick the
+			// cluster (connectivity proven by listing its namespaces),
+			// pick or create the namespace, optionally name the pair.
+			if flagProfile == "" && flagContext == "" && stdinIsTTY() {
+				ctxName, ns, name, perr := pickAndOfferProfile()
+				if perr != nil {
+					return perr
+				}
+				flagProfile = name // label the run, "" is fine
+				k, err = kube.NewClient(kube.Options{Context: ctxName, Namespace: ns})
+			} else {
+				k, err = sessionKube()
+			}
 			if err != nil {
 				return err
 			}
@@ -75,8 +90,16 @@ func setupAgentToken(ctx context.Context, k *kube.Client) error {
 		return getErr
 	}
 
-	fmt.Println("\n  The agent needs a credential. Get one with `claude setup-token`")
-	fmt.Println("  (Claude subscription) or use an Anthropic API key.")
+	fmt.Println("\n  The agent needs a credential: a `claude setup-token` (Claude")
+	fmt.Println("  subscription) or an Anthropic API key.")
+	if _, lerr := exec.LookPath("claude"); lerr == nil {
+		fmt.Print("  Run `claude setup-token` now? It prints a token to paste back here. [Y/n] ")
+		if a := readLine(); a == "" || confirmed(a) {
+			c := exec.Command("claude", "setup-token")
+			c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+			_ = c.Run() // its output guides the human; our prompt follows either way
+		}
+	}
 	fmt.Print("  Paste token (input hidden, empty to skip): ")
 	raw, err := term.ReadPassword(int(os.Stdin.Fd()))
 	fmt.Println()
@@ -140,7 +163,24 @@ func setupCodexToken(ctx context.Context, k *kube.Client) error {
 	}
 	if len(data) == 0 {
 		fmt.Println("\n  Codex sessions (`tiny new --agent codex`) need a credential: a ChatGPT")
-		fmt.Println("  login (`codex login` on this machine, then re-run setup) or an OpenAI API key.")
+		fmt.Println("  login or an OpenAI API key.")
+		if _, lerr := exec.LookPath("codex"); lerr == nil {
+			fmt.Print("  Run `codex login` now? A browser opens; the login is stored after. [y/N] ")
+			if confirmed(readLine()) {
+				c := exec.Command("codex", "login")
+				c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+				if c.Run() == nil {
+					if raw, rerr := os.ReadFile(authPath); rerr == nil && len(raw) > 0 {
+						data["TINY_CODEX_AUTH_JSON"] = string(raw)
+					}
+				}
+			}
+		}
+		if len(data) > 0 {
+			fmt.Println("  ✓ ChatGPT login captured")
+		}
+	}
+	if len(data) == 0 {
 		fmt.Print("  Paste OpenAI API key (input hidden, empty to skip): ")
 		raw, err := term.ReadPassword(int(os.Stdin.Fd()))
 		fmt.Println()

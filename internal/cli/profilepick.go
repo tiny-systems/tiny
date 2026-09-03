@@ -42,7 +42,7 @@ func pickProfile(c *pinnedConfig) (string, error) {
 		m.labels = append(m.labels, fmt.Sprintf("%-12s %s/%s", name, p.Context, p.Namespace))
 	}
 	m.names = append(m.names, "")
-	m.labels = append(m.labels, "other cluster / namespace…")
+	m.labels = append(m.labels, "＋ create a new profile… (pick cluster & namespace)")
 
 	out, err := tea.NewProgram(m).Run()
 	if err != nil {
