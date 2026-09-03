@@ -24,13 +24,21 @@ func newProfileSaveCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "save <name>",
 		Short: "Save the current (or flagged) target under a name",
-		Long: "Saves a context+namespace pair. With --context/-n those are saved; without,\n" +
-			"the target the command resolves to (the pin, or the kubeconfig's current\n" +
-			"context) is what gets the name.",
+		Long: "Saves a context+namespace pair. With --context/-n those are saved; without\n" +
+			"flags, the arrow-key picker opens — choose the cluster and namespace the\n" +
+			"name should mean.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
-			ctxName, ns, err := resolveTarget()
+			var ctxName, ns string
+			var err error
+			if flagContext == "" {
+				// No flags: pick interactively — this is how a profile is
+				// born without memorizing context strings.
+				ctxName, ns, err = pickTarget(currentKubeContext(), defaultNamespace)
+			} else {
+				ctxName, ns, err = resolveTarget()
+			}
 			if err != nil {
 				return err
 			}

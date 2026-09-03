@@ -101,9 +101,11 @@ func resolveTarget() (ctxName, namespace string, err error) {
 	}
 	pinned := loadPinned()
 
-	if flagProfile != "" {
+	// An explicit --context is the loudest possible intent; a profile
+	// name never overrides it.
+	if flagProfile != "" && flagContext == "" {
 		if pinned == nil || pinned.Profiles[flagProfile].Context == "" {
-			return "", "", fmt.Errorf("no profile %q — create it: tiny profile save %s --context <ctx> -n <ns>", flagProfile, flagProfile)
+			return "", "", fmt.Errorf("no profile %q — create it: tiny profile save %s", flagProfile, flagProfile)
 		}
 		p := pinned.Profiles[flagProfile]
 		ns := p.Namespace

@@ -158,5 +158,12 @@ func confirmTarget(action string) error {
 // newStore builds the session store every command shares, carrying the
 // build stamp and the profile the target resolved through.
 func newStore(k *kube.Client) *sessions.Store {
-	return &sessions.Store{Kube: k, Version: cliVersion, Profile: flagProfile}
+	// The profile name is shown only when it actually chose the target —
+	// an explicit --context overrides it, and the label must not claim
+	// otherwise.
+	profile := flagProfile
+	if flagContext != "" {
+		profile = ""
+	}
+	return &sessions.Store{Kube: k, Version: cliVersion, Profile: profile}
 }
