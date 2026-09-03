@@ -5,6 +5,7 @@ package cli
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -65,19 +66,19 @@ func (m profilePickModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch key.String() {
-	case "up", "k":
+	case keyUp, "k":
 		if m.cursor > 0 {
 			m.cursor--
 		}
-	case "down", "j":
+	case keyDown, "j":
 		if m.cursor < len(m.names)-1 {
 			m.cursor++
 		}
-	case "enter":
+	case keyEnter:
 		m.chosen = m.names[m.cursor]
 		m.done = true
 		return m, tea.Quit
-	case "q", "esc", "ctrl+c":
+	case keyQuit, keyEsc, keyCtrlC:
 		m.aborted = true
 		return m, tea.Quit
 	}
@@ -88,13 +89,15 @@ func (m profilePickModel) View() string {
 	if m.done || m.aborted {
 		return ""
 	}
-	s := styleBrand.Render("◇ tiny") + styleSubtle.Render("  which fleet? · enter repeats last · -p skips") + "\n\n"
+	var b strings.Builder
+	b.WriteString(styleBrand.Render("◇ tiny") + styleSubtle.Render("  which fleet? · enter repeats last · -p skips") + "\n\n")
 	for i, label := range m.labels {
 		cur := "  "
 		if i == m.cursor {
 			cur = styleOK.Render("▸ ")
 		}
-		s += "  " + cur + label + "\n"
+		b.WriteString("  " + cur + label + "\n")
 	}
-	return s + styleSubtle.Render("  enter picks · esc quits") + "\n"
+	b.WriteString(styleSubtle.Render("  enter picks · esc quits") + "\n")
+	return b.String()
 }

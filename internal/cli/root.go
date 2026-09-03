@@ -27,6 +27,10 @@ import (
 // it acts on through these, and confirms before touching it — the wrong
 // kubeconfig context is the classic footgun, so the target is always shown
 // and (unless --yes) confirmed.
+// binaryName is the command's own name — the same "tiny" the release
+// archives carry, distinct from the defaultNamespace that happens to match.
+const binaryName = "tiny"
+
 var (
 	cliVersion    string
 	flagContext   string
@@ -46,7 +50,7 @@ func Execute(version string) error {
 	// TUI. Errors we care about come back through our own calls.
 	klog.SetLogger(logr.Discard())
 	root := &cobra.Command{
-		Use:   "tiny",
+		Use:   binaryName,
 		Short: "Coding-agent sessions on your own Kubernetes",
 		Long: `tiny — coding-agent sessions as Kubernetes workloads.
 

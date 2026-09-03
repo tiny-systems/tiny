@@ -120,7 +120,7 @@ func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		key := msg.String()
-		if key == "ctrl+c" || (key == "q" && m.step != 3) || (key == "esc" && m.step != 3) {
+		if key == keyCtrlC || (key == keyQuit && m.step != stepTypeNewNamespace) || (key == keyEsc && m.step != stepTypeNewNamespace) {
 			m.aborted = true
 			return m, tea.Quit
 		}
@@ -136,15 +136,23 @@ func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-const keyEnter = "enter"
+// Key names shared by both pickers.
+const (
+	keyEnter = "enter"
+	keyUp    = "up"
+	keyDown  = "down"
+	keyEsc   = "esc"
+	keyQuit  = "q"
+	keyCtrlC = "ctrl+c"
+)
 
 func (m pickerModel) updateContexts(key string) (tea.Model, tea.Cmd) {
 	switch key {
-	case "up", "k":
+	case keyUp, "k":
 		if m.cursor > 0 {
 			m.cursor--
 		}
-	case "down", "j":
+	case keyDown, "j":
 		if m.cursor < len(m.contexts)-1 {
 			m.cursor++
 		}
@@ -158,11 +166,11 @@ func (m pickerModel) updateContexts(key string) (tea.Model, tea.Cmd) {
 
 func (m pickerModel) updateNamespaces(key string) (tea.Model, tea.Cmd) {
 	switch key {
-	case "up", "k":
+	case keyUp, "k":
 		if m.nsCursor > 0 {
 			m.nsCursor--
 		}
-	case "down", "j":
+	case keyDown, "j":
 		if m.nsCursor < len(m.nsItems)-1 {
 			m.nsCursor++
 		}
@@ -180,7 +188,7 @@ func (m pickerModel) updateNamespaces(key string) (tea.Model, tea.Cmd) {
 
 func (m pickerModel) updateNewNS(key string, msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc":
+	case keyEsc:
 		if len(m.nsItems) > 0 {
 			m.step = stepNamespaces
 			return m, nil

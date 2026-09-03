@@ -226,7 +226,7 @@ func extractBinary(r io.Reader) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if h.Typeflag == tar.TypeReg && (h.Name == "tiny" || strings.HasSuffix(h.Name, "/tiny")) {
+		if h.Typeflag == tar.TypeReg && (h.Name == binaryName || strings.HasSuffix(h.Name, "/"+binaryName)) {
 			out, err := os.CreateTemp("", "tiny-bin-*")
 			if err != nil {
 				return "", err
