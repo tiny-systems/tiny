@@ -34,6 +34,9 @@ func newSetupCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// Say WHERE before touching anything — setup writes secrets, and
+			// "which cluster was that?" must never be a post-hoc question.
+			fmt.Printf("  target: %s/%s  (change with --context / -n)\n", k.ContextName, k.Namespace)
 			ctx, cancel := context.WithTimeout(cmd.Context(), 120*time.Second)
 			defer cancel()
 
