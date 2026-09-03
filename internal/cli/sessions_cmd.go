@@ -74,7 +74,7 @@ func newNewCmd() *cobra.Command {
 			if err := ensureRuntime(ctx, k); err != nil {
 				return err
 			}
-			store := &sessions.Store{Kube: k}
+			store := newStore(k)
 			se, err := store.Create(ctx, sessions.CreateOpts{
 				Name: name, Task: task, Repo: repo,
 				Image: image, Agent: agent, Model: model,
@@ -121,7 +121,7 @@ func runSessionsTUI(parent context.Context) error {
 	if err := ensureRuntime(ctx, k); err != nil {
 		return err
 	}
-	store := &sessions.Store{Kube: k, Version: cliVersion}
+	store := newStore(k)
 	_, err = tea.NewProgram(sessions.NewModel(store), tea.WithAltScreen()).Run()
 	return err
 }
@@ -146,7 +146,7 @@ func newShellCmd() *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), 3*time.Minute)
 			defer cancel()
-			store := &sessions.Store{Kube: k}
+			store := newStore(k)
 			fmt.Println("  ◌ starting inspection shell…")
 			pod, err := store.EnsureShellPod(ctx, args[0])
 			if err != nil {

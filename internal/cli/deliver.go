@@ -49,7 +49,7 @@ func newDeliverCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			store := &sessions.Store{Kube: k}
+			store := newStore(k)
 			ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
 			defer cancel()
 

@@ -78,7 +78,7 @@ func newHandoffCmd() *cobra.Command {
 			if err := ensureRuntime(ctx, k); err != nil {
 				return err
 			}
-			store := &sessions.Store{Kube: k}
+			store := newStore(k)
 
 			se, err := store.Create(ctx, sessions.CreateOpts{Name: name, Handoff: true})
 			if err != nil {

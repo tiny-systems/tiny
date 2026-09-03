@@ -15,8 +15,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-
-	"github.com/tiny-systems/tiny/internal/sessions"
 )
 
 func newBroadcastCmd() *cobra.Command {
@@ -45,7 +43,7 @@ func newBroadcastCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			store := &sessions.Store{Kube: k}
+			store := newStore(k)
 			ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
 			defer cancel()
 

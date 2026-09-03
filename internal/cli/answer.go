@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-
-	"github.com/tiny-systems/tiny/internal/sessions"
 )
 
 // newAnswerCmd resolves a ✳ question from the command line. Since the
@@ -24,7 +22,7 @@ func newAnswerCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			store := &sessions.Store{Kube: k}
+			store := newStore(k)
 			ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Minute)
 			defer cancel()
 			if err := store.Answer(ctx, args[0], strings.Join(args[1:], " ")); err != nil {

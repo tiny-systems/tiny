@@ -36,10 +36,16 @@ import (
 
 // Target names the cluster this store talks to, for screens and prompts.
 func (s *Store) Target() string {
+	raw := s.Kube.ContextName + "/" + s.Kube.Namespace
 	if s.Kube.ContextName == "" {
-		return s.Kube.Namespace
+		raw = s.Kube.Namespace
 	}
-	return s.Kube.ContextName + "/" + s.Kube.Namespace
+	// A profile names the target but never hides it — the raw
+	// context/namespace stays visible beside the name.
+	if s.Profile != "" {
+		return s.Profile + " · " + raw
+	}
+	return raw
 }
 
 // Row is one line of the fleet screen: a session joined with its open
@@ -83,6 +89,9 @@ func (r Row) Glyph() string {
 type Store struct {
 	Kube    *kube.Client
 	Version string
+	// Profile is the named target this store was resolved through, if any
+	// — shown beside the raw context/namespace, never instead of it.
+	Profile string
 }
 
 // Snapshot is one consistent read of the fleet.

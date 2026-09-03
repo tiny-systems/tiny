@@ -19,7 +19,9 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/klog/v2"
 
+	"github.com/tiny-systems/tiny/internal/kube"
 	"github.com/tiny-systems/tiny/internal/runtimeinstall"
+	"github.com/tiny-systems/tiny/internal/sessions"
 	"github.com/tiny-systems/tiny/internal/workload"
 )
 
@@ -151,4 +153,10 @@ func confirmTarget(action string) error {
 		return fmt.Errorf("aborted")
 	}
 	return nil
+}
+
+// newStore builds the session store every command shares, carrying the
+// build stamp and the profile the target resolved through.
+func newStore(k *kube.Client) *sessions.Store {
+	return &sessions.Store{Kube: k, Version: cliVersion, Profile: flagProfile}
 }

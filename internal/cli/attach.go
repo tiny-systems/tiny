@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-
-	"github.com/tiny-systems/tiny/internal/sessions"
 )
 
 func newAttachCmd() *cobra.Command {
@@ -27,7 +25,7 @@ func newAttachCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			store := &sessions.Store{Kube: k}
+			store := newStore(k)
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			snap, err := store.Load(ctx)
 			cancel()

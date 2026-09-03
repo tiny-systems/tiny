@@ -23,7 +23,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/tiny-systems/tiny/internal/kube"
-	"github.com/tiny-systems/tiny/internal/sessions"
 	"github.com/tiny-systems/tiny/internal/workload"
 )
 
@@ -38,7 +37,7 @@ func newExportCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			store := &sessions.Store{Kube: k}
+			store := newStore(k)
 			ctx, cancel := context.WithTimeout(cmd.Context(), 4*time.Minute)
 			defer cancel()
 
