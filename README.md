@@ -1,13 +1,17 @@
 # ◇ tiny
 
-**Claude Code & Codex sessions on your own Kubernetes.**
+**Run the real Claude Code and Codex CLIs as pods on your own Kubernetes — close the laptop, the session keeps working.**
 
 ![tiny demo: a session is created, its pod is killed mid-task, and the fleet screen shows it still working](https://tinysystems.io/static/demo.gif?v=clean1)
 
-Start a session with a task. It runs as a pod with a persistent
-workspace and keeps working after you close your laptop, through rate
-limits and pod restarts. When the agent needs a decision, its row lights
-up; answer from the fleet screen, or from anywhere with `kubectl`.
+It runs the genuine vendor CLIs, not a copy of them, as pods with a
+persistent workspace. Close the lid and a session keeps working, through
+rate limits and pod restarts. Already mid-conversation on your laptop?
+`tiny handoff` moves that session — files, uncommitted changes and
+transcript — into the cluster. Attach from any terminal; answer a
+decision from the fleet screen or from anywhere with `kubectl`. And when
+you want the team flow, a labeled GitHub issue comes back as a pull
+request.
 
 ```
 $ tiny new "fix the flaky checkout test, open a PR"
@@ -41,7 +45,13 @@ resumes itself.
   Claude Code (or Codex) over a TTY: hotkeys, slash commands, plan mode,
   subagents, skills from your repo, your `.mcp.json` servers. tiny does
   not parse or proxy the agent, so new agent features work without us
-  shipping anything.
+  shipping anything. Nothing else on this list runs the actual vendor
+  CLIs — the others are their own agent loops.
+- **Hand off the session you're already in.** `tiny handoff` from a
+  project with a live local Claude Code session ships its working tree
+  (dirty files and `.git` included) and transcript into the cluster, and
+  the agent picks the conversation up there. Start on the train, finish
+  in the cluster.
 - **Two agents, one flag.** `tiny new --agent codex` runs OpenAI's Codex
   instead of Claude; `--model` picks the model for either. Sign in with
   the plan you already pay for — Claude Pro/Max or ChatGPT Plus.
