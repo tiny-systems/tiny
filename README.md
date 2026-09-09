@@ -177,6 +177,7 @@ transcript resumes.
 | `tiny broadcast "demo at 10 — wrap up"` | one message into every unfinished session's inbox |
 | `tiny handoff` | move THIS directory's local Claude Code session to the cluster, mid-conversation |
 | `tiny attach <session>` | join the session's terminal directly (detach: `ctrl-q d`) |
+| `tiny diff [session]` | what a session changed; with no name, the whole fleet plus file collisions |
 | `tiny shell <session>` | shell on a session's workspace — finished sessions too |
 | `tiny answer <question> <text>` | answer a ✳ card — and perform its action, as you |
 | `echo "…" \| tiny deliver <session> --ensure` | pipe a message into a session's inbox (what event sources call) |
