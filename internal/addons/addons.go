@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -478,6 +479,7 @@ const (
 	tinyBinVol = "tiny-bin"
 	tinyBinDir = "/tiny-bin"
 	verbGet    = "get"
+	verbWatch  = "watch"
 	verbCreate = "create"
 	verbList   = "list"
 	runnerName = "tiny-runner"
@@ -607,7 +609,7 @@ func (r *Applier) ensureRunnerRBAC(ctx context.Context, ns string) error {
 	role := &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: runnerName},
 		Rules: []rbacv1.PolicyRule{
-			{APIGroups: []string{"agents.tinysystems.io"}, Resources: []string{"sessions"}, Verbs: []string{verbGet, verbList, "watch", verbCreate, "update", "patch"}}, // update: deliveries append to spec.inbox
+			{APIGroups: []string{"agents.tinysystems.io"}, Resources: []string{"sessions"}, Verbs: []string{verbGet, verbList, verbWatch, verbCreate, "update", "patch"}}, // update: deliveries append to spec.inbox
 			// Manager-less: whoever creates a session creates its workload.
 			{APIGroups: []string{"apps"}, Resources: []string{"deployments"}, Verbs: []string{verbGet, verbCreate}},
 			{APIGroups: []string{""}, Resources: []string{"persistentvolumeclaims"}, Verbs: []string{verbGet, verbCreate}},
@@ -656,4 +658,174 @@ func runnerRepoOf(dep *appsv1.Deployment) string {
 		return cs[0].Env[0].Value
 	}
 	return ""
+}
+
+// ---- web: the read-only fleet page -------------------------------------
+
+const (
+	webName = "tiny-web"
+	webPort = 8080
+)
+
+// EnsureWebAddon applies the read-only fleet page: its own ServiceAccount
+// with a Role that can only read (plus pods/exec, which is how footprints
+// are measured), a Deployment and a ClusterIP Service. Deliberately no
+// Ingress — reaching it is `kubectl port-forward`, so access is whatever
+// cluster access the human already has.
+func (r *Applier) EnsureWebAddon(ctx context.Context, ns, image string) error {
+	if err := r.ensureWebRBAC(ctx, ns); err != nil {
+		return err
+	}
+	if err := r.ensureWebService(ctx, ns); err != nil {
+		return err
+	}
+	return r.ensureWebDeployment(ctx, ns, image)
+}
+
+// TeardownWebAddon removes everything the page needed.
+func (r *Applier) TeardownWebAddon(ctx context.Context, ns string) error {
+	for _, obj := range []client.Object{
+		&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: webName}},
+		&corev1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: webName}},
+		&rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: webName}},
+		&rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: webName}},
+		&corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: webName}},
+	} {
+		if err := r.deleteIfExists(ctx, obj); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *Applier) ensureWebRBAC(ctx context.Context, ns string) error {
+	sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: webName}}
+	if err := r.Create(ctx, sa); err != nil && !apierrors.IsAlreadyExists(err) {
+		return fmt.Errorf("create web serviceaccount: %w", err)
+	}
+
+	// Read-only, plus pods/exec for the git reads that measure a
+	// footprint. No write verbs anywhere: a page that could answer a
+	// question would act as this account instead of as the human, and
+	// the gate's whole promise is that an approval carries YOUR
+	// credentials.
+	role := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: webName},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{"agents.tinysystems.io"},
+				Resources: []string{"sessions", "questions"},
+				Verbs:     []string{"get", "list", verbWatch},
+			},
+			{
+				APIGroups: []string{""},
+				Resources: []string{"pods", "configmaps"},
+				Verbs:     []string{"get", "list", verbWatch},
+			},
+			{
+				APIGroups: []string{""},
+				Resources: []string{"pods/exec"},
+				Verbs:     []string{"create"},
+			},
+		},
+	}
+	existing := &rbacv1.Role{}
+	err := r.Get(ctx, types.NamespacedName{Namespace: ns, Name: webName}, existing)
+	switch {
+	case apierrors.IsNotFound(err):
+		if err := r.Create(ctx, role); err != nil {
+			return fmt.Errorf("create web role: %w", err)
+		}
+	case err != nil:
+		return err
+	default:
+		existing.Rules = role.Rules
+		if err := r.Update(ctx, existing); err != nil {
+			return fmt.Errorf("update web role: %w", err)
+		}
+	}
+
+	rb := &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: webName},
+		RoleRef:    rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "Role", Name: webName},
+		Subjects:   []rbacv1.Subject{{Kind: "ServiceAccount", Name: webName, Namespace: ns}},
+	}
+	if err := r.Create(ctx, rb); err != nil && !apierrors.IsAlreadyExists(err) {
+		return fmt.Errorf("create web rolebinding: %w", err)
+	}
+	return nil
+}
+
+func (r *Applier) ensureWebService(ctx context.Context, ns string) error {
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: webName, Labels: map[string]string{appLabel: webName}},
+		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{appLabel: webName},
+			Ports:    []corev1.ServicePort{{Name: "http", Port: webPort, TargetPort: intstr.FromInt32(webPort)}},
+		},
+	}
+	if err := r.Create(ctx, svc); err != nil && !apierrors.IsAlreadyExists(err) {
+		return fmt.Errorf("create web service: %w", err)
+	}
+	return nil
+}
+
+func (r *Applier) ensureWebDeployment(ctx context.Context, ns, image string) error {
+	dep := &appsv1.Deployment{}
+	err := r.Get(ctx, types.NamespacedName{Namespace: ns, Name: webName}, dep)
+	if err == nil {
+		if len(dep.Spec.Template.Spec.Containers) > 0 && dep.Spec.Template.Spec.Containers[0].Image == image {
+			return nil
+		}
+		if err := r.deleteIfExists(ctx, dep); err != nil {
+			return err
+		}
+	} else if !apierrors.IsNotFound(err) {
+		return err
+	}
+
+	labels := map[string]string{appLabel: webName}
+	want := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: webName, Labels: labels},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: ptr(int32(1)),
+			Selector: &metav1.LabelSelector{MatchLabels: labels},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: labels},
+				Spec: corev1.PodSpec{
+					ServiceAccountName: webName,
+					Containers: []corev1.Container{{
+						Name:    "web",
+						Image:   image,
+						Command: []string{"/web"},
+						Env: []corev1.EnvVar{{
+							Name: "POD_NAMESPACE",
+							ValueFrom: &corev1.EnvVarSource{
+								FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"},
+							},
+						}},
+						Ports: []corev1.ContainerPort{{ContainerPort: webPort}},
+						ReadinessProbe: &corev1.Probe{
+							ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{
+								Path: "/healthz", Port: intstr.FromInt32(webPort),
+							}},
+							InitialDelaySeconds: 2,
+							PeriodSeconds:       10,
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("10m"),
+								corev1.ResourceMemory: resource.MustParse("32Mi"),
+							},
+							Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("128Mi")},
+						},
+					}},
+				},
+			},
+		},
+	}
+	if err := r.Create(ctx, want); err != nil && !apierrors.IsAlreadyExists(err) {
+		return fmt.Errorf("create web deployment: %w", err)
+	}
+	return nil
 }

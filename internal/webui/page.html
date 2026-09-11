@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="10">
+<title>tiny — {{.Target}}</title>
+<style>
+:root{--paper:#EEEDE0;--paper2:#E6E4D3;--ink:#20281F;--green:#2E7D41;--deep:#1E5B2F;--amber:#B4770F;--red:#A23B2B;--faint:#20281F1f}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}
+.wrap{max-width:1200px;margin:0 auto;padding:24px clamp(16px,3vw,40px)}
+header{display:flex;align-items:baseline;gap:14px;border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:22px;flex-wrap:wrap}
+h1{font-size:17px;margin:0;letter-spacing:.04em}
+.target{color:var(--deep);font-weight:600}
+.stamp{margin-left:auto;opacity:.55;font-size:12px}
+h2{font-size:12px;letter-spacing:.18em;color:var(--deep);border-bottom:1px solid var(--faint);padding-bottom:5px;margin:26px 0 10px;text-transform:uppercase}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-weight:600;font-size:11px;letter-spacing:.12em;opacity:.55;padding:4px 10px 4px 0}
+td{padding:5px 10px 5px 0;vertical-align:top;border-top:1px solid var(--faint)}
+.name{font-weight:600}
+.dim{opacity:.55}
+.add{color:var(--green)}
+.del{color:var(--red)}
+.needs{color:var(--amber);font-weight:600}
+.files{margin:4px 0 0;padding:0;list-style:none;font-size:12.5px}
+.files li{display:flex;gap:10px;opacity:.85}
+.files .p{flex:1;overflow-wrap:anywhere}
+.badge{display:inline-block;border:1px solid var(--ink);background:var(--paper2);padding:0 6px;font-size:11px;margin-left:6px}
+.warn{border:2px solid var(--amber);background:var(--paper2);padding:12px 16px;margin:10px 0 0}
+.warn .path{font-weight:600}
+.q{border-left:3px solid var(--amber);background:var(--paper2);padding:8px 14px;margin:8px 0}
+.q code{background:var(--paper);border:1px solid var(--faint);padding:1px 5px}
+.empty{opacity:.55;padding:10px 0}
+footer{margin-top:36px;border-top:1px solid var(--faint);padding-top:10px;font-size:12px;opacity:.6}
+@media (prefers-color-scheme:dark){
+  :root{--paper:#181c17;--paper2:#20261f;--ink:#e8e6d8;--green:#7FD695;--deep:#9ad8a8;--amber:#E9B45C;--red:#e0857a;--faint:#e8e6d81f}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>◇ tiny</h1>
+  <span class="target">{{.Target}}</span>
+  <span class="stamp">read-only · refreshed {{.Refreshed}}</span>
+</header>
+
+{{if .Err}}<div class="warn">{{.Err}}</div>{{end}}
+
+{{if .Questions}}
+<h2>waiting on a human</h2>
+{{range .Questions}}
+<div class="q">
+  <div><span class="needs">✳</span> <b>{{.Session}}</b> — {{.Text}}</div>
+  <div class="dim">answer from a terminal: <code>{{.Answer}}</code></div>
+</div>
+{{end}}
+{{end}}
+
+<h2>fleet</h2>
+{{if .Rows}}
+<table>
+  <tr><th>session</th><th>state</th><th>age</th><th>cpu</th><th>mem</th><th>what</th></tr>
+  {{range .Rows}}
+  <tr>
+    <td class="name">{{if .NeedsHuman}}<span class="needs">✳</span> {{end}}{{.Name}}</td>
+    <td>{{.Phase}}</td>
+    <td class="dim">{{.Age}}</td>
+    <td class="dim">{{.CPU}}</td>
+    <td class="dim">{{.Mem}}</td>
+    <td>{{if .Title}}{{.Title}}{{else}}<span class="dim">{{.Task}}</span>{{end}}</td>
+  </tr>
+  <tr>
+    <td colspan="6">
+      {{if .Footprint.Err}}
+        <span class="dim">{{.Footprint.Err}}</span>
+      {{else if .Footprint.Files}}
+        <span class="dim">{{if .Footprint.Branch}}on {{.Footprint.Branch}} · {{end}}</span>
+        {{len .Footprint.Files}} files
+        <span class="add">+{{.Footprint.Added}}</span><span class="dim">/</span><span class="del">-{{.Footprint.Deleted}}</span>
+        {{range .Footprint.Bundles}}<span class="badge">outbox: {{.}}</span>{{end}}
+        {{if .Collides}}<span class="badge" style="border-color:var(--amber)">shares {{len .Collides}} file(s)</span>{{end}}
+        <ul class="files">
+          {{range .Footprint.Files}}
+          <li><span class="p">{{.Path}}</span><span class="dim">{{if lt .Added 0}}binary{{else}}<span class="add">+{{.Added}}</span>/<span class="del">-{{.Deleted}}</span>{{end}}</span></li>
+          {{end}}
+        </ul>
+      {{else}}
+        <span class="dim">{{if .Footprint.Branch}}on {{.Footprint.Branch}} — {{end}}nothing changed yet</span>
+      {{end}}
+    </td>
+  </tr>
+  {{end}}
+</table>
+{{else}}<div class="empty">no sessions</div>{{end}}
+
+{{if .Overlap}}
+<h2>blast radius — touched by more than one session</h2>
+<div class="warn">
+  {{range .Overlap}}
+  <div><span class="path">{{.Path}}</span> <span class="dim">— {{range $i, $s := .Sessions}}{{if $i}}, {{end}}{{$s}}{{end}}</span></div>
+  {{end}}
+</div>
+{{end}}
+
+<footer>
+  Read-only by design: approving a question runs the action with <em>your</em> credentials,
+  so answering lives in the CLI (<code>tiny answer</code>) and the TUI, never here.
+</footer>
+</div>
+</body>
+</html>

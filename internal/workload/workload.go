@@ -34,6 +34,7 @@ import (
 const (
 	defaultAgentRepo   = "ghcr.io/tiny-systems/agent"
 	defaultSidecarRepo = "ghcr.io/tiny-systems/controller"
+	defaultWebRepo     = "ghcr.io/tiny-systems/web"
 
 	// AgentEnvSecret is the by-convention credentials secret every agent
 	// container loads (agent tokens, store creds). Written by tiny setup.
@@ -62,6 +63,7 @@ const (
 type Images struct {
 	Agent   string
 	Sidecar string
+	Web     string
 }
 
 // DefaultImageTag pins the ghcr default images to the CLI's own release.
@@ -89,9 +91,12 @@ func DefaultAgentImage() string { return defaultAgentRepo + ":" + DefaultImageTa
 // DefaultSidecarImage is the tiny-mcp sidecar's default image.
 func DefaultSidecarImage() string { return defaultSidecarRepo + ":" + DefaultImageTag }
 
+// DefaultWebImage is the read-only fleet page's default image.
+func DefaultWebImage() string { return defaultWebRepo + ":" + DefaultImageTag }
+
 // ResolveImages reads per-namespace overrides — the dev loop's home.
 func ResolveImages(ctx context.Context, c client.Client, ns string) Images {
-	img := Images{Agent: DefaultAgentImage(), Sidecar: DefaultSidecarImage()}
+	img := Images{Agent: DefaultAgentImage(), Sidecar: DefaultSidecarImage(), Web: DefaultWebImage()}
 	cm := &corev1.ConfigMap{}
 	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: settings.Name}, cm); err == nil {
 		if v := cm.Data["agentImage"]; v != "" {
@@ -99,6 +104,9 @@ func ResolveImages(ctx context.Context, c client.Client, ns string) Images {
 		}
 		if v := cm.Data["sidecarImage"]; v != "" {
 			img.Sidecar = v
+		}
+		if v := cm.Data["webImage"]; v != "" {
+			img.Web = v
 		}
 	}
 	return img

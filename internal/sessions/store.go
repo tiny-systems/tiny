@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -487,11 +488,13 @@ type NamespaceSettings struct {
 	Zot          bool
 	ZotNodeTrust bool
 	Minio        bool
+	Web          bool
 	RunnerRepo   string
 	RepoKey      bool // tiny-repo-keys present (read-only status)
 	// Observed truth per add-on: "", "running", "starting", or a failure.
 	ZotState   string
 	MinioState string
+	WebState   string
 }
 
 // LoadSettings reads the switchboard plus adjacent status.
@@ -503,6 +506,7 @@ func (s *Store) LoadSettings(ctx context.Context) (NamespaceSettings, error) {
 		out.Zot = cm.Data["zot"] == trueWord
 		out.ZotNodeTrust = cm.Data["zotNodeTrust"] == trueWord
 		out.Minio = cm.Data["minio"] == trueWord
+		out.Web = cm.Data["web"] == trueWord
 		out.RunnerRepo = cm.Data["runnerRepo"]
 	} else if !apierrors.IsNotFound(err) {
 		return out, err
@@ -513,6 +517,7 @@ func (s *Store) LoadSettings(ctx context.Context) (NamespaceSettings, error) {
 	}
 	out.ZotState = s.addonState(ctx, "tiny-zot", out.Zot)
 	out.MinioState = s.addonState(ctx, "tiny-minio", out.Minio)
+	out.WebState = s.addonState(ctx, "tiny-web", out.Web)
 	return out, nil
 }
 
@@ -524,6 +529,7 @@ func (s *Store) SaveSettings(ctx context.Context, ns NamespaceSettings) error {
 			"zot":          boolWord(ns.Zot),
 			"zotNodeTrust": boolWord(ns.ZotNodeTrust),
 			"minio":        boolWord(ns.Minio),
+			"web":          boolWord(ns.Web),
 			"runnerRepo":   ns.RunnerRepo,
 		},
 	}
@@ -538,7 +544,13 @@ func (s *Store) SaveSettings(ctx context.Context, ns NamespaceSettings) error {
 	if err != nil {
 		return err
 	}
-	existing.Data = cm.Data
+	// Merge, don't replace: the same ConfigMap carries the dev loop's image
+	// overrides (agentImage/sidecarImage/webImage), and a settings save must
+	// not silently wipe them.
+	if existing.Data == nil {
+		existing.Data = map[string]string{}
+	}
+	maps.Copy(existing.Data, cm.Data)
 	if err := s.Kube.Client.Update(ctx, existing); err != nil {
 		return err
 	}
@@ -563,6 +575,14 @@ func (s *Store) applyAddons(ctx context.Context, ns NamespaceSettings) error {
 		}
 	} else if err := ap.TeardownZotAddon(ctx, namespace); err != nil {
 		return fmt.Errorf("zot teardown: %w", err)
+	}
+	if ns.Web {
+		img := workload.ResolveImages(ctx, s.Kube.Client, namespace).Web
+		if err := ap.EnsureWebAddon(ctx, namespace, img); err != nil {
+			return fmt.Errorf("web: %w", err)
+		}
+	} else if err := ap.TeardownWebAddon(ctx, namespace); err != nil {
+		return fmt.Errorf("web teardown: %w", err)
 	}
 	if ns.RunnerRepo != "" {
 		img := workload.ResolveImages(ctx, s.Kube.Client, namespace).Sidecar

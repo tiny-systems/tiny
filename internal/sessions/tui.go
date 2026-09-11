@@ -402,6 +402,7 @@ var settingsItems = []string{
 	"zot registry cache — one Hub pull per image per namespace",
 	"node trust for the cache — DaemonSet installs its CA on every node (cluster-touching)",
 	"minio artifact store — sessions hand each other files (mc alias: store)",
+	"web page — read-only fleet + blast radius (kubectl port-forward svc/tiny-web 8080)",
 	"GitHub runner — issues labeled `tiny` become sessions (org or owner/repo; enter edits, empty = off)",
 }
 
@@ -469,6 +470,8 @@ func (m Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case 2:
 			m.settings.Minio = !m.settings.Minio
 		case 3:
+			m.settings.Web = !m.settings.Web
+		case 4:
 			// Text, not a toggle: edit the watched org/repo.
 			m.mode = modeRunnerEdit
 			m.input.Placeholder = "org or owner/repo — empty turns the runner off"
@@ -723,8 +726,8 @@ func (m Model) updateRunnerEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // renderSettings draws the switchboard with each add-on's observed truth.
 func (m Model) renderSettings(f *strings.Builder) {
 	f.WriteString("  namespace settings — space toggles, esc back\n")
-	checks := []bool{m.settings.Zot, m.settings.ZotNodeTrust, m.settings.Minio, m.settings.RunnerRepo != ""}
-	states := []string{m.settings.ZotState, "", m.settings.MinioState, m.runnerStateLabel()}
+	checks := []bool{m.settings.Zot, m.settings.ZotNodeTrust, m.settings.Minio, m.settings.Web, m.settings.RunnerRepo != ""}
+	states := []string{m.settings.ZotState, "", m.settings.MinioState, m.settings.WebState, m.runnerStateLabel()}
 	for i, item := range settingsItems {
 		cur, box := "  ", "[ ]"
 		if checks[i] {

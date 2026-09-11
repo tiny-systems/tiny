@@ -6,6 +6,9 @@
 !**/*.go
 **/*_test.go
 
+# Re-include embedded templates (go:embed needs the real file)
+!**/*.html
+
 # Re-include Go module files
 !go.mod
 !go.sum
