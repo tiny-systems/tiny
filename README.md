@@ -67,6 +67,11 @@ resumes itself.
   plans, then asks to start specialists in the right toolchain with the
   right cpu/memory. You approve each spawn from the fleet screen; children
   render under their parent.
+- **A read-only web page, one checkbox.** The `web` add-on serves the
+  fleet plus each session's blast radius — files changed, lines, branch,
+  and the files two sessions are both editing — at `kubectl port-forward
+  svc/tiny-web 8080`. It can only read: approving a question runs with
+  *your* credentials, so answering stays in the CLI.
 - **Namespace add-ons, one checkbox each.** A namespace is a group of
   agents — a team, a project, one person. Its settings screen can switch
   on a **zot registry cache** (one Docker Hub pull per image per
