@@ -190,7 +190,9 @@ transcript resumes.
 | `tiny setup` | interactive setup — and rotation: token, repo key |
 | `tiny profile save work` | name a cluster/namespace target; use anywhere with `-p work` |
 | `tiny init` | scriptable runtime install for CI (`--context X -n Y --yes`) |
-| `tiny upgrade` | update the binary |
+| `tiny upgrade` | update the binary (checksum-verified, never downgrades) |
+
+Every command and flag: **[tinysystems.io/docs/commands](https://tinysystems.io/docs/commands/)**.
 
 On the fleet screen: `m` types a message straight into a session's prompt
 (delivered through a durable inbox — it survives pod restarts and
