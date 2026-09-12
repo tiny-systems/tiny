@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -51,7 +52,7 @@ func ensureRuntime(ctx context.Context, k *kube.Client) error {
 }
 
 func newNewCmd() *cobra.Command {
-	var name, repo, image, cpu, memory, agent, model string
+	var name, repo, dir, image, cpu, memory, agent, model string
 	var user int64
 	var noAttachHint bool
 	cmd := &cobra.Command{
@@ -61,10 +62,26 @@ func newNewCmd() *cobra.Command {
 			"with a persistent workspace, and it keeps working when you disconnect. Installs the\n" +
 			"runtime on first contact (asks once).\n\n" +
 			"Without a task the session boots idle and you are attached straight into the\n" +
-			"agent's terminal — talk to it like a local one, detach with ctrl-q d.",
+			"agent's terminal — talk to it like a local one, detach with ctrl-q d.\n\n" +
+			"--repo clones from git; --dir ships a local folder as it stands, uncommitted\n" +
+			"changes and .git included — the way to move work to a cluster that cannot\n" +
+			"reach your git remote, or that is not pushed anywhere yet.",
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			task := strings.TrimSpace(strings.Join(args, " "))
+			if dir != "" && repo != "" {
+				return fmt.Errorf("--dir and --repo both name a workspace source; pick one")
+			}
+			if dir != "" {
+				abs, aerr := filepath.Abs(dir)
+				if aerr != nil {
+					return aerr
+				}
+				if st, serr := os.Stat(abs); serr != nil || !st.IsDir() {
+					return fmt.Errorf("--dir %s is not a directory", dir)
+				}
+				dir = abs
+			}
 			k, err := sessionKube()
 			if err != nil {
 				return err
@@ -79,6 +96,10 @@ func newNewCmd() *cobra.Command {
 				Name: name, Task: task, Repo: repo,
 				Image: image, Agent: agent, Model: model,
 				CPU: cpu, Memory: memory, User: user,
+				// A shipped folder arrives after the pod starts, so the
+				// entrypoint must wait for it instead of starting the agent
+				// on an empty workspace.
+				Handoff: dir != "",
 			})
 			if err != nil {
 				return err
@@ -87,6 +108,17 @@ func newNewCmd() *cobra.Command {
 			pod, err := waitForSession(ctx, store, se.Name)
 			if err != nil {
 				return err
+			}
+			if dir != "" {
+				fmt.Printf("  ◌ shipping %s\n", dir)
+				var files int
+				if err := store.PushTree(ctx, pod, "/workspace/repo", dir, func(string) { files++ }); err != nil {
+					return err
+				}
+				if err := store.MarkHandoffComplete(ctx, pod); err != nil {
+					return err
+				}
+				fmt.Printf("  ✓ %d files landed in /workspace/repo\n", files)
 			}
 			if task == "" {
 				fmt.Println("  attaching — detach with ctrl-q d")
@@ -100,6 +132,7 @@ func newNewCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&name, "name", "", "session name (generated when omitted)")
 	cmd.Flags().StringVar(&repo, "repo", "", "git URL cloned into the workspace")
+	cmd.Flags().StringVar(&dir, "dir", "", "local folder shipped into the workspace as it stands (uncommitted changes and .git included)")
 	cmd.Flags().StringVar(&image, "image", "", "session image — any glibc-based image with git (golang:1.26, your dev image); default: the tiny agent image")
 	cmd.Flags().StringVar(&agent, "agent", "", "coding agent to run: claude (default) or codex")
 	cmd.Flags().StringVar(&model, "model", "", "model override for the agent (claude --model / codex -m)")
