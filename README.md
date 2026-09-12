@@ -26,12 +26,14 @@ $ tiny
   ● api-fix     running     3h  212m  1.1Gi  migrating auth tests to vitest
   └ ● api-db    running    41m  907m  2.9Gi  rewriting migrations in golang:1.26
   ● night-run   running     8h    1m  301Mi  ⏸ Usage limit reached · continuing at 5:20pm
+  ✓ readme      done        2d
+  · ✉ broadcast to all…
   · ＋ new session
   · ⚙ new session with options…
   · ☰ namespace settings
   · ✕ quit
 
-  [enter] attach  [a] answer  [m] message  [d] delete  [q] quit
+  [enter] attach  [a] answer  [m] message  [b] broadcast  [d] delete  [n] new  [o] new with options  [q] quit
 ```
 
 CPU and memory are self-reported by each session from its own cgroup — no
