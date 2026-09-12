@@ -179,6 +179,7 @@ transcript resumes.
 | `tiny new --image golang:1.26 --cpu 2 --memory 4Gi "…"` | session in your toolchain, sized |
 | `tiny new --image quay.io/buildah/stable --user 1000 "…"` | a builder — agents build images and push them to the namespace registry |
 | `tiny new --agent codex --model gpt-5.2-codex "…"` | the same session, OpenAI's Codex inside |
+| `tiny new --dir . "…"` | ship this folder as the workspace — uncommitted changes and `.git` included, no git remote needed |
 | `tiny broadcast "demo at 10 — wrap up"` | one message into every unfinished session's inbox |
 | `tiny handoff` | move THIS directory's local Claude Code session to the cluster, mid-conversation |
 | `tiny attach <session>` | join the session's terminal directly (detach: `ctrl-q d`) |
