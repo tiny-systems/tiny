@@ -102,9 +102,9 @@ func newInitCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init",
 		Short: "Install or upgrade the session runtime on the target cluster",
-		Long: "Installs the two CRDs and the namespace-scoped manager (one small always-on pod).\n" +
-			"tiny new does this on first contact anyway; init is for those who want setup as its\n" +
-			"own explicit, reviewable step.",
+		Long: "Installs the two CRDs and the sidecar's ServiceAccount — no pods, since there\n" +
+			"is no operator and no manager. tiny new does this on first contact anyway; init\n" +
+			"is for those who want setup as its own explicit, reviewable step.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			k, err := sessionKube()
 			if err != nil {

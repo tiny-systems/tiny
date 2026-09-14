@@ -160,7 +160,7 @@ type StoreOutput struct {
 }
 
 // enableStore turns on the namespace artifact store through the gate. When
-// the namespace policy pre-consents, the manager answers instantly; either
+// the namespace policy pre-consents, the answer comes back instantly; either
 // way the result is the mc command that wires this session up.
 func (s *Server) enableStore(ctx context.Context, _ *mcp.CallToolRequest, _ StoreInput) (*mcp.CallToolResult, StoreOutput, error) {
 	asker := s.sessionFor(ctx)

@@ -521,7 +521,7 @@ func (s *Store) LoadSettings(ctx context.Context) (NamespaceSettings, error) {
 	return out, nil
 }
 
-// SaveSettings writes the switchboard; the manager reacts.
+// SaveSettings writes the switchboard; whoever toggled it does the work.
 func (s *Store) SaveSettings(ctx context.Context, ns NamespaceSettings) error {
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Namespace: s.Kube.Namespace, Name: settingsCM},
