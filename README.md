@@ -47,8 +47,7 @@ resumes itself.
   Claude Code (or Codex) over a TTY: hotkeys, slash commands, plan mode,
   subagents, skills from your repo, your `.mcp.json` servers. tiny does
   not parse or proxy the agent, so new agent features work without us
-  shipping anything. Nothing else on this list runs the actual vendor
-  CLIs — the others are their own agent loops.
+  shipping anything.
 - **Hand off the session you're already in.** `tiny handoff` from a
   project with a live local Claude Code session ships its working tree
   (dirty files and `.git` included) and transcript into the cluster, and
@@ -69,6 +68,13 @@ resumes itself.
   plans, then asks to start specialists in the right toolchain with the
   right cpu/memory. You approve each spawn from the fleet screen; children
   render under their parent.
+- **Sessions share a namespace, on purpose.** A sandbox exists to keep
+  agents away from each other; these can reach each other when you want
+  them to. One session drops a file in the artifact store and another
+  picks it up, `expose_port` publishes a dev server as a Service so a
+  second session can curl it, and an image one session builds is what the
+  next one runs. There is no direct message passing between agents —
+  coordination goes through artifacts, ports, or a person.
 - **A read-only web page, one checkbox.** The `web` add-on serves the
   fleet plus each session's blast radius — files changed, lines, branch,
   and the files two sessions are both editing — at `kubectl port-forward
@@ -258,6 +264,12 @@ Things this does not do well yet, so you don't discover them the hard way:
   a real limit for us.
 - **Images must be glibc with git for Claude** — alpine works only for
   Codex sessions (its binary is static musl).
+- **`tiny handoff` is Claude Code only.** It reads the local Claude Code
+  transcript, so a Codex session cannot be moved into the cluster this
+  way. Everything after the move works for both.
+- **Handoff ships the whole directory.** There is no `.gitignore` filter
+  and no exclude list, so `node_modules`, build output and any `.env`
+  travel up with the tree. Tidy the directory first if that matters.
 - **Weeks old.** The pieces above are real and tested, but this is a
   young codebase; read it before pointing it at anything precious. It is
   small on purpose.
