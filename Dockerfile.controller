@@ -1,5 +1,8 @@
-# Build the tiny-mcp sidecar binary
-FROM golang:1.26 AS builder
+# Build the tiny-mcp sidecar binary.
+# Pin the builder to the BUILD platform and cross-compile with GOARCH: Go
+# does that natively, whereas an un-pinned builder makes buildx emulate the
+# whole toolchain under QEMU for the non-native arch, which took ~30min.
+FROM --platform=$BUILDPLATFORM golang:1.26 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
