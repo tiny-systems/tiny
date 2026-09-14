@@ -178,9 +178,16 @@ func untarInto(r io.Reader, dest string, progress func(file string)) (int, error
 				return count, err
 			}
 		case tar.TypeSymlink:
-			// A symlink may not point outside the tree either — it would
-			// turn a later write into an escape.
-			if _, err := safeJoin(root, filepath.Join(filepath.Dir(hdr.Name), hdr.Linkname)); err != nil {
+			// An ABSOLUTE target must be refused outright: filepath.Join
+			// absorbs the leading separator, so joining it tar-relative
+			// ("/etc/passwd" under ".") yields "etc/passwd" and looks
+			// contained. The link would then be followed by a later write.
+			if filepath.IsAbs(hdr.Linkname) || strings.HasPrefix(hdr.Linkname, "/") {
+				return count, fmt.Errorf("refusing symlink %s -> %s: absolute target", hdr.Name, hdr.Linkname)
+			}
+			// Resolve relative to where the link will LIVE, not to the tar root.
+			resolved := filepath.Clean(filepath.Join(filepath.Dir(target), hdr.Linkname))
+			if resolved != root && !strings.HasPrefix(resolved, root+string(os.PathSeparator)) {
 				return count, fmt.Errorf("refusing symlink %s -> %s: escapes the destination", hdr.Name, hdr.Linkname)
 			}
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
@@ -194,7 +201,16 @@ func untarInto(r io.Reader, dest string, progress func(file string)) (int, error
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return count, err
 			}
-			f, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.FileMode(hdr.Mode)&os.ModePerm|0o600)
+			// A directory component may itself have been planted as a
+			// symlink by an earlier entry; O_NOFOLLOW only guards the last
+			// one, so check the parent chain really sits inside dest.
+			if err := parentInside(root, target); err != nil {
+				return count, err
+			}
+			// Drop anything already there (a planted symlink) so the create
+			// cannot be redirected through it.
+			_ = os.Remove(target)
+			f, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY|oNoFollow, os.FileMode(hdr.Mode)&os.ModePerm|0o600)
 			if err != nil {
 				return count, err
 			}
@@ -212,6 +228,28 @@ func untarInto(r io.Reader, dest string, progress func(file string)) (int, error
 			}
 		}
 	}
+}
+
+// parentInside reports whether target's directory, with every symlink
+// resolved, still lies within root — the guard against an earlier entry
+// having redirected a directory component out of the tree.
+func parentInside(root, target string) error {
+	dir := filepath.Dir(target)
+	real, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // nothing created it yet; MkdirAll made it real
+		}
+		return err
+	}
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		realRoot = root
+	}
+	if real != realRoot && !strings.HasPrefix(real, realRoot+string(os.PathSeparator)) {
+		return fmt.Errorf("refusing %s: a parent directory leaves the destination", target)
+	}
+	return nil
 }
 
 // safeJoin resolves name under root and refuses anything that escapes it.
