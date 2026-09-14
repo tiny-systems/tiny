@@ -27,11 +27,18 @@ RUN apk add --no-cache curl ca-certificates \
  && mv /codex-code-mode-host-${A}-unknown-linux-musl /codex-code-mode-host-bin \
  && chmod 755 /codex-bin /codex-code-mode-host-bin
 
-# mc: the artifact-store client, per-arch static binary from minio.
+# mc: the artifact-store client, per-arch static binary.
+# Pinned to a release. minio removed the unversioned dl.min.io path (it
+# answers 410 now), and that URL handed us an unverifiable moving target
+# anyway. Each release asset ships a .sha256sum, so check it.
 FROM alpine:3.20 AS mc
 ARG TARGETARCH
+ARG MC_RELEASE=RELEASE.2025-08-13T08-35-41Z
 RUN apk add --no-cache curl ca-certificates \
- && curl -fsSL -o /mc "https://dl.min.io/client/mc/release/linux-${TARGETARCH}/mc" \
+ && url="https://github.com/minio/mc/releases/download/${MC_RELEASE}/mc.linux-${TARGETARCH}.${MC_RELEASE}" \
+ && curl -fsSL -o /mc "$url" \
+ && want="$(curl -fsSL "$url.sha256sum" | cut -d' ' -f1)" \
+ && echo "$want  /mc" | sha256sum -c - \
  && chmod 755 /mc
 
 # tiny-notify: attention hook without a curl dependency.
