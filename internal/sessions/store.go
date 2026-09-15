@@ -489,12 +489,14 @@ type NamespaceSettings struct {
 	ZotNodeTrust bool
 	Minio        bool
 	Web          bool
+	Egress       bool
 	RunnerRepo   string
 	RepoKey      bool // tiny-repo-keys present (read-only status)
 	// Observed truth per add-on: "", "running", "starting", or a failure.
-	ZotState   string
-	MinioState string
-	WebState   string
+	ZotState    string
+	MinioState  string
+	WebState    string
+	EgressState string
 }
 
 // LoadSettings reads the switchboard plus adjacent status.
@@ -507,6 +509,7 @@ func (s *Store) LoadSettings(ctx context.Context) (NamespaceSettings, error) {
 		out.ZotNodeTrust = cm.Data["zotNodeTrust"] == trueWord
 		out.Minio = cm.Data["minio"] == trueWord
 		out.Web = cm.Data["web"] == trueWord
+		out.Egress = cm.Data["egress"] == trueWord
 		out.RunnerRepo = cm.Data["runnerRepo"]
 	} else if !apierrors.IsNotFound(err) {
 		return out, err
@@ -518,6 +521,11 @@ func (s *Store) LoadSettings(ctx context.Context) (NamespaceSettings, error) {
 	out.ZotState = s.addonState(ctx, "tiny-zot", out.Zot)
 	out.MinioState = s.addonState(ctx, "tiny-minio", out.Minio)
 	out.WebState = s.addonState(ctx, "tiny-web", out.Web)
+	if out.Egress {
+		// Not a pod, so addonState cannot speak for it: what matters is
+		// whether the cluster enforces the policy at all.
+		out.EgressState = (&addons.Applier{Client: s.Kube.Client}).EgressState(ctx, s.Kube.Namespace)
+	}
 	return out, nil
 }
 
@@ -530,6 +538,7 @@ func (s *Store) SaveSettings(ctx context.Context, ns NamespaceSettings) error {
 			"zotNodeTrust": boolWord(ns.ZotNodeTrust),
 			"minio":        boolWord(ns.Minio),
 			"web":          boolWord(ns.Web),
+			"egress":       boolWord(ns.Egress),
 			"runnerRepo":   ns.RunnerRepo,
 		},
 	}
@@ -583,6 +592,13 @@ func (s *Store) applyAddons(ctx context.Context, ns NamespaceSettings) error {
 		}
 	} else if err := ap.TeardownWebAddon(ctx, namespace); err != nil {
 		return fmt.Errorf("web teardown: %w", err)
+	}
+	if ns.Egress {
+		if err := ap.EnsureEgressPolicy(ctx, namespace); err != nil {
+			return fmt.Errorf("egress policy: %w", err)
+		}
+	} else if err := ap.TeardownEgressPolicy(ctx, namespace); err != nil {
+		return fmt.Errorf("egress policy teardown: %w", err)
 	}
 	if ns.RunnerRepo != "" {
 		img := workload.ResolveImages(ctx, s.Kube.Client, namespace).Sidecar

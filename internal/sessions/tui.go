@@ -403,6 +403,7 @@ var settingsItems = []string{
 	"node trust for the cache — DaemonSet installs its CA on every node (cluster-touching)",
 	"minio artifact store — sessions hand each other files (mc alias: store)",
 	"web page — read-only fleet + blast radius (kubectl port-forward svc/tiny-web 8080)",
+	"egress policy — sessions reach http/https and this namespace, nothing else",
 	"GitHub runner — issues labeled `tiny` become sessions (org or owner/repo; enter edits, empty = off)",
 }
 
@@ -472,6 +473,8 @@ func (m Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case 3:
 			m.settings.Web = !m.settings.Web
 		case 4:
+			m.settings.Egress = !m.settings.Egress
+		case 5:
 			// Text, not a toggle: edit the watched org/repo.
 			m.mode = modeRunnerEdit
 			m.input.Placeholder = "org or owner/repo — empty turns the runner off"
@@ -726,8 +729,8 @@ func (m Model) updateRunnerEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // renderSettings draws the switchboard with each add-on's observed truth.
 func (m Model) renderSettings(f *strings.Builder) {
 	f.WriteString("  namespace settings — space toggles, esc back\n")
-	checks := []bool{m.settings.Zot, m.settings.ZotNodeTrust, m.settings.Minio, m.settings.Web, m.settings.RunnerRepo != ""}
-	states := []string{m.settings.ZotState, "", m.settings.MinioState, m.settings.WebState, m.runnerStateLabel()}
+	checks := []bool{m.settings.Zot, m.settings.ZotNodeTrust, m.settings.Minio, m.settings.Web, m.settings.Egress, m.settings.RunnerRepo != ""}
+	states := []string{m.settings.ZotState, "", m.settings.MinioState, m.settings.WebState, m.settings.EgressState, m.runnerStateLabel()}
 	for i, item := range settingsItems {
 		cur, box := "  ", "[ ]"
 		if checks[i] {
@@ -743,6 +746,8 @@ func (m Model) renderSettings(f *strings.Builder) {
 			state = "  " + glyphGreen.Render("● running")
 		case states[i] == stateStarting:
 			state = "  " + helpStyle.Render("◌ starting")
+		case strings.HasPrefix(states[i], "enforced by "):
+			state = "  " + glyphGreen.Render("● "+states[i])
 		case strings.HasPrefix(states[i], "watching "):
 			state = "  " + helpStyle.Render(states[i])
 		default:
