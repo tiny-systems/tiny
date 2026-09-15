@@ -11,7 +11,9 @@ Closed: the cloud metadata endpoint (the documented path to stealing an
 instance's cloud credentials), every port except 80/443, and reaching
 pods outside this namespace. Open: HTTPS to the internet, because the
 agent must reach its model API, and a NetworkPolicy selects addresses,
-not hostnames. Data can still leave over 443. Narrowing that needs an
+not hostnames. Data can still leave over 443, and over DNS — port 53 is
+deliberately unrestricted so that clusters resolving through NodeLocal
+DNSCache at 169.254.20.10 are not broken by the link-local exclusion. Narrowing that needs an
 egress proxy the policy points at, which is a later step.
 
 In-namespace traffic stays allowed on purpose: sessions hand each other
