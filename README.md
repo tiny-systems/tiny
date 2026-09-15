@@ -80,6 +80,13 @@ resumes itself.
   and the files two sessions are both editing — at `kubectl port-forward
   svc/tiny-web 8080`. It can only read: approving a question runs with
   *your* credentials, so answering stays in the CLI.
+- **Containment the agent can't opt out of.** The `egress` add-on puts a
+  default-deny NetworkPolicy on session pods: this namespace and
+  http/https out, nothing else. That closes the cloud metadata endpoint
+  at `169.254.169.254` — the documented route to an instance's cloud
+  credentials — every port but 80 and 443, and other namespaces. It does
+  not stop exfiltration over 443, and it only bites if your CNI enforces
+  NetworkPolicy, which the settings screen checks and says out loud.
 - **Namespace add-ons, one checkbox each.** A namespace is a group of
   agents — a team, a project, one person. Its settings screen can switch
   on a **zot registry cache** (one Docker Hub pull per image per
@@ -90,8 +97,9 @@ resumes itself.
   cache is a push target too: a buildah session builds an image, pushes
   it to `$TINY_REGISTRY`, and the next session runs what the last one
   built — build, push, spawn, all inside the namespace.
-- **Every decision is an auditable object.** Blocked tool calls park as
-  Question CRs until a person answers:
+- **Every decision is an auditable object.** When the agent asks before
+  acting, the question parks as a Question CR until a person answers, and
+  the answer runs with *their* credentials, not the agent's:
 
 ```sh
 kubectl get questions
@@ -270,6 +278,11 @@ Things this does not do well yet, so you don't discover them the hard way:
 - **Handoff ships the whole directory.** There is no `.gitignore` filter
   and no exclude list, so `node_modules`, build output and any `.env`
   travel up with the tree. Tidy the directory first if that matters.
+- **The agent is not sandboxed from its own tool calls.** It runs with
+  `--permission-mode bypassPermissions`, so inside its pod it can execute
+  anything; `ask_human` is cooperative, not an interceptor. Containment
+  is the pod boundary, the absent credentials, and the egress policy — not
+  a veto on what the agent runs.
 - **Weeks old.** The pieces above are real and tested, but this is a
   young codebase; read it before pointing it at anything precious. It is
   small on purpose.
