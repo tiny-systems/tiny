@@ -483,6 +483,9 @@ const (
 	trueWord   = "true"
 )
 
+// keyEgress is the switchboard key for the egress policy.
+const keyEgress = "egress"
+
 // NamespaceSettings mirrors the tiny-settings switchboard for the UI.
 type NamespaceSettings struct {
 	Zot          bool
@@ -509,9 +512,15 @@ func (s *Store) LoadSettings(ctx context.Context) (NamespaceSettings, error) {
 		out.ZotNodeTrust = cm.Data["zotNodeTrust"] == trueWord
 		out.Minio = cm.Data["minio"] == trueWord
 		out.Web = cm.Data["web"] == trueWord
-		out.Egress = cm.Data["egress"] == trueWord
+		out.Egress = cm.Data[keyEgress] == trueWord
 		out.RunnerRepo = cm.Data["runnerRepo"]
-	} else if !apierrors.IsNotFound(err) {
+	} else if apierrors.IsNotFound(err) {
+		// Never configured: the safe default. A namespace that HAS a
+		// switchboard without this key predates the add-on and keeps its
+		// egress, because silently cutting a session off from something
+		// it reached yesterday is not a default, it is a surprise.
+		out.Egress = true
+	} else {
 		return out, err
 	}
 	sec := &corev1.Secret{}
@@ -529,6 +538,24 @@ func (s *Store) LoadSettings(ctx context.Context) (NamespaceSettings, error) {
 	return out, nil
 }
 
+// EnsureNamespaceDefaults brings a brand-new namespace up with the
+// defaults it should have, and leaves a configured one alone.
+//
+// Never fatal: a cluster where this client cannot write a NetworkPolicy
+// is a cluster where sessions should still start. The caller is told, and
+// the settings screen shows the policy missing.
+func (s *Store) EnsureNamespaceDefaults(ctx context.Context) error {
+	cm := &corev1.ConfigMap{}
+	err := s.Kube.Client.Get(ctx, client.ObjectKey{Namespace: s.Kube.Namespace, Name: settingsCM}, cm)
+	if err == nil {
+		return nil // already configured; not ours to change
+	}
+	if !apierrors.IsNotFound(err) {
+		return err
+	}
+	return s.SaveSettings(ctx, NamespaceSettings{Egress: true})
+}
+
 // SaveSettings writes the switchboard; whoever toggled it does the work.
 func (s *Store) SaveSettings(ctx context.Context, ns NamespaceSettings) error {
 	cm := &corev1.ConfigMap{
@@ -538,7 +565,7 @@ func (s *Store) SaveSettings(ctx context.Context, ns NamespaceSettings) error {
 			"zotNodeTrust": boolWord(ns.ZotNodeTrust),
 			"minio":        boolWord(ns.Minio),
 			"web":          boolWord(ns.Web),
-			"egress":       boolWord(ns.Egress),
+			keyEgress:      boolWord(ns.Egress),
 			"runnerRepo":   ns.RunnerRepo,
 		},
 	}

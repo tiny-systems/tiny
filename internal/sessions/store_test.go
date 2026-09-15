@@ -141,3 +141,48 @@ func TestBroadcastSkipsFinishedSessions(t *testing.T) {
 		t.Fatalf("done session got broadcast: %+v", se.Spec.Inbox)
 	}
 }
+
+// A namespace nobody has configured comes up contained. One that HAS a
+// switchboard is left exactly as its owner set it — flipping a control
+// someone relies on is a surprise, not a default.
+func TestEgressDefaultsOnOnlyForUnconfiguredNamespaces(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name string
+		cm   *corev1.ConfigMap
+		want bool
+	}{
+		{"never configured", nil, true},
+		{"predates the add-on", &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: settingsCM},
+			Data:       map[string]string{"zot": trueWord},
+		}, false},
+		{"explicitly turned off", &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: settingsCM},
+			Data:       map[string]string{keyEgress: "false"},
+		}, false},
+		{"explicitly on", &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: settingsCM},
+			Data:       map[string]string{keyEgress: trueWord},
+		}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			b := clientfake.NewClientBuilder().WithScheme(scheme)
+			if tc.cm != nil {
+				b = b.WithObjects(tc.cm)
+			}
+			s := &Store{Kube: &kube.Client{Client: b.Build(), Namespace: "team-a"}}
+			got, err := s.LoadSettings(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Egress != tc.want {
+				t.Fatalf("Egress = %v, want %v", got.Egress, tc.want)
+			}
+		})
+	}
+}

@@ -38,16 +38,23 @@ func sessionKube() (*kube.Client, error) {
 // ensureRuntime installs CRDs + manager when absent. One confirmed touch;
 // re-running is a server-side-apply no-op, so it doubles as upgrade.
 func ensureRuntime(ctx context.Context, k *kube.Client) error {
-	if runtimeinstall.Installed(ctx, k) {
-		return nil
+	if !runtimeinstall.Installed(ctx, k) {
+		if err := confirmTarget(runtimeinstall.ConfirmPrompt); err != nil {
+			return err
+		}
+		if err := runtimeinstall.Apply(ctx, k.RESTConfig, k.Namespace); err != nil {
+			return err
+		}
+		fmt.Println("  ✓ runtime installed")
 	}
-	if err := confirmTarget(runtimeinstall.ConfirmPrompt); err != nil {
-		return err
+	// The CRDs are cluster-scoped, so an installed cluster tells us nothing
+	// about THIS namespace: a second team's namespace still arrives with no
+	// switchboard and needs its defaults.
+	if err := newStore(k).EnsureNamespaceDefaults(ctx); err != nil {
+		// A namespace that cannot hold a NetworkPolicy is still a namespace
+		// that should run sessions. Say so and carry on.
+		fmt.Printf("  ! egress policy not applied: %v\n", err)
 	}
-	if err := runtimeinstall.Apply(ctx, k.RESTConfig, k.Namespace); err != nil {
-		return err
-	}
-	fmt.Println("  ✓ runtime installed")
 	return nil
 }
 
