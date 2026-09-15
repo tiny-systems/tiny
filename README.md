@@ -1,17 +1,25 @@
 # ◇ tiny
 
-**Run the real Claude Code and Codex CLIs as pods on your own Kubernetes — close the laptop, the session keeps working.**
+**A coding agent with no keys and no open ports — the real Claude Code and Codex CLIs, as pods on your own Kubernetes.**
 
 ![tiny demo: a session is created, its pod is killed mid-task, and the fleet screen shows it still working](https://tinysystems.io/static/demo.gif?v=clean1)
 
-It runs the genuine vendor CLIs, not a copy of them, as pods with a
-persistent workspace. Close the lid and a session keeps working, through
-rate limits and pod restarts. Already mid-conversation on your laptop?
-`tiny handoff` moves that session — files, uncommitted changes and
-transcript — into the cluster. Attach from any terminal; answer a
-decision from the fleet screen or from anywhere with `kubectl`. And when
-you want the team flow, a labeled GitHub issue comes back as a pull
-request.
+An agent that reads issues, pulls dependencies and browses the web is an
+agent that will eventually be told to do something by someone who is not
+you. The question is what it is holding when that happens.
+
+In tiny it is holding nothing. No git credentials — work leaves as a
+`git bundle` that a courier job pushes with a short-lived token the agent
+never sees. No cloud credentials, and no route to the metadata endpoint
+that would mint some. Nothing listens on the pod, so there is no inbound
+surface to attack: you reach a session through the Kubernetes API, not
+through a port. When it needs to do something it cannot undo, it asks —
+and **your answer runs with your credentials, not its**.
+
+It runs the genuine vendor CLIs, not a copy of them, with a persistent
+workspace. Close the lid and a session keeps working, through rate limits
+and pod restarts. `tiny handoff` moves a session you are already in —
+files, uncommitted changes and transcript — into the cluster.
 
 ```
 $ tiny new "fix the flaky checkout test, open a PR"
@@ -41,8 +49,43 @@ metrics-server, no extra RBAC. WHAT is live: the agent's declared title,
 refreshed by its own turns; a session paused on a usage limit says so and
 resumes itself.
 
+## The containment, precisely
+
+Security claims are worth what their exceptions are worth, so both halves
+are here.
+
+| closed | how |
+|---|---|
+| repo credentials | the agent has none; work leaves as a `git bundle` and a [courier job](https://tinysystems.io/docs/outbox/) pushes it with a short-lived token |
+| cloud credentials | none in the pod, and the egress policy blocks `169.254.169.254`, the endpoint that hands out an instance's IAM role |
+| inbound network | nothing listens — no `containerPort`, the MCP sidecar binds `127.0.0.1`. You reach a session through the Kubernetes API, under your RBAC |
+| lateral movement | default-deny egress cuts other namespaces, the node, and every port except 80/443 |
+| acting as the agent | approving a question runs in *your* client with *your* credentials — which is why the web page is read-only |
+
+| open | why |
+|---|---|
+| the model credential | it lives in the agent pod. Running the real vendor CLI requires it; this is inherent, not an oversight |
+| HTTPS to the internet | a NetworkPolicy matches addresses, not hostnames, and the agent must reach its model API. Data can still be POSTed out |
+| DNS | port 53 is unrestricted so NodeLocal DNSCache clusters resolve; queries are an exfiltration channel |
+| the agent's own tool calls | it runs `--permission-mode bypassPermissions`. `ask_human` is cooperative — nothing intercepts it |
+
+The boundary is the pod, the absent credentials and the network policy —
+not a veto over what the agent runs. If you want the third leg of the
+[lethal trifecta](https://simonwillison.net/tags/prompt-injection/) cut
+properly, that needs an egress proxy with a hostname allow-list, and it
+does not exist yet.
+
+Full detail: [threat model](https://tinysystems.io/docs/threat-model/) ·
+[egress policy](https://tinysystems.io/docs/egress/) ·
+[the gate](https://tinysystems.io/docs/gate/)
+
 ## What makes it different
 
+- **The agent holds no repo credentials.** Not restricted — absent. It
+  commits locally and drops a `git bundle` in `/workspace/outbox/`; a
+  courier job rebases and pushes with a `GITHUB_TOKEN` that never enters
+  the agent's pod. A prompt-injected agent cannot push, force-push, or
+  reach your other repositories, because the capability is not there.
 - **It's the real CLI, not a wrapper.** Attach and you're in genuine
   Claude Code (or Codex) over a TTY: hotkeys, slash commands, plan mode,
   subagents, skills from your repo, your `.mcp.json` servers. tiny does
