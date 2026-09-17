@@ -6,6 +6,7 @@ package workload
 // both a terminating claim and one owned by a different session.
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -88,5 +89,24 @@ func TestEnsureWorkspaceAcceptsOwnClaimAndCreatesFresh(t *testing.T) {
 	}
 	if owner := metav1.GetControllerOf(got); owner == nil || owner.UID != se.UID {
 		t.Fatalf("fresh claim not owned by session: %+v", got.OwnerReferences)
+	}
+}
+
+// The artifact store is handed to agents as "http://tiny-minio:9000", a
+// bare short name. NO_PROXY matches a host exactly or as a domain
+// suffix, so ".svc" does not cover it — without the exact name the store
+// dies the moment the egress allow-list is switched on.
+func TestNoProxyCoversInNamespaceServices(t *testing.T) {
+	list := noProxyList("http://10.96.0.5:3128")
+	for _, host := range []string{"tiny-minio", "tiny-zot", "tiny-egress"} {
+		if !slices.Contains(strings.Split(list, ","), host) {
+			t.Errorf("NO_PROXY is missing %q — that traffic would be proxied and refused", host)
+		}
+	}
+	if !strings.Contains(list, ".svc") {
+		t.Error("NO_PROXY is missing .svc — expose_port URLs would be proxied")
+	}
+	if noProxyList("") != "" {
+		t.Error("NO_PROXY should be empty when no proxy is configured")
 	}
 }

@@ -471,12 +471,27 @@ func serviceIP(ctx context.Context, c client.Client, ns, name string) string {
 
 // noProxyList keeps cluster-local traffic direct. Sending the artifact
 // store or another session's exposed port through the proxy would mean
-// allow-listing internal names to talk to ourselves.
+// allow-listing internal names in order to talk to ourselves.
+//
+// The bare service names are load-bearing. NO_PROXY matches a host
+// exactly or as a domain suffix, so ".svc" covers expose_port's
+// "<svc>.<ns>.svc:<port>" but NOT the artifact store, which agents are
+// handed as "http://tiny-minio:9000". Without the exact name that
+// request goes to the proxy and is refused, and the store breaks the
+// moment the allow-list is switched on.
+//
+// The CIDRs are for Go-based tooling, which understands them in
+// NO_PROXY. curl does not, which is the other reason the names are here.
 func noProxyList(proxyEnv string) string {
 	if proxyEnv == "" {
 		return ""
 	}
-	return "localhost,127.0.0.1,.svc,.svc.cluster.local,.cluster.local,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+	return strings.Join([]string{
+		"localhost", "127.0.0.1",
+		"tiny-minio", "tiny-zot", "tiny-egress",
+		".svc", ".svc.cluster.local", ".cluster.local",
+		"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+	}, ",")
 }
 
 // rewriteThroughCache sends a bare-host image through the namespace cache:
