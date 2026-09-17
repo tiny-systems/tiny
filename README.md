@@ -65,15 +65,15 @@ are here.
 | open | why |
 |---|---|
 | the model credential | it lives in the agent pod. Running the real vendor CLI requires it; this is inherent, not an oversight |
-| HTTPS to the internet | a NetworkPolicy matches addresses, not hostnames, and the agent must reach its model API. Data can still be POSTed out |
-| DNS | port 53 is unrestricted so NodeLocal DNSCache clusters resolve; queries are an exfiltration channel |
+| HTTPS to the internet | by default, yes: a NetworkPolicy matches addresses, not hostnames. The [hostname allow-list](https://tinysystems.io/docs/egress/) narrows it to named hosts — though allow-listing `github.com` still permits a gist |
 | the agent's own tool calls | it runs `--permission-mode bypassPermissions`. `ask_human` is cooperative — nothing intercepts it |
 
 The boundary is the pod, the absent credentials and the network policy —
-not a veto over what the agent runs. If you want the third leg of the
-[lethal trifecta](https://simonwillison.net/tags/prompt-injection/) cut
-properly, that needs an egress proxy with a hostname allow-list, and it
-does not exist yet.
+not a veto over what the agent runs. The third leg of the [lethal
+trifecta](https://simonwillison.net/tags/prompt-injection/) is narrowed
+by the policy and cut by the allow-list, which routes every outbound
+connection through a `CONNECT` proxy that filters by hostname without
+terminating TLS.
 
 Full detail: [threat model](https://tinysystems.io/docs/threat-model/) ·
 [egress policy](https://tinysystems.io/docs/egress/) ·
@@ -123,6 +123,12 @@ Full detail: [threat model](https://tinysystems.io/docs/threat-model/) ·
   and the files two sessions are both editing — at `kubectl port-forward
   svc/tiny-web 8080`. It can only read: approving a question runs with
   *your* credentials, so answering stays in the CLI.
+- **A hostname allow-list, not an address one.** Switch on the proxy and
+  every outbound connection goes through a `CONNECT` filter that reads
+  the hostname before the tunnel opens — no CA in your image, no TLS
+  terminated. The internet rule disappears from the policy and DNS
+  narrows with it, so the tunnelling channel closes too. Refusals name
+  the host and land in `kubectl logs deploy/tiny-egress`.
 - **Containment the agent can't opt out of.** The `egress` add-on puts a
   default-deny NetworkPolicy on session pods: this namespace and
   http/https out, nothing else. That closes the cloud metadata endpoint
