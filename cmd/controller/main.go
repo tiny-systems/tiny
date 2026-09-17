@@ -26,17 +26,47 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	agentsv1 "github.com/tiny-systems/tiny/api/v1alpha1"
+	"github.com/tiny-systems/tiny/internal/egressproxy"
 	"github.com/tiny-systems/tiny/internal/tools"
 )
 
 func main() {
 	args := os.Args[1:]
-	// One role remains; "serve" as a first arg is accepted for
-	// compatibility with old pod specs.
+	// Two roles now. "serve" as a first arg is accepted for compatibility
+	// with old pod specs; "proxy" is the namespace's egress allow-list,
+	// riding this image so it needs no build of its own.
+	if len(args) > 0 && args[0] == "proxy" {
+		runProxy(args[1:])
+		return
+	}
 	if len(args) > 0 && args[0] == "serve" {
 		args = args[1:]
 	}
 	serve(args)
+}
+
+// runProxy serves the hostname allow-list the NetworkPolicy points at.
+// The list is a file so a ConfigMap can own it; it is re-read on every
+// change rather than at boot, because editing the list should not mean
+// restarting every session's route to the internet.
+func runProxy(args []string) {
+	fs := flag.NewFlagSet("proxy", flag.ExitOnError)
+	addr := fs.String("addr", ":3128", "listen address")
+	allowFile := fs.String("allow-file", "/etc/tiny/egress-allow", "file of permitted hosts, one per line")
+	_ = fs.Parse(args)
+
+	rules, err := egressproxy.LoadRules(*allowFile)
+	if err != nil {
+		log.Fatalf("egress allow-list: %v", err)
+	}
+	p := egressproxy.New(rules)
+	go egressproxy.WatchRules(*allowFile, p, 15*time.Second)
+
+	log.Printf("tiny egress proxy on %s, allow-list %s", *addr, *allowFile)
+	srv := &http.Server{Addr: *addr, Handler: p, ReadHeaderTimeout: 20 * time.Second}
+	if err := srv.ListenAndServe(); err != nil {
+		log.Fatal(err)
+	}
 }
 
 func scheme() *runtime.Scheme {

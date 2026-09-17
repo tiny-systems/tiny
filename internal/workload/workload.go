@@ -218,8 +218,17 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 	// Docker Hub for a repository that exists on one laptop).
 	initImage := "busybox:1.36"
 	registryEnv := ""
-	if cfg, err := settings.Load(ctx, c, s.Namespace); err == nil && cfg.Zot {
-		if ip := zotIP(ctx, c, s.Namespace); ip != "" {
+	proxyEnv := ""
+	cfg, cfgErr := settings.Load(ctx, c, s.Namespace)
+	if cfgErr == nil && cfg.EgressProxy {
+		// An ADDRESS, not a name: with the proxy resolving on the session's
+		// behalf, the session itself needs no DNS for anything outside.
+		if ip := serviceIP(ctx, c, s.Namespace, "tiny-egress"); ip != "" {
+			proxyEnv = fmt.Sprintf("http://%s:%d", ip, 3128)
+		}
+	}
+	if cfgErr == nil && cfg.Zot {
+		if ip := serviceIP(ctx, c, s.Namespace, "tiny-zot"); ip != "" {
 			// Agents learn the namespace registry's address from env — it
 			// is a push target too (built images), not just a cache.
 			registryEnv = fmt.Sprintf("%s:%d", ip, 5000)
@@ -348,6 +357,15 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 					{Name: "TINY_MODEL", Value: s.Spec.Model},
 					{Name: "TINY_SESSION_NAME", Value: s.Name},
 					{Name: "TINY_REGISTRY", Value: registryEnv},
+					// Both spellings: tooling is inconsistent about case, and
+					// NO_PROXY keeps in-namespace traffic (the artifact store,
+					// another session's exposed port) off the proxy.
+					{Name: "HTTPS_PROXY", Value: proxyEnv},
+					{Name: "https_proxy", Value: proxyEnv},
+					{Name: "HTTP_PROXY", Value: proxyEnv},
+					{Name: "http_proxy", Value: proxyEnv},
+					{Name: "NO_PROXY", Value: noProxyList(proxyEnv)},
+					{Name: "no_proxy", Value: noProxyList(proxyEnv)},
 				},
 				VolumeMounts: agentMounts(workspace, tinyHome, envSecret),
 			},
@@ -443,12 +461,22 @@ func agentUID(s *agentsv1.Session) int64 {
 
 // zotIP finds the cache Service's ClusterIP — the address node runtimes can
 // actually reach (they cannot resolve cluster DNS).
-func zotIP(ctx context.Context, c client.Client, ns string) string {
+func serviceIP(ctx context.Context, c client.Client, ns, name string) string {
 	svc := &corev1.Service{}
-	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "tiny-zot"}, svc); err != nil {
+	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, svc); err != nil {
 		return ""
 	}
 	return svc.Spec.ClusterIP
+}
+
+// noProxyList keeps cluster-local traffic direct. Sending the artifact
+// store or another session's exposed port through the proxy would mean
+// allow-listing internal names to talk to ourselves.
+func noProxyList(proxyEnv string) string {
+	if proxyEnv == "" {
+		return ""
+	}
+	return "localhost,127.0.0.1,.svc,.svc.cluster.local,.cluster.local,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
 }
 
 // rewriteThroughCache sends a bare-host image through the namespace cache:

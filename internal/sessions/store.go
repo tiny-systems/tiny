@@ -486,6 +486,10 @@ const (
 // keyEgress is the switchboard key for the egress policy.
 const keyEgress = "egress"
 
+// keyEgressProxy switches the policy from "http/https anywhere" to "only
+// through the allow-list".
+const keyEgressProxy = "egressProxy"
+
 // NamespaceSettings mirrors the tiny-settings switchboard for the UI.
 type NamespaceSettings struct {
 	Zot          bool
@@ -493,6 +497,7 @@ type NamespaceSettings struct {
 	Minio        bool
 	Web          bool
 	Egress       bool
+	EgressProxy  bool
 	RunnerRepo   string
 	RepoKey      bool // tiny-repo-keys present (read-only status)
 	// Observed truth per add-on: "", "running", "starting", or a failure.
@@ -500,6 +505,7 @@ type NamespaceSettings struct {
 	MinioState  string
 	WebState    string
 	EgressState string
+	ProxyState  string
 }
 
 // LoadSettings reads the switchboard plus adjacent status.
@@ -513,6 +519,7 @@ func (s *Store) LoadSettings(ctx context.Context) (NamespaceSettings, error) {
 		out.Minio = cm.Data["minio"] == trueWord
 		out.Web = cm.Data["web"] == trueWord
 		out.Egress = cm.Data[keyEgress] == trueWord
+		out.EgressProxy = cm.Data[keyEgressProxy] == trueWord
 		out.RunnerRepo = cm.Data["runnerRepo"]
 	} else if apierrors.IsNotFound(err) {
 		// Never configured: the safe default. A namespace that HAS a
@@ -530,6 +537,9 @@ func (s *Store) LoadSettings(ctx context.Context) (NamespaceSettings, error) {
 	out.ZotState = s.addonState(ctx, "tiny-zot", out.Zot)
 	out.MinioState = s.addonState(ctx, "tiny-minio", out.Minio)
 	out.WebState = s.addonState(ctx, "tiny-web", out.Web)
+	if out.EgressProxy {
+		out.ProxyState = s.addonState(ctx, "tiny-egress", out.EgressProxy)
+	}
 	if out.Egress {
 		// Not a pod, so addonState cannot speak for it: what matters is
 		// whether the cluster enforces the policy at all.
@@ -566,6 +576,7 @@ func (s *Store) SaveSettings(ctx context.Context, ns NamespaceSettings) error {
 			"minio":        boolWord(ns.Minio),
 			"web":          boolWord(ns.Web),
 			keyEgress:      boolWord(ns.Egress),
+			keyEgressProxy: boolWord(ns.EgressProxy),
 			"runnerRepo":   ns.RunnerRepo,
 		},
 	}
@@ -620,12 +631,26 @@ func (s *Store) applyAddons(ctx context.Context, ns NamespaceSettings) error {
 	} else if err := ap.TeardownWebAddon(ctx, namespace); err != nil {
 		return fmt.Errorf("web teardown: %w", err)
 	}
+	// The proxy must exist before the policy stops allowing the internet,
+	// or sessions lose their route in the gap between the two writes.
+	viaProxy := ns.Egress && ns.EgressProxy
+	if viaProxy {
+		img := workload.ResolveImages(ctx, s.Kube.Client, namespace).Sidecar
+		if err := ap.EnsureProxyAddon(ctx, namespace, img); err != nil {
+			return fmt.Errorf("egress proxy: %w", err)
+		}
+	}
 	if ns.Egress {
-		if err := ap.EnsureEgressPolicy(ctx, namespace); err != nil {
+		if err := ap.EnsureEgressPolicy(ctx, namespace, viaProxy); err != nil {
 			return fmt.Errorf("egress policy: %w", err)
 		}
 	} else if err := ap.TeardownEgressPolicy(ctx, namespace); err != nil {
 		return fmt.Errorf("egress policy teardown: %w", err)
+	}
+	if !viaProxy {
+		if err := ap.TeardownProxyAddon(ctx, namespace); err != nil {
+			return fmt.Errorf("egress proxy teardown: %w", err)
+		}
 	}
 	if ns.RunnerRepo != "" {
 		img := workload.ResolveImages(ctx, s.Kube.Client, namespace).Sidecar

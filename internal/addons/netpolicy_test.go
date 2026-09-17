@@ -30,7 +30,7 @@ func testScheme(t *testing.T) *runtime.Scheme {
 func applyPolicy(t *testing.T, objs ...runtime.Object) networkingv1.NetworkPolicy {
 	t.Helper()
 	r := &Applier{Client: fake.NewClientBuilder().WithScheme(testScheme(t)).WithRuntimeObjects(objs...).Build()}
-	if err := r.EnsureEgressPolicy(context.Background(), "team-a"); err != nil {
+	if err := r.EnsureEgressPolicy(context.Background(), "team-a", false); err != nil {
 		t.Fatal(err)
 	}
 	var pol networkingv1.NetworkPolicy
@@ -46,10 +46,10 @@ func TestEgressPolicyExcludesCloudMetadata(t *testing.T) {
 	pol := applyPolicy(t)
 	for _, rule := range pol.Spec.Egress {
 		for _, peer := range rule.To {
-			if peer.IPBlock == nil || peer.IPBlock.CIDR != "0.0.0.0/0" {
+			if peer.IPBlock == nil || peer.IPBlock.CIDR != cidrAnywhere {
 				continue
 			}
-			if !slices.Contains(peer.IPBlock.Except, "169.254.0.0/16") {
+			if !slices.Contains(peer.IPBlock.Except, cidrLinkLocal) {
 				t.Fatalf("link-local not excluded from the internet rule: %v", peer.IPBlock.Except)
 			}
 			return
@@ -107,7 +107,7 @@ func TestEgressPolicyIsIdempotentAndUpdates(t *testing.T) {
 	r := &Applier{Client: fake.NewClientBuilder().WithScheme(testScheme(t)).Build()}
 	ctx := context.Background()
 	for range 2 {
-		if err := r.EnsureEgressPolicy(ctx, "team-a"); err != nil {
+		if err := r.EnsureEgressPolicy(ctx, "team-a", false); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -156,11 +156,70 @@ func TestEgressStateWarnsWhenNothingEnforces(t *testing.T) {
 	if got := r.EgressState(ctx, "team-a"); got != "" {
 		t.Fatalf("no policy should report nothing, got %q", got)
 	}
-	if err := r.EnsureEgressPolicy(ctx, "team-a"); err != nil {
+	if err := r.EnsureEgressPolicy(ctx, "team-a", false); err != nil {
 		t.Fatal(err)
 	}
 	got := r.EgressState(ctx, "team-a")
 	if got != "NOT ENFORCED — no NetworkPolicy-capable CNI found" {
 		t.Fatalf("want the NOT ENFORCED warning, got %q", got)
+	}
+}
+
+// With the proxy on, the internet rule must be GONE. If it survives, the
+// allow-list is decoration: a session could route around the proxy by
+// talking to an address directly.
+func TestProxyModeRemovesTheInternetRule(t *testing.T) {
+	r := &Applier{Client: fake.NewClientBuilder().WithScheme(testScheme(t)).Build()}
+	ctx := context.Background()
+	if err := r.EnsureEgressPolicy(ctx, "team-a", true); err != nil {
+		t.Fatal(err)
+	}
+	var pol networkingv1.NetworkPolicy
+	if err := r.Get(ctx, types.NamespacedName{Namespace: "team-a", Name: egressPolicyName}, &pol); err != nil {
+		t.Fatal(err)
+	}
+	for _, rule := range pol.Spec.Egress {
+		for _, peer := range rule.To {
+			if peer.IPBlock != nil && peer.IPBlock.CIDR == cidrAnywhere {
+				t.Fatal("internet rule still present with the proxy on — sessions could bypass the allow-list")
+			}
+		}
+	}
+}
+
+// DNS narrows to the cluster's own resolvers, closing the tunnel to an
+// attacker-run nameserver. Link-local stays open on 53 ONLY, for
+// NodeLocal DNSCache — that must not reopen the metadata endpoint.
+func TestProxyModeNarrowsDNSWithoutReopeningMetadata(t *testing.T) {
+	r := &Applier{Client: fake.NewClientBuilder().WithScheme(testScheme(t)).Build()}
+	ctx := context.Background()
+	if err := r.EnsureEgressPolicy(ctx, "team-a", true); err != nil {
+		t.Fatal(err)
+	}
+	var pol networkingv1.NetworkPolicy
+	if err := r.Get(ctx, types.NamespacedName{Namespace: "team-a", Name: egressPolicyName}, &pol); err != nil {
+		t.Fatal(err)
+	}
+	var linkLocalPorts []int32
+	for _, rule := range pol.Spec.Egress {
+		for _, peer := range rule.To {
+			if peer.IPBlock == nil || peer.IPBlock.CIDR != cidrLinkLocal {
+				continue
+			}
+			if len(rule.Ports) == 0 {
+				t.Fatal("link-local allowed on ALL ports — that reopens the metadata endpoint")
+			}
+			for _, p := range rule.Ports {
+				linkLocalPorts = append(linkLocalPorts, p.Port.IntVal)
+			}
+		}
+	}
+	if len(linkLocalPorts) == 0 {
+		t.Fatal("no link-local DNS rule — NodeLocal DNSCache clusters would stop resolving")
+	}
+	for _, p := range linkLocalPorts {
+		if p != 53 {
+			t.Fatalf("link-local open on port %d, want 53 only", p)
+		}
 	}
 }

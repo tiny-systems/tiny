@@ -35,6 +35,10 @@ type Settings struct {
 	// workflows whose jobs land here and spawn sessions. Registration uses
 	// the tiny-runner-pat Secret.
 	RunnerRepo string
+	// EgressProxy routes a session's outbound traffic through the
+	// namespace's hostname allow-list instead of letting it reach any
+	// address on 80/443.
+	EgressProxy bool
 	// ZotNodeTrust consents to the ONE cluster-touching piece: a DaemonSet
 	// that installs the cache's CA certificate on every node so their
 	// container runtimes accept it. Explicitly separate from Zot.
@@ -55,6 +59,7 @@ func Load(ctx context.Context, c client.Client, namespace string) (Settings, err
 		Zot:          cm.Data["zot"] == on,
 		ZotNodeTrust: cm.Data["zotNodeTrust"] == on,
 		Minio:        cm.Data["minio"] == on,
+		EgressProxy:  cm.Data["egressProxy"] == on,
 		RunnerRepo:   cm.Data["runnerRepo"],
 	}, nil
 }
