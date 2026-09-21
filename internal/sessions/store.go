@@ -725,9 +725,9 @@ func (s *Store) addonState(ctx context.Context, name string, enabled bool) strin
 // ignorant of GitHub.
 const OriginAnnotation = "tinysystems.io/origin"
 
-// SetOrigin stamps the origin on a session, creating nothing: a session
-// that does not exist yet gets it when --ensure creates it moments later,
-// because the annotation is written again on every delivery.
+// SetOrigin stamps the origin on a session. It creates nothing, so the
+// caller must run it AFTER the session exists — a missing session is a
+// silent no-op, which is exactly how the first delivery lost its origin.
 func (s *Store) SetOrigin(ctx context.Context, name, origin string) error {
 	se := &agentsv1.Session{}
 	err := s.Kube.Client.Get(ctx, client.ObjectKey{Namespace: s.Kube.Namespace, Name: name}, se)

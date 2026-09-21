@@ -71,16 +71,17 @@ func newDeliverCmd() *cobra.Command {
 					return fmt.Errorf("publish env: %w", err)
 				}
 			}
-			if origin != "" {
-				// Remember where this work came from, so anything that later
-				// finds the session blocked knows which thread to speak on.
-				if err := store.SetOrigin(ctx, name, origin); err != nil {
-					fmt.Printf("  ! could not record origin: %v\n", err)
-				}
-			}
 			if ensure {
 				if err := ensureSession(ctx, store, name, repo, len(envs) > 0); err != nil {
 					return err
+				}
+			}
+			// AFTER the session exists. SetOrigin cannot stamp a session that
+			// is not there yet, and the first delivery is the one that
+			// creates it — stamping first silently skipped every new session.
+			if origin != "" {
+				if err := store.SetOrigin(ctx, name, origin); err != nil {
+					fmt.Printf("  ! could not record origin: %v\n", err)
 				}
 			}
 			if err := store.SendText(ctx, name, msg); err != nil {

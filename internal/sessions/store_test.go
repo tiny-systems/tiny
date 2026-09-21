@@ -186,3 +186,34 @@ func TestEgressDefaultsOnOnlyForUnconfiguredNamespaces(t *testing.T) {
 		})
 	}
 }
+
+// The first delivery is the one that creates the session, so stamping the
+// origin before it exists loses it exactly when it matters. SetOrigin is a
+// no-op on a missing session by design; the caller has to order it right.
+func TestSetOriginNeedsTheSessionToExist(t *testing.T) {
+	scheme := runtime.NewScheme()
+	for _, add := range []func(*runtime.Scheme) error{corev1.AddToScheme, agentsv1.AddToScheme} {
+		if err := add(scheme); err != nil {
+			t.Fatal(err)
+		}
+	}
+	se := &agentsv1.Session{ObjectMeta: metav1.ObjectMeta{Namespace: "agents", Name: "root"}}
+	fc := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(se).Build()
+	s := &Store{Kube: &kube.Client{Client: fc, Namespace: "agents"}}
+
+	// Missing session: silently does nothing, which is the trap.
+	if err := s.SetOrigin(t.Context(), "nope", "github:owner/repo#1"); err != nil {
+		t.Fatalf("missing session should be a no-op, got %v", err)
+	}
+	// Existing session: the annotation lands.
+	if err := s.SetOrigin(t.Context(), "root", "github:owner/repo#5"); err != nil {
+		t.Fatal(err)
+	}
+	var got agentsv1.Session
+	if err := fc.Get(t.Context(), client.ObjectKey{Namespace: "agents", Name: "root"}, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Annotations[OriginAnnotation] != "github:owner/repo#5" {
+		t.Fatalf("origin = %q, want the stamped value", got.Annotations[OriginAnnotation])
+	}
+}
