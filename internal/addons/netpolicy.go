@@ -24,6 +24,7 @@ package addons
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -134,7 +135,7 @@ func egressRules(viaProxy bool, internet []networkingv1.NetworkPolicyPeer, dnsUD
 	return []networkingv1.NetworkPolicyEgressRule{
 		{Ports: dnsPorts, To: []networkingv1.NetworkPolicyPeer{
 			{NamespaceSelector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{"kubernetes.io/metadata.name": "kube-system"},
+				MatchLabels: map[string]string{"kubernetes.io/metadata.name": nsKubeSystem},
 			}},
 			{IPBlock: &networkingv1.IPBlock{CIDR: cidrLinkLocal}},
 		}},
@@ -163,9 +164,21 @@ var knownEnforcers = map[string]string{
 	"kube-router":  "kube-router",
 	"weave-net":    "weave",
 	"ovnkube-node": "ovn-kubernetes",
-	"aws-node":     "aws-vpc-cni",
-	"azure-cni":    "azure",
 }
+
+// cniK3s is separate because k3s enforces NetworkPolicy from a
+// kube-router controller embedded in the k3s process itself. There is no
+// DaemonSet to find, so looking for one reports NOT ENFORCED on a
+// cluster that is in fact enforcing.
+//
+// The EKS and AKS CNIs are deliberately absent for the opposite reason:
+// their DaemonSets are present whether or not policy enforcement is
+// switched on, so finding one proves nothing. Claiming enforcement that
+// is not happening is the worse error of the two.
+const (
+	cniK3s       = "k3s (embedded kube-router)"
+	nsKubeSystem = "kube-system"
+)
 
 // PolicyEnforcement reports whether anything in this cluster will act on
 // a NetworkPolicy. The API accepts the object regardless — on a cluster
@@ -177,8 +190,18 @@ var knownEnforcers = map[string]string{
 // with false means nothing known was found; an unreadable kube-system
 // (no RBAC for it) is reported as unknown too, never as enforced.
 func (r *Applier) PolicyEnforcement(ctx context.Context) (string, bool) {
+	// k3s first: it enforces without a DaemonSet to look for.
+	var nodes corev1.NodeList
+	if err := r.List(ctx, &nodes); err == nil {
+		for _, n := range nodes.Items {
+			if strings.Contains(n.Status.NodeInfo.KubeletVersion, "+k3s") {
+				return cniK3s, true
+			}
+		}
+	}
+
 	var dss appsv1.DaemonSetList
-	if err := r.List(ctx, &dss, client.InNamespace("kube-system")); err != nil {
+	if err := r.List(ctx, &dss, client.InNamespace(nsKubeSystem)); err != nil {
 		return "", false
 	}
 	for _, ds := range dss.Items {

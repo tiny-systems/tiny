@@ -124,7 +124,7 @@ func TestEgressPolicyIsIdempotentAndUpdates(t *testing.T) {
 // protection. Never report enforcement that was not found.
 func TestPolicyEnforcementReportsHonestly(t *testing.T) {
 	ds := func(name string) *appsv1.DaemonSet {
-		return &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Namespace: "kube-system", Name: name}}
+		return &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Namespace: nsKubeSystem, Name: name}}
 	}
 	cases := []struct {
 		name    string
@@ -221,5 +221,40 @@ func TestProxyModeNarrowsDNSWithoutReopeningMetadata(t *testing.T) {
 		if p != 53 {
 			t.Fatalf("link-local open on port %d, want 53 only", p)
 		}
+	}
+}
+
+// k3s enforces NetworkPolicy from a controller inside the k3s process,
+// with no DaemonSet to find. Reporting NOT ENFORCED there tells an
+// operator they are unprotected when they are not.
+func TestPolicyEnforcementDetectsK3s(t *testing.T) {
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "maksym"},
+		Status: corev1.NodeStatus{
+			NodeInfo: corev1.NodeSystemInfo{KubeletVersion: "v1.31.5+k3s1"},
+		},
+	}
+	r := &Applier{Client: fake.NewClientBuilder().WithScheme(testScheme(t)).WithRuntimeObjects(node).Build()}
+	cni, ok := r.PolicyEnforcement(context.Background())
+	if !ok {
+		t.Fatal("k3s reported as not enforcing — it does, via embedded kube-router")
+	}
+	if cni != cniK3s {
+		t.Fatalf("cni = %q, want %q", cni, cniK3s)
+	}
+}
+
+// The EKS and AKS CNI DaemonSets exist whether or not policy enforcement
+// is enabled, so their presence must NOT be read as enforcement.
+// Over-claiming is the worse failure for a security display.
+func TestPolicyEnforcementDoesNotTrustAmbiguousCNIs(t *testing.T) {
+	for _, name := range []string{"aws-node", "azure-cni"} {
+		t.Run(name, func(t *testing.T) {
+			ds := &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Namespace: nsKubeSystem, Name: name}}
+			r := &Applier{Client: fake.NewClientBuilder().WithScheme(testScheme(t)).WithRuntimeObjects(ds).Build()}
+			if cni, ok := r.PolicyEnforcement(context.Background()); ok {
+				t.Fatalf("claimed enforcement by %q from a DaemonSet that proves nothing", cni)
+			}
+		})
 	}
 }

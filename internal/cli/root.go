@@ -118,6 +118,13 @@ func newInitCmd() *cobra.Command {
 			if err := applyRuntime(ctx, k); err != nil {
 				return err
 			}
+			// Same namespace defaults tiny new applies on first contact.
+			// init is the explicit, reviewable path to the same state, so
+			// it must not leave a namespace less contained than the
+			// implicit one does.
+			if err := newStore(k).EnsureNamespaceDefaults(ctx); err != nil {
+				fmt.Printf("  ! egress policy not applied: %v\n", err)
+			}
 			fmt.Println("  ✓ runtime installed")
 			fmt.Printf("  start a session:  tiny new \"your task\" -n %s\n", k.Namespace)
 			return nil
