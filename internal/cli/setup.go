@@ -229,10 +229,16 @@ func setupRepoKey(ctx context.Context, k *kube.Client) error {
 		if !apierrors.IsNotFound(getErr) {
 			return getErr
 		}
-		fmt.Print("\n  Sessions can clone private repos over SSH with a deploy key\n  minted just for this cluster. Create one? [y/N] ")
+		fmt.Print("\n  Optional: a deploy key, minted for this cluster, so sessions can reach\n" +
+			"  PRIVATE repos over SSH — dependencies, submodules, a second repo a task\n" +
+			"  needs. You do NOT need it for the repo a session works on: that arrives\n" +
+			"  over HTTPS if public, and finished work leaves through the outbox, which\n" +
+			"  a courier pushes with its own token.\n\n" +
+			"  Taking it puts a long-lived write credential inside the agent's pod.\n" +
+			"  Create one? [y/N] ")
 		answer := readLine()
 		if !confirmed(answer) {
-			fmt.Println("  – skipped; public repos and HTTPS tokens still work")
+			fmt.Println("  – skipped; public repos clone over HTTPS and the outbox still pushes")
 			return nil
 		}
 	}
@@ -268,7 +274,8 @@ func setupRepoKey(ctx context.Context, k *kube.Client) error {
 		return fmt.Errorf("create tiny-repo-keys: %w", err)
 	}
 	fmt.Println("  ✓ deploy key minted and stored (tiny-repo-keys)")
-	fmt.Println("\n  Give the PUBLIC half access to your repos:")
+	fmt.Println("\n  Give the PUBLIC half access to the PRIVATE repos sessions must reach")
+	fmt.Println("  (read-only is enough to clone; write is only for pushing directly):")
 	fmt.Println("    per repo:   https://github.com/<owner>/<repo>/settings/keys")
 	fmt.Println("    everything: https://github.com/settings/ssh/new")
 	fmt.Printf("\n  %s\n", strings.TrimSpace(pubLine))

@@ -8,9 +8,9 @@ An agent that reads issues, pulls dependencies and browses the web is an
 agent that will eventually be told to do something by someone who is not
 you. The question is what it is holding when that happens.
 
-In tiny it is holding nothing. No git credentials — work leaves as a
-`git bundle` that a courier job pushes with a short-lived token the agent
-never sees. No cloud credentials, and no route to the metadata endpoint
+In tiny it is holding nothing it does not need. No git credentials by
+default — work leaves as a `git bundle` that a courier job pushes with a
+short-lived token the agent never sees. No cloud credentials, and no route to the metadata endpoint
 that would mint some. Nothing listens on the pod, so there is no inbound
 surface to attack: you reach a session through the Kubernetes API, not
 through a port. When it needs to do something it cannot undo, it asks —
@@ -56,7 +56,7 @@ are here.
 
 | closed | how |
 |---|---|
-| repo credentials | the agent has none; work leaves as a `git bundle` and a [courier job](https://tinysystems.io/docs/outbox/) pushes it with a short-lived token |
+| repo credentials | none in the pod by default: work leaves as a `git bundle` and a [courier job](https://tinysystems.io/docs/outbox/) pushes it with a short-lived token. Opting into a deploy key (`tiny setup`) puts one there — see the open list |
 | cloud credentials | none in the pod, and the egress policy blocks `169.254.169.254`, the endpoint that hands out an instance's IAM role |
 | inbound network | nothing listens — no `containerPort`, the MCP sidecar binds `127.0.0.1`. You reach a session through the Kubernetes API, under your RBAC |
 | lateral movement | default-deny egress cuts other namespaces, the node, and every port except 80/443 |
@@ -67,6 +67,7 @@ are here.
 | the model credential | it lives in the agent pod. Running the real vendor CLI requires it; this is inherent, not an oversight |
 | HTTPS to the internet | by default, yes: a NetworkPolicy matches addresses, not hostnames. The [hostname allow-list](https://tinysystems.io/docs/egress/) narrows it to named hosts — though allow-listing `github.com` still permits a gist |
 | the agent's own tool calls | it runs `--permission-mode bypassPermissions`. `ask_human` is cooperative — nothing intercepts it |
+| a deploy key, if you add one | `tiny setup` offers to mint one, and the entrypoint copies it to the agent's `~/.ssh`. Convenient for private repos, but it is a long-lived write credential in the pod. The outbox exists so you never have to |
 
 The boundary is the pod, the absent credentials and the network policy —
 not a veto over what the agent runs. The third leg of the [lethal
@@ -81,11 +82,14 @@ Full detail: [threat model](https://tinysystems.io/docs/threat-model/) ·
 
 ## What makes it different
 
-- **The agent holds no repo credentials.** Not restricted — absent. It
-  commits locally and drops a `git bundle` in `/workspace/outbox/`; a
-  courier job rebases and pushes with a `GITHUB_TOKEN` that never enters
-  the agent's pod. A prompt-injected agent cannot push, force-push, or
-  reach your other repositories, because the capability is not there.
+- **The agent needs no repo credentials.** It commits locally and drops a
+  `git bundle` in `/workspace/outbox/`; a courier job rebases and pushes
+  with a `GITHUB_TOKEN` that never enters the agent's pod. With no key in
+  the pod a prompt-injected agent cannot push, force-push or reach your
+  other repositories — the capability is not there. `tiny setup` can mint
+  a deploy key for repos you would rather the agent pushed to directly;
+  take it and the agent *does* hold a long-lived write credential, so
+  take it deliberately.
 - **It's the real CLI, not a wrapper.** Attach and you're in genuine
   Claude Code (or Codex) over a TTY: hotkeys, slash commands, plan mode,
   subagents, skills from your repo, your `.mcp.json` servers. tiny does
