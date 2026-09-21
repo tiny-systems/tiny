@@ -22,6 +22,11 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	agentsv1 "github.com/tiny-systems/tiny/api/v1alpha1"
+	"github.com/tiny-systems/tiny/internal/sessions"
 )
 
 // questionOut is the shape --json emits. Stable on purpose: a workflow
@@ -32,7 +37,10 @@ type questionOut struct {
 	Text    string   `json:"text"`
 	Options []string `json:"options,omitempty"`
 	AgeSecs int      `json:"ageSeconds"`
-	Answer  string   `json:"answerCommand"`
+	// Origin is whatever the event source recorded on the session — an
+	// issue reference, a ticket, a thread. Opaque to tiny.
+	Origin string `json:"origin,omitempty"`
+	Answer string `json:"answerCommand"`
 }
 
 func newQuestionsCmd() *cobra.Command {
@@ -61,9 +69,20 @@ func newQuestionsCmd() *cobra.Command {
 
 			now := time.Now()
 			var out []questionOut
+			// Origins live on the Session objects, which the snapshot
+			// flattens away — read them directly.
+			origins := map[string]string{}
+			var list agentsv1.SessionList
+			if err := k.Client.List(ctx, &list, client.InNamespace(k.Namespace)); err == nil {
+				for _, se := range list.Items {
+					if o := se.Annotations[sessions.OriginAnnotation]; o != "" {
+						origins[se.Name] = o
+					}
+				}
+			}
 			add := func(session string, qName, text string, opts []string, created time.Time) {
 				out = append(out, questionOut{
-					Name: qName, Session: session, Text: text, Options: opts,
+					Name: qName, Session: session, Text: text, Options: opts, Origin: origins[session],
 					AgeSecs: int(now.Sub(created).Seconds()),
 					Answer:  fmt.Sprintf("tiny answer %s <your answer>", qName),
 				})

@@ -24,6 +24,7 @@ import (
 
 func newDeliverCmd() *cobra.Command {
 	var ensure bool
+	var origin string
 	var repo string
 	var envs []string
 	cmd := &cobra.Command{
@@ -70,6 +71,13 @@ func newDeliverCmd() *cobra.Command {
 					return fmt.Errorf("publish env: %w", err)
 				}
 			}
+			if origin != "" {
+				// Remember where this work came from, so anything that later
+				// finds the session blocked knows which thread to speak on.
+				if err := store.SetOrigin(ctx, name, origin); err != nil {
+					fmt.Printf("  ! could not record origin: %v\n", err)
+				}
+			}
 			if ensure {
 				if err := ensureSession(ctx, store, name, repo, len(envs) > 0); err != nil {
 					return err
@@ -84,6 +92,7 @@ func newDeliverCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&ensure, "ensure", false, "create the session if it does not exist")
 	cmd.Flags().StringVar(&repo, "repo", "", "git URL cloned into the workspace when --ensure creates the session")
+	cmd.Flags().StringVar(&origin, "origin", "", "where this work came from (e.g. github:owner/repo#3) — carried on the session so a blocked one can be reported back there")
 	cmd.Flags().StringArrayVar(&envs, "env", nil, "KEY=VALUE delivered as a refreshing file /tiny-env/KEY (repeatable)")
 	return cmd
 }

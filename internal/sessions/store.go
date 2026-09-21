@@ -719,6 +719,40 @@ func (s *Store) addonState(ctx context.Context, name string, enabled bool) strin
 	return stateStarting
 }
 
+// OriginAnnotation records where a session's work came from — an issue,
+// a ticket, a chat thread. tiny does not parse it; it is an opaque string
+// an event source writes and later reads back, which is how the CLI stays
+// ignorant of GitHub.
+const OriginAnnotation = "tinysystems.io/origin"
+
+// SetOrigin stamps the origin on a session, creating nothing: a session
+// that does not exist yet gets it when --ensure creates it moments later,
+// because the annotation is written again on every delivery.
+func (s *Store) SetOrigin(ctx context.Context, name, origin string) error {
+	se := &agentsv1.Session{}
+	err := s.Kube.Client.Get(ctx, client.ObjectKey{Namespace: s.Kube.Namespace, Name: name}, se)
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if se.Annotations[OriginAnnotation] == origin {
+		return nil
+	}
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		cur := &agentsv1.Session{}
+		if gerr := s.Kube.Client.Get(ctx, client.ObjectKey{Namespace: s.Kube.Namespace, Name: name}, cur); gerr != nil {
+			return gerr
+		}
+		if cur.Annotations == nil {
+			cur.Annotations = map[string]string{}
+		}
+		cur.Annotations[OriginAnnotation] = origin
+		return s.Kube.Client.Update(ctx, cur)
+	})
+}
+
 // Broadcast appends the same message to every unfinished session's inbox —
 // the fleet-wide megaphone behind the TUI's [b] and `tiny broadcast`. Done
 // sessions are skipped; everything else gets the message durably, including
