@@ -478,13 +478,15 @@ func (r *Applier) teardownMinio(ctx context.Context, ns string) error {
 }
 
 const (
-	tinyBinVol = "tiny-bin"
-	tinyBinDir = "/tiny-bin"
-	verbGet    = "get"
-	verbWatch  = "watch"
-	verbCreate = "create"
-	verbList   = "list"
-	runnerName = "tiny-runner"
+	tinyBinVol     = "tiny-bin"
+	tinyBinDir     = "/tiny-bin"
+	verbGet        = "get"
+	verbWatch      = "watch"
+	verbCreate     = "create"
+	verbList       = "list"
+	runnerName     = "tiny-runner"
+	apiGroupAgents = "agents.tinysystems.io"
+	verbUpdate     = "update"
 	// Pinned like every other add-on image — a floating tag means two
 	// namespaces "on the same version" can run different runners.
 	runnerImage  = "ghcr.io/actions/actions-runner:2.321.0"
@@ -612,17 +614,17 @@ func (r *Applier) ensureRunnerRBAC(ctx context.Context, ns string) error {
 	role := &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: runnerName},
 		Rules: []rbacv1.PolicyRule{
-			{APIGroups: []string{"agents.tinysystems.io"}, Resources: []string{"sessions"}, Verbs: []string{verbGet, verbList, verbWatch, verbCreate, "update", "patch"}}, // update: deliveries append to spec.inbox
+			{APIGroups: []string{apiGroupAgents}, Resources: []string{"sessions"}, Verbs: []string{verbGet, verbList, verbWatch, verbCreate, verbUpdate, "patch"}}, // update: deliveries append to spec.inbox
 			// Read-only: the courier reports blocked sessions back to
 			// wherever the work came from. It must not answer them —
 			// answering runs the action, and that belongs to a human with
 			// their own credentials, not to a workflow's token.
-			{APIGroups: []string{"agents.tinysystems.io"}, Resources: []string{"questions"}, Verbs: []string{verbGet, verbList, verbWatch}},
+			{APIGroups: []string{apiGroupAgents}, Resources: []string{"questions"}, Verbs: []string{verbGet, verbList, verbWatch}},
 			// Manager-less: whoever creates a session creates its workload.
 			{APIGroups: []string{"apps"}, Resources: []string{"deployments"}, Verbs: []string{verbGet, verbCreate}},
 			{APIGroups: []string{""}, Resources: []string{"persistentvolumeclaims"}, Verbs: []string{verbGet, verbCreate}},
 			{APIGroups: []string{""}, Resources: []string{"services"}, Verbs: []string{verbGet}},
-			{APIGroups: []string{""}, Resources: []string{"secrets"}, Verbs: []string{verbCreate, "update", verbGet}},
+			{APIGroups: []string{""}, Resources: []string{"secrets"}, Verbs: []string{verbCreate, verbUpdate, verbGet}},
 			// The outbox courier lifts bundles out of session pods.
 			{APIGroups: []string{""}, Resources: []string{"pods"}, Verbs: []string{verbGet, verbList}},
 			{APIGroups: []string{""}, Resources: []string{"pods/exec"}, Verbs: []string{verbCreate}},
@@ -721,14 +723,14 @@ func (r *Applier) ensureWebRBAC(ctx context.Context, ns string) error {
 		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: webName},
 		Rules: []rbacv1.PolicyRule{
 			{
-				APIGroups: []string{"agents.tinysystems.io"},
+				APIGroups: []string{apiGroupAgents},
 				Resources: []string{"sessions", "questions"},
-				Verbs:     []string{"get", "list", verbWatch},
+				Verbs:     []string{verbGet, verbList, verbWatch},
 			},
 			{
 				APIGroups: []string{""},
 				Resources: []string{"pods", "configmaps"},
-				Verbs:     []string{"get", "list", verbWatch},
+				Verbs:     []string{verbGet, verbList, verbWatch},
 			},
 			{
 				APIGroups: []string{""},
