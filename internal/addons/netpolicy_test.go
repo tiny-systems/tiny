@@ -9,6 +9,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -20,7 +21,7 @@ func testScheme(t *testing.T) *runtime.Scheme {
 	s := runtime.NewScheme()
 	for _, add := range []func(*runtime.Scheme) error{
 		networkingv1.AddToScheme, appsv1.AddToScheme, corev1.AddToScheme,
-		discoveryv1.AddToScheme,
+		discoveryv1.AddToScheme, rbacv1.AddToScheme,
 	} {
 		if err := add(s); err != nil {
 			t.Fatal(err)
@@ -316,5 +317,38 @@ func TestEgressPolicyAllowsTheAPIServer(t *testing.T) {
 				t.Error("API endpoint not allowed — most CNIs match egress after DNAT")
 			}
 		})
+	}
+}
+
+// The courier reports blocked sessions, so it must be able to READ
+// questions — without this tiny questions returns an empty list and the
+// notification silently posts nothing. It must NOT be able to answer
+// them: answering performs the action, and that authority belongs to a
+// human with their own credentials, not to a workflow token.
+func TestRunnerCanReadQuestionsButNotAnswerThem(t *testing.T) {
+	r := &Applier{Client: fake.NewClientBuilder().WithScheme(testScheme(t)).Build()}
+	if err := r.ensureRunnerRBAC(context.Background(), "agents"); err != nil {
+		t.Fatal(err)
+	}
+	var role rbacv1.Role
+	if err := r.Get(context.Background(), types.NamespacedName{Namespace: "agents", Name: "tiny-runner"}, &role); err != nil {
+		t.Fatal(err)
+	}
+	var canRead bool
+	for _, rule := range role.Rules {
+		if !slices.Contains(rule.Resources, "questions") {
+			continue
+		}
+		for _, v := range rule.Verbs {
+			switch v {
+			case "list", "get":
+				canRead = true
+			case "update", "patch", "create", "delete":
+				t.Errorf("runner may %q questions — answering must stay with a human", v)
+			}
+		}
+	}
+	if !canRead {
+		t.Error("runner cannot list questions, so blocked sessions are never reported")
 	}
 }

@@ -613,6 +613,11 @@ func (r *Applier) ensureRunnerRBAC(ctx context.Context, ns string) error {
 		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: runnerName},
 		Rules: []rbacv1.PolicyRule{
 			{APIGroups: []string{"agents.tinysystems.io"}, Resources: []string{"sessions"}, Verbs: []string{verbGet, verbList, verbWatch, verbCreate, "update", "patch"}}, // update: deliveries append to spec.inbox
+			// Read-only: the courier reports blocked sessions back to
+			// wherever the work came from. It must not answer them —
+			// answering runs the action, and that belongs to a human with
+			// their own credentials, not to a workflow's token.
+			{APIGroups: []string{"agents.tinysystems.io"}, Resources: []string{"questions"}, Verbs: []string{verbGet, verbList, verbWatch}},
 			// Manager-less: whoever creates a session creates its workload.
 			{APIGroups: []string{"apps"}, Resources: []string{"deployments"}, Verbs: []string{verbGet, verbCreate}},
 			{APIGroups: []string{""}, Resources: []string{"persistentvolumeclaims"}, Verbs: []string{verbGet, verbCreate}},
