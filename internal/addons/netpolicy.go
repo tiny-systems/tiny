@@ -28,6 +28,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -77,13 +78,14 @@ func (r *Applier) EnsureEgressPolicy(ctx context.Context, ns string, viaProxy bo
 	internet := []networkingv1.NetworkPolicyPeer{{
 		IPBlock: &networkingv1.IPBlock{CIDR: cidrAnywhere, Except: privateRanges},
 	}}
+	apiPeers, apiPorts := r.apiServerPeers(ctx)
 
 	pol := &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: egressPolicyName},
 		Spec: networkingv1.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{"app": "tiny-session"}},
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
-			Egress:      egressRules(viaProxy, internet, dnsUDP, dnsPort),
+			Egress:      egressRules(viaProxy, internet, dnsUDP, dnsPort, apiPeers, apiPorts),
 		},
 	}
 	// Update in place when it already exists: an upgrade may tighten the
@@ -118,21 +120,28 @@ func (r *Applier) EnsureEgressPolicy(ctx context.Context, ns string, viaProxy bo
 // does not reopen the metadata endpoint, which answers on 80 and 443.
 // Queries to a nameserver an attacker controls stop being reachable
 // directly, which is the DNS tunnel closed.
-func egressRules(viaProxy bool, internet []networkingv1.NetworkPolicyPeer, dnsUDP corev1.Protocol, dnsPort intstr.IntOrString) []networkingv1.NetworkPolicyEgressRule {
+func egressRules(viaProxy bool, internet []networkingv1.NetworkPolicyPeer, dnsUDP corev1.Protocol, dnsPort intstr.IntOrString, apiPeers []networkingv1.NetworkPolicyPeer, apiPorts []networkingv1.NetworkPolicyPort) []networkingv1.NetworkPolicyEgressRule {
 	dnsPorts := []networkingv1.NetworkPolicyPort{{Protocol: &dnsUDP, Port: &dnsPort}, tcp(53)}
 	// This namespace: the artifact store, each other's exposed ports, and
 	// the proxy itself. Sessions collaborating is a feature.
 	inNamespace := networkingv1.NetworkPolicyEgressRule{
 		To: []networkingv1.NetworkPolicyPeer{{PodSelector: &metav1.LabelSelector{}}},
 	}
+	// The API server, always: an agent that cannot read its own spec.inbox
+	// never receives the work delivered to it.
+	apiRule := networkingv1.NetworkPolicyEgressRule{To: apiPeers, Ports: apiPorts}
 	if !viaProxy {
-		return []networkingv1.NetworkPolicyEgressRule{
+		out := []networkingv1.NetworkPolicyEgressRule{
 			{Ports: dnsPorts},
 			inNamespace,
 			{To: internet, Ports: []networkingv1.NetworkPolicyPort{tcp(80), tcp(443)}},
 		}
+		if len(apiPeers) > 0 {
+			out = append(out, apiRule)
+		}
+		return out
 	}
-	return []networkingv1.NetworkPolicyEgressRule{
+	viaProxyRules := []networkingv1.NetworkPolicyEgressRule{
 		{Ports: dnsPorts, To: []networkingv1.NetworkPolicyPeer{
 			{NamespaceSelector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{"kubernetes.io/metadata.name": nsKubeSystem},
@@ -141,6 +150,62 @@ func egressRules(viaProxy bool, internet []networkingv1.NetworkPolicyPeer, dnsUD
 		}},
 		inNamespace,
 	}
+	if len(apiPeers) > 0 {
+		viaProxyRules = append(viaProxyRules, apiRule)
+	}
+	return viaProxyRules
+}
+
+// apiServerPeers allows the pod to reach the Kubernetes API. It has to be
+// discovered, not hardcoded: the Service ClusterIP differs per cluster
+// (10.96.0.1 on kubeadm, 10.43.0.1 on k3s) and the real endpoint behind it
+// is usually a node address, which the private-range exclusion would
+// otherwise cut.
+//
+// Without this an agent cannot read its own spec.inbox, so delivered work
+// never reaches it and the session sits idle looking healthy.
+func (r *Applier) apiServerPeers(ctx context.Context) ([]networkingv1.NetworkPolicyPeer, []networkingv1.NetworkPolicyPort) {
+	var peers []networkingv1.NetworkPolicyPeer
+	var ports []networkingv1.NetworkPolicyPort
+	seenPort := map[int32]bool{}
+
+	var svc corev1.Service
+	if err := r.Get(ctx, types.NamespacedName{Namespace: nsDefault, Name: svcKubernetes}, &svc); err == nil {
+		if ip := svc.Spec.ClusterIP; ip != "" && ip != "None" {
+			peers = append(peers, networkingv1.NetworkPolicyPeer{
+				IPBlock: &networkingv1.IPBlock{CIDR: ip + "/32"},
+			})
+		}
+		for _, p := range svc.Spec.Ports {
+			if !seenPort[p.Port] {
+				seenPort[p.Port] = true
+				ports = append(ports, tcp(p.Port))
+			}
+		}
+	}
+	// The endpoints behind it: most CNIs evaluate egress after DNAT, so the
+	// ClusterIP alone is not enough. EndpointSlice, not the deprecated
+	// Endpoints, which is on its way out of the API.
+	var slices discoveryv1.EndpointSliceList
+	if err := r.List(ctx, &slices, client.InNamespace(nsDefault),
+		client.MatchingLabels{discoveryv1.LabelServiceName: svcKubernetes}); err == nil {
+		for _, sl := range slices.Items {
+			for _, ep := range sl.Endpoints {
+				for _, addr := range ep.Addresses {
+					peers = append(peers, networkingv1.NetworkPolicyPeer{
+						IPBlock: &networkingv1.IPBlock{CIDR: addr + "/32"},
+					})
+				}
+			}
+			for _, p := range sl.Ports {
+				if p.Port != nil && !seenPort[*p.Port] {
+					seenPort[*p.Port] = true
+					ports = append(ports, tcp(*p.Port))
+				}
+			}
+		}
+	}
+	return peers, ports
 }
 
 // TeardownEgressPolicy removes it. Sessions go back to unrestricted egress.
@@ -176,8 +241,10 @@ var knownEnforcers = map[string]string{
 // switched on, so finding one proves nothing. Claiming enforcement that
 // is not happening is the worse error of the two.
 const (
-	cniK3s       = "k3s (embedded kube-router)"
-	nsKubeSystem = "kube-system"
+	cniK3s        = "k3s (embedded kube-router)"
+	nsKubeSystem  = "kube-system"
+	nsDefault     = "default"
+	svcKubernetes = "kubernetes"
 )
 
 // PolicyEnforcement reports whether anything in this cluster will act on

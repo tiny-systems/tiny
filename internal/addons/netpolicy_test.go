@@ -7,6 +7,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -19,6 +20,7 @@ func testScheme(t *testing.T) *runtime.Scheme {
 	s := runtime.NewScheme()
 	for _, add := range []func(*runtime.Scheme) error{
 		networkingv1.AddToScheme, appsv1.AddToScheme, corev1.AddToScheme,
+		discoveryv1.AddToScheme,
 	} {
 		if err := add(s); err != nil {
 			t.Fatal(err)
@@ -254,6 +256,64 @@ func TestPolicyEnforcementDoesNotTrustAmbiguousCNIs(t *testing.T) {
 			r := &Applier{Client: fake.NewClientBuilder().WithScheme(testScheme(t)).WithRuntimeObjects(ds).Build()}
 			if cni, ok := r.PolicyEnforcement(context.Background()); ok {
 				t.Fatalf("claimed enforcement by %q from a DaemonSet that proves nothing", cni)
+			}
+		})
+	}
+}
+
+// The agent reads its own spec.inbox from the Kubernetes API. That API
+// lives on a private address — a ClusterIP in 10.0.0.0/8, behind an
+// endpoint that is usually a node address in 192.168/16 — both of which
+// the internet rule cuts. Without an explicit rule the policy silently
+// stops work being delivered while the session looks perfectly healthy.
+func TestEgressPolicyAllowsTheAPIServer(t *testing.T) {
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "kubernetes"},
+		Spec: corev1.ServiceSpec{
+			ClusterIP: "10.43.0.1",
+			Ports:     []corev1.ServicePort{{Port: 443}},
+		},
+	}
+	apiPort := int32(6443)
+	eps := &discoveryv1.EndpointSlice{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "default", Name: "kubernetes",
+			Labels: map[string]string{discoveryv1.LabelServiceName: "kubernetes"},
+		},
+		Endpoints: []discoveryv1.Endpoint{{Addresses: []string{"192.168.31.76"}}},
+		Ports:     []discoveryv1.EndpointPort{{Port: &apiPort}},
+	}
+	for _, viaProxy := range []bool{false, true} {
+		t.Run(map[bool]string{false: "policy only", true: "with proxy"}[viaProxy], func(t *testing.T) {
+			r := &Applier{Client: fake.NewClientBuilder().WithScheme(testScheme(t)).
+				WithRuntimeObjects(svc, eps).Build()}
+			ctx := context.Background()
+			if err := r.EnsureEgressPolicy(ctx, "team-a", viaProxy); err != nil {
+				t.Fatal(err)
+			}
+			var pol networkingv1.NetworkPolicy
+			if err := r.Get(ctx, types.NamespacedName{Namespace: "team-a", Name: egressPolicyName}, &pol); err != nil {
+				t.Fatal(err)
+			}
+			var gotClusterIP, gotEndpoint bool
+			for _, rule := range pol.Spec.Egress {
+				for _, peer := range rule.To {
+					if peer.IPBlock == nil {
+						continue
+					}
+					switch peer.IPBlock.CIDR {
+					case "10.43.0.1/32":
+						gotClusterIP = true
+					case "192.168.31.76/32":
+						gotEndpoint = true
+					}
+				}
+			}
+			if !gotClusterIP {
+				t.Error("API ClusterIP not allowed — the agent cannot read its inbox")
+			}
+			if !gotEndpoint {
+				t.Error("API endpoint not allowed — most CNIs match egress after DNAT")
 			}
 		})
 	}

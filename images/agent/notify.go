@@ -219,10 +219,15 @@ func deliverInbox() {
 	}
 	resp, err := c.Do(req)
 	if err != nil {
+		// Loud on purpose. A silent return here is how an unreachable API
+		// server looks exactly like an empty inbox: the session sits
+		// healthy and idle while delivered work never arrives.
+		fmt.Fprintf(os.Stderr, "inbox: cannot reach the API at %s: %v\n", url, err)
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "inbox: API returned %s for %s\n", resp.Status, url)
 		return
 	}
 	var session struct {
