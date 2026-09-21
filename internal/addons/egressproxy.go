@@ -21,6 +21,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/tiny-systems/tiny/internal/workload"
 )
 
 const (
@@ -128,8 +130,9 @@ func (r *Applier) ensureProxyDeployment(ctx context.Context, ns, image string) e
 				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{appLabel: proxyName}},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{
-						Name:  proxyArg,
-						Image: image,
+						Name:            proxyArg,
+						Image:           image,
+						ImagePullPolicy: workload.PullPolicyFor(image),
 						Args: []string{proxyArg,
 							fmt.Sprintf("--addr=:%d", proxyPort),
 							"--allow-file=/etc/tiny/" + allowKey,

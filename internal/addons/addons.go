@@ -30,6 +30,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/tiny-systems/tiny/internal/workload"
 )
 
 // Applier wraps a client with the add-on verbs. Any credentialed caller —
@@ -555,8 +557,9 @@ func (r *Applier) ensureRunner(ctx context.Context, ns, repo, controllerImage st
 				Spec: corev1.PodSpec{
 					ServiceAccountName: runnerName,
 					InitContainers: []corev1.Container{{
-						Name:  "tiny-cli",
-						Image: controllerImage,
+						Name:            "tiny-cli",
+						Image:           controllerImage,
+						ImagePullPolicy: workload.PullPolicyFor(controllerImage),
 						// Distroless image, no shell: the CLI installs itself.
 						Command:      []string{"/tiny-cli", "--install-to", tinyBinDir},
 						VolumeMounts: []corev1.VolumeMount{{Name: tinyBinVol, MountPath: tinyBinDir}},
@@ -795,9 +798,10 @@ func (r *Applier) ensureWebDeployment(ctx context.Context, ns, image string) err
 				Spec: corev1.PodSpec{
 					ServiceAccountName: webName,
 					Containers: []corev1.Container{{
-						Name:    "web",
-						Image:   image,
-						Command: []string{"/web"},
+						Name:            "web",
+						Image:           image,
+						ImagePullPolicy: workload.PullPolicyFor(image),
+						Command:         []string{"/web"},
 						Env: []corev1.EnvVar{{
 							Name: "POD_NAMESPACE",
 							ValueFrom: &corev1.EnvVarSource{

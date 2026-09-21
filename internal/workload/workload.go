@@ -72,6 +72,30 @@ type Images struct {
 // version stamp.
 var DefaultImageTag = "main"
 
+// PullPolicyFor picks a pull policy from the tag's mutability.
+//
+// Kubernetes only defaults to Always for ":latest", so a moving tag like
+// ":main" or ":dev-<sha>" is cached on the node and never refreshed: a
+// runner installed once keeps running whatever binary it first pulled,
+// however many releases later. Version tags are immutable and worth
+// caching.
+func PullPolicyFor(image string) corev1.PullPolicy {
+	tag := image
+	if i := strings.LastIndexByte(image, ':'); i >= 0 && !strings.Contains(image[i:], "/") {
+		tag = image[i+1:]
+	} else {
+		tag = "latest" // no tag at all means :latest
+	}
+	switch {
+	case tag == "latest", tag == "main", tag == "master", tag == "edge":
+		return corev1.PullAlways
+	case strings.HasPrefix(tag, "dev-"), strings.HasPrefix(tag, "pr-"):
+		return corev1.PullAlways
+	default:
+		return corev1.PullIfNotPresent
+	}
+}
+
 // SetDefaultImageTag adopts the CLI's version as the image tag when it is a
 // release, with or without the leading v — the ldflags stamp is "0.8.0"
 // while a git tag reads "v0.8.0". Either way we pin to the form the
@@ -297,10 +321,11 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 			// That is what lets spec.image be golang, maven, your
 			// project's dev image, with nothing baked in.
 			{
-				Name:         "inject-agent",
-				Image:        images.Agent,
-				Command:      []string{"sh", "-c", "cp -a /opt/tiny/* /tiny/"}, // children, not the dir: the mountpoint's own metadata is not ours to set
-				VolumeMounts: []corev1.VolumeMount{tinyHome},
+				Name:            "inject-agent",
+				Image:           images.Agent,
+				ImagePullPolicy: PullPolicyFor(images.Agent),
+				Command:         []string{"sh", "-c", "cp -a /opt/tiny/* /tiny/"}, // children, not the dir: the mountpoint's own metadata is not ours to set
+				VolumeMounts:    []corev1.VolumeMount{tinyHome},
 			},
 		},
 		Volumes: []corev1.Volume{
@@ -329,11 +354,12 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 		},
 		Containers: []corev1.Container{
 			{
-				Name:       agentContainer,
-				Image:      agentImage,
-				Command:    []string{"/tiny/entrypoint.sh"},
-				WorkingDir: workspaceMount,
-				Resources:  resources,
+				Name:            agentContainer,
+				Image:           agentImage,
+				ImagePullPolicy: PullPolicyFor(agentImage),
+				Command:         []string{"/tiny/entrypoint.sh"},
+				WorkingDir:      workspaceMount,
+				Resources:       resources,
 				// Explicit uid: a custom image may default to root, and
 				// claude's bypass mode is not for root. spec.user
 				// overrides for images wired to their own uid (buildah).
@@ -370,9 +396,10 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 				VolumeMounts: agentMounts(workspace, tinyHome, envSecret),
 			},
 			{
-				Name:  "tiny-mcp",
-				Image: images.Sidecar,
-				Args:  []string{"serve", "--addr=127.0.0.1:8080"},
+				Name:            "tiny-mcp",
+				Image:           images.Sidecar,
+				ImagePullPolicy: PullPolicyFor(images.Sidecar),
+				Args:            []string{"serve", "--addr=127.0.0.1:8080"},
 				Env: []corev1.EnvVar{
 					{Name: "TINY_SESSION_NAME", Value: s.Name},
 					{Name: "POD_NAME", ValueFrom: &corev1.EnvVarSource{

@@ -110,3 +110,33 @@ func TestNoProxyCoversInNamespaceServices(t *testing.T) {
 		t.Error("NO_PROXY should be empty when no proxy is configured")
 	}
 }
+
+// Kubernetes defaults to Always only for :latest, so a moving tag like
+// :main is cached on the node forever — a runner installed once keeps the
+// binary it first pulled, however many releases later.
+func TestPullPolicyFollowsTagMutability(t *testing.T) {
+	always := []string{
+		"ghcr.io/tiny-systems/controller:main",
+		"ghcr.io/tiny-systems/agent:latest",
+		"ghcr.io/tiny-systems/controller:dev-1a2b3c",
+		"ghcr.io/tiny-systems/agent", // no tag means :latest
+		"ghcr.io/x/y:master",
+	}
+	cached := []string{
+		"ghcr.io/tiny-systems/agent:0.10.1",
+		"ghcr.io/tiny-systems/controller:v0.9.0",
+		"golang:1.26",
+		// A registry with a port must not be mistaken for a tag.
+		"10.43.0.5:5000/library/golang:1.26",
+	}
+	for _, img := range always {
+		if got := PullPolicyFor(img); got != corev1.PullAlways {
+			t.Errorf("PullPolicyFor(%q) = %v, want Always — a moving tag must be refetched", img, got)
+		}
+	}
+	for _, img := range cached {
+		if got := PullPolicyFor(img); got != corev1.PullIfNotPresent {
+			t.Errorf("PullPolicyFor(%q) = %v, want IfNotPresent — a version tag is immutable", img, got)
+		}
+	}
+}
