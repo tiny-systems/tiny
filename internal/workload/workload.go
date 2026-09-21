@@ -72,6 +72,11 @@ type Images struct {
 // version stamp.
 var DefaultImageTag = "main"
 
+const (
+	tagLatest  = "latest"
+	branchMain = "main"
+)
+
 // PullPolicyFor picks a pull policy from the tag's mutability.
 //
 // Kubernetes only defaults to Always for ":latest", so a moving tag like
@@ -80,14 +85,15 @@ var DefaultImageTag = "main"
 // however many releases later. Version tags are immutable and worth
 // caching.
 func PullPolicyFor(image string) corev1.PullPolicy {
-	tag := image
+	// The colon is a tag separator only when no slash follows it: a
+	// registry with a port (10.43.0.5:5000/library/golang:1.26) must not
+	// have its port read as a tag.
+	tag := tagLatest // an image with no tag is :latest
 	if i := strings.LastIndexByte(image, ':'); i >= 0 && !strings.Contains(image[i:], "/") {
 		tag = image[i+1:]
-	} else {
-		tag = "latest" // no tag at all means :latest
 	}
 	switch {
-	case tag == "latest", tag == "main", tag == "master", tag == "edge":
+	case tag == tagLatest, tag == branchMain, tag == "master", tag == "edge":
 		return corev1.PullAlways
 	case strings.HasPrefix(tag, "dev-"), strings.HasPrefix(tag, "pr-"):
 		return corev1.PullAlways
