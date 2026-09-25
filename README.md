@@ -281,18 +281,29 @@ too): `ctrl-q d` detach, `ctrl-q c` a plain shell beside the agent,
 
 The repo carries a [workflow](.github/workflows/tiny.yml): label an issue
 `tiny` and a five-second job on the in-cluster runner (a namespace-settings
-add-on) pipes it into the root session's inbox. The session works — spawns
-specialists if it needs toolchains — and ships **through the outbox**:
+add-on) pipes it into the root session's inbox. The session works — reaching for a specialist session only when a task
+genuinely needs another toolchain — and ships **through the outbox**:
 
 **Agents hold no credentials at all.** To send work out, a session writes
 a git bundle to `/workspace/outbox/` — `git bundle create
-/workspace/outbox/tiny-issue-7.bundle tiny/issue-7` — and a scheduled
-seconds-long courier job (`tiny export`, every ~5 minutes) lifts pending
-bundles out over the exec API, rebases them onto `main`, and pushes with
-the job's own short-lived token: `tiny/issue-N` becomes a pull request,
-a `REPLY.md` on `tiny/reply-N` becomes an issue comment. A bundle is
-retired only after its push succeeds. Nothing to paste, nothing stored,
-and a compromised agent can neither push nor call the GitHub API.
+/workspace/outbox/tiny-issue-7.bundle tiny/issue-7` — and a courier job
+(`tiny export`, driven by the push/label events, or on demand) lifts
+pending bundles out over the exec API, rebases them onto `main`, and
+pushes with the job's own short-lived token: `tiny/issue-N` becomes a
+pull request. A bundle is retired only after its push succeeds. Nothing
+to paste, nothing stored, and a compromised agent can neither push nor
+call the GitHub API.
+
+**When the agent needs a decision**, it calls `ask_human` and blocks. The
+courier reports that back: it runs `tiny questions --json`, and any
+question whose session remembers where it came from (`tiny deliver
+--origin`) is posted as a comment on the originating issue — the question,
+its options, and the `tiny answer` command that resolves it. Notification
+only: answering runs the gated action with *your* credentials, so it
+happens in a terminal, never as a reply. (The courier's RBAC lets it read
+questions, never answer them — an approval arriving as issue text would
+put decisions in the same channel as the untrusted input the gate guards
+against.)
 
 One-time GitHub setting for the PR half: org **Settings → Actions →
 General → Workflow permissions → allow GitHub Actions to create and
