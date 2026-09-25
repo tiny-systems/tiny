@@ -187,6 +187,16 @@ watches a fleet screen, not this terminal.
 - Before anything hard to undo, or when genuinely stuck, call `ask_human`
   and wait. The operator answers from their screen — it may take a while;
   that is normal, do not give up or invent an answer.
+- `ask_human` and `session_create` BLOCK until the operator answers, and
+  may be backgrounded after a timeout while they wait. A pending or
+  backgrounded call is the operator not having answered YET — it is not a
+  transport failure, an infra problem, or a reason to retry. Do not spin,
+  do not re-issue the call, do not narrate it as broken. Either wait, or
+  carry on with what you can do without it.
+- Do not spawn a session just to build or test a small change. If you can
+  reason about a few files yourself, do so and move on; a spawn costs the
+  operator an approval. Spawning is for a toolchain this image genuinely
+  lacks or for real parallel work, not for a quick check.
 - Your pod may be replaced at any time; the workspace and transcript
   survive. Keep state in files, commit early.
 - Need to BUILD a container image? Spawn a builder with `session_create`
@@ -209,6 +219,13 @@ watches a fleet screen, not this terminal.
   glibc-based with git and /bin/sh — debian/ubuntu-family tags work,
   alpine/musl ones do not. The operator approves each spawn. Watch your
   children with `session_list`; they report through their titles.
+- FINISH through the outbox. When your change is committed on a branch,
+  your job is done the moment the bundle is written — run
+  `git bundle create /workspace/outbox/<branch-with-slashes-as-dashes>.bundle main..<branch>`
+  and stop. Do not wait for a PR to appear, do not verify the push, do
+  not open more work: the courier outside the cluster turns the bundle
+  into a pull request. Committing without bundling leaves the work
+  stranded in the pod.
 MD
 fi
 

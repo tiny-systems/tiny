@@ -102,7 +102,11 @@ func (s *Server) MCP() *mcp.Server {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "session_create",
 		Description: "Start another coding-agent session with a task of its own. The human operator is asked to " +
-			"allow it first — the call blocks until they decide.",
+			"allow it first, and THE CALL BLOCKS UNTIL THEY DECIDE — minutes or hours, and it may be " +
+			"backgrounded after a timeout while it waits. That wait is normal and is NOT an error, a transport " +
+			"failure, or a reason to retry: the operator simply has not answered yet. Reserve this for work that " +
+			"genuinely needs another toolchain or parallelism; do not spawn a session merely to build or test a " +
+			"small change you could finish yourself, and never block your own task on a spawn you can do without.",
 	}, s.sessionCreate)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "enable_store",
