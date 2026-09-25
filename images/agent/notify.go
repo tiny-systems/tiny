@@ -181,6 +181,21 @@ func lastTurnSummary(stdin io.Reader) string {
 	return last
 }
 
+// promptReady reports whether the agent's terminal is accepting input.
+// The footer line the CLIs draw once interactive ("bypass permissions",
+// "esc to interrupt") is the signal; before it, keystrokes land in the
+// boot splash and vanish.
+func promptReady(tmux string) bool {
+	out, err := exec.Command(tmux, "capture-pane", "-p", "-t", "main").Output()
+	if err != nil {
+		return false
+	}
+	screen := string(out)
+	return strings.Contains(screen, "bypass permissions") ||
+		strings.Contains(screen, "esc to interrupt") ||
+		strings.Contains(screen, "to interrupt")
+}
+
 // deliverInbox fetches this session's spec.inbox from the API (raw HTTPS,
 // serviceaccount token — no client-go in this tiny binary), types every
 // undelivered message into the agent's prompt, and records delivered ids on
@@ -258,6 +273,15 @@ func deliverInbox() {
 		return
 	}
 	tmux := filepath.Join(filepath.Dir(exe), "tmux")
+
+	// The agent's prompt only accepts input once its UI is up. Before that
+	// tmux exists and send-keys SUCCEEDS, typing into the boot splash where
+	// the keystrokes are lost — and we would then mark the message
+	// delivered and never retry, leaving the session idle with its task
+	// gone. Wait for the prompt's ready marker before delivering anything.
+	if !promptReady(tmux) {
+		return // not accepting input yet; retry next tick
+	}
 	for _, msg := range session.Spec.Inbox {
 		if delivered[msg.ID] || strings.TrimSpace(msg.Text) == "" {
 			continue
