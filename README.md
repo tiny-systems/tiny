@@ -254,8 +254,9 @@ transcript resumes.
 | `tiny attach <session>` | join the session's terminal directly (detach: `ctrl-q d`) |
 | `tiny diff [session]` | what a session changed; with no name, the whole fleet plus file collisions |
 | `tiny shell <session>` | shell on a session's workspace — finished sessions too |
+| `tiny questions` | every decision waiting on a human; `--json` for event sources, `--all` to include idle nudges |
 | `tiny answer <question> <text>` | answer a ✳ card — and perform its action, as you |
-| `echo "…" \| tiny deliver <session> --ensure` | pipe a message into a session's inbox (what event sources call) |
+| `echo "…" \| tiny deliver <session> --ensure --origin "github:o/r#3"` | pipe a message into a session's inbox; `--origin` remembers where the work came from, so a blocked session can be reported back there |
 | `tiny setup` | interactive setup — and rotation: token, repo key |
 | `tiny profile save work` | name a cluster/namespace target; use anywhere with `-p work` |
 | `tiny init` | scriptable runtime install for CI (`--context X -n Y --yes`) |

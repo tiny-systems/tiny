@@ -40,11 +40,14 @@ type questionOut struct {
 	// Origin is whatever the event source recorded on the session — an
 	// issue reference, a ticket, a thread. Opaque to tiny.
 	Origin string `json:"origin,omitempty"`
+	// Reason distinguishes a decision ("tool") from an idle nudge
+	// ("notification"); the latter appear only with --all.
+	Reason string `json:"reason"`
 	Answer string `json:"answerCommand"`
 }
 
 func newQuestionsCmd() *cobra.Command {
-	var asJSON bool
+	var asJSON, all bool
 	cmd := &cobra.Command{
 		Use:   "questions",
 		Short: "List questions waiting on a human",
@@ -80,20 +83,29 @@ func newQuestionsCmd() *cobra.Command {
 					}
 				}
 			}
-			add := func(session string, qName, text string, opts []string, created time.Time) {
+			add := func(session string, q *agentsv1.Question) {
+				// "notification" questions are idle nudges — attaching
+				// clears them and there is nothing to decide. Listing them
+				// as decisions produced notices nobody could act on, so
+				// they hide behind --all.
+				if !all && q.Spec.Reason == "notification" {
+					return
+				}
 				out = append(out, questionOut{
-					Name: qName, Session: session, Text: text, Options: opts, Origin: origins[session],
-					AgeSecs: int(now.Sub(created).Seconds()),
-					Answer:  fmt.Sprintf("tiny answer %s <your answer>", qName),
+					Name: q.Name, Session: session, Text: q.Spec.Text,
+					Options: q.Spec.Options, Origin: origins[session],
+					Reason:  orDefaultStr(q.Spec.Reason, "tool"),
+					AgeSecs: int(now.Sub(q.CreationTimestamp.Time).Seconds()),
+					Answer:  fmt.Sprintf("tiny answer %s <your answer>", q.Name),
 				})
 			}
 			for _, row := range snap.Rows {
 				if q := row.Question; q != nil {
-					add(row.Name, q.Name, q.Spec.Text, q.Spec.Options, q.CreationTimestamp.Time)
+					add(row.Name, q)
 				}
 			}
-			for _, q := range snap.Loose {
-				add(q.Spec.Session.Name, q.Name, q.Spec.Text, q.Spec.Options, q.CreationTimestamp.Time)
+			for i := range snap.Loose {
+				add(snap.Loose[i].Spec.Session.Name, &snap.Loose[i])
 			}
 
 			if asJSON {
@@ -120,8 +132,16 @@ func newQuestionsCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&all, "all", false, "include idle notifications (reason=notification), not just decisions")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit a stable JSON array for an event source to post")
 	return cmd
+}
+
+func orDefaultStr(v, d string) string {
+	if v == "" {
+		return d
+	}
+	return v
 }
 
 // firstLine keeps a multi-line question to one readable line: a spawn
