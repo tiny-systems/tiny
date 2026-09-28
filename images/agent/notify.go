@@ -88,25 +88,56 @@ func main() {
 	_ = resp.Body.Close()
 }
 
+// fmtMi renders a byte count as whole mebibytes.
+func fmtMi(b int64) string { return fmt.Sprintf("%dMi", b/(1024*1024)) }
+
+// readMemMi returns current memory in Mi, trying cgroup v2 then v1.
+func readMemMi() string {
+	for _, path := range []string{
+		"/sys/fs/cgroup/memory.current",               // v2
+		"/sys/fs/cgroup/memory/memory.usage_in_bytes", // v1
+	} {
+		if raw, err := os.ReadFile(path); err == nil { //nolint:gosec // fixed cgroup paths
+			if b, err := strconv.ParseInt(strings.TrimSpace(string(raw)), 10, 64); err == nil {
+				return fmtMi(b)
+			}
+		}
+	}
+	return ""
+}
+
+// readCPUUsec returns cumulative CPU time in microseconds, v2 then v1.
+// v2 reports usage_usec directly; v1 cpuacct.usage is nanoseconds.
+func readCPUUsec() int64 {
+	if raw, err := os.ReadFile("/sys/fs/cgroup/cpu.stat"); err == nil {
+		for line := range strings.SplitSeq(string(raw), "\n") {
+			if v, ok := strings.CutPrefix(line, "usage_usec "); ok {
+				n, _ := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+				return n
+			}
+		}
+	}
+	for _, path := range []string{
+		"/sys/fs/cgroup/cpu/cpuacct.usage", // v1
+		"/sys/fs/cgroup/cpuacct/cpuacct.usage",
+	} {
+		if raw, err := os.ReadFile(path); err == nil { //nolint:gosec // fixed cgroup paths
+			if ns, err := strconv.ParseInt(strings.TrimSpace(string(raw)), 10, 64); err == nil {
+				return ns / 1000 // ns -> usec
+			}
+		}
+	}
+	return 0
+}
+
 // readUsage samples this container's cgroup v2 accounting: memory.current
 // and the cpu.stat usage delta since the previous sample (kept beside the
 // marker files). Millicores and Mi — the units a fleet reads.
 func readUsage() (cpu, mem string) {
-	if raw, err := os.ReadFile("/sys/fs/cgroup/memory.current"); err == nil {
-		if b, err := strconv.ParseInt(strings.TrimSpace(string(raw)), 10, 64); err == nil {
-			mem = fmt.Sprintf("%dMi", b/(1024*1024))
-		}
-	}
-	raw, err := os.ReadFile("/sys/fs/cgroup/cpu.stat")
-	if err != nil {
-		return cpu, mem
-	}
-	var usec int64
-	for line := range strings.SplitSeq(string(raw), "\n") {
-		if v, ok := strings.CutPrefix(line, "usage_usec "); ok {
-			usec, _ = strconv.ParseInt(strings.TrimSpace(v), 10, 64)
-		}
-	}
+	// Try cgroup v2 first, then v1 — the same split that decides whether
+	// k3s itself runs. The node this pod lands on could be either.
+	mem = readMemMi()
+	usec := readCPUUsec()
 	if usec == 0 {
 		return cpu, mem
 	}

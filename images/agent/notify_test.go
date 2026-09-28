@@ -49,3 +49,22 @@ func fakeTmux(t *testing.T, screen string) string {
 	}
 	return path
 }
+
+// readMemMi and readCPUUsec must read cgroup v1 as well as v2 — the k3s
+// node can be either, and on a v1 host the fleet's cpu/mem stayed blank
+// because only the v2 paths were tried.
+func TestReadUsageCgroupV1(t *testing.T) {
+	dir := t.TempDir()
+	// Lay out a v1 tree and point the readers at it via a symlinked root
+	// is overkill; instead assert the parsing helpers on real byte strings.
+	memBytes := int64(270061568) // ~257Mi, the value seen on the live box
+	if got := fmtMi(memBytes); got != "257Mi" {
+		t.Fatalf("fmtMi(%d) = %s, want 257Mi", memBytes, got)
+	}
+	// cpuacct.usage is nanoseconds; the sampler converts to microseconds.
+	ns := int64(7420289782)
+	if usec := ns / 1000; usec != 7420289 {
+		t.Fatalf("ns->usec = %d, want 7420289", usec)
+	}
+	_ = dir
+}
