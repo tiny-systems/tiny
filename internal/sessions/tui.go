@@ -88,6 +88,11 @@ type killAllDoneMsg struct {
 	err error
 }
 
+type pauseAllDoneMsg struct {
+	n   int
+	err error
+}
+
 // Model is the TUI state.
 type Model struct {
 	store *Store
@@ -172,7 +177,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The list ends two rows past the sessions: the "new" items are
 		// real cursor targets and a refresh must not evict the cursor
 		// from them.
-		if maxIdx := len(m.snap.Rows) + 5; m.cursor > maxIdx {
+		if maxIdx := len(m.snap.Rows) + 6; m.cursor > maxIdx {
 			m.cursor = maxIdx
 		}
 		return m, nil
@@ -206,6 +211,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = msg.err
 		}
 		m.status = fmt.Sprintf("✕ deleted %d session(s)", msg.n)
+		return m, m.load()
+
+	case pauseAllDoneMsg:
+		if msg.err != nil {
+			m.err = msg.err
+		}
+		m.status = fmt.Sprintf("⏸ paused %d session(s) — `resume` any row with p", msg.n)
 		return m, m.load()
 
 	case tea.KeyMsg:
@@ -244,7 +256,7 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor--
 		}
 	case keyDown, "j":
-		if m.snap != nil && m.cursor < len(m.snap.Rows)+5 {
+		if m.snap != nil && m.cursor < len(m.snap.Rows)+6 {
 			m.cursor++
 		}
 	case keyEnter:
@@ -655,7 +667,7 @@ func (m Model) View() string {
 			b.WriteString(m.clip(line) + "\n")
 		}
 		newIdx := len(m.snap.Rows)
-		for i, label := range []string{"✉ broadcast to all…", "＋ new session", "⚙ new session with options…", "☰ namespace settings", "✕ delete ALL sessions…", "✕ quit"} {
+		for i, label := range []string{"✉ broadcast to all…", "＋ new session", "⚙ new session with options…", "☰ namespace settings", "⏸ pause all sessions", "✕ delete ALL sessions…", "✕ quit"} {
 			line := "  " + glyphGreen.Render("·") + " " + helpStyle.Render(label)
 			if m.cursor == newIdx+i {
 				line = rowSel.Render("▸ · " + label)
@@ -903,8 +915,10 @@ func (m Model) listHints() string {
 	case 3:
 		return "[enter] open settings  [q] quit"
 	case 4:
-		return "[enter] delete ALL sessions (asks you to type it)  [q] quit"
+		return "[enter] pause ALL sessions (reversible; frees cpu/memory)  [q] quit"
 	case 5:
+		return "[enter] delete ALL sessions (asks you to type it)  [q] quit"
+	case 6:
 		return "[enter] quit"
 	}
 	hints := "[enter] attach"

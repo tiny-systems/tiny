@@ -18,18 +18,30 @@ import (
 )
 
 func newPauseCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "pause <session>",
+	var all bool
+	cmd := &cobra.Command{
+		Use:   "pause [session]",
 		Short: "Scale a session to zero — free its cpu/memory, keep its workspace",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if all == (len(args) == 1) {
+				return fmt.Errorf("name a session, or pass --all — not both, not neither")
+			}
 			k, err := sessionKube()
 			if err != nil {
 				return err
 			}
 			store := newStore(k)
-			ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
+			ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Minute)
 			defer cancel()
+			if all {
+				n, perr := store.PauseAll(ctx)
+				if perr != nil {
+					return perr
+				}
+				fmt.Printf("  ⏸ paused %d session(s) — workspaces kept; `tiny resume --all` to bring them back\n", n)
+				return nil
+			}
 			if err := store.Pause(ctx, args[0]); err != nil {
 				return err
 			}
@@ -37,21 +49,35 @@ func newPauseCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&all, "all", false, "pause every running session")
+	return cmd
 }
 
 func newResumeCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "resume <session>",
+	var all bool
+	cmd := &cobra.Command{
+		Use:   "resume [session]",
 		Short: "Bring a paused session back — a fresh pod replays its transcript",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if all == (len(args) == 1) {
+				return fmt.Errorf("name a session, or pass --all — not both, not neither")
+			}
 			k, err := sessionKube()
 			if err != nil {
 				return err
 			}
 			store := newStore(k)
-			ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
+			ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Minute)
 			defer cancel()
+			if all {
+				n, rerr := store.ResumeAll(ctx)
+				if rerr != nil {
+					return rerr
+				}
+				fmt.Printf("  ● resumed %d session(s)\n", n)
+				return nil
+			}
 			if err := store.Resume(ctx, args[0]); err != nil {
 				return err
 			}
@@ -59,4 +85,6 @@ func newResumeCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&all, "all", false, "resume every paused session")
+	return cmd
 }

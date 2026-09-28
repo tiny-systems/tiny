@@ -429,6 +429,44 @@ func (s *Store) Resume(ctx context.Context, name string) error {
 	return s.setPaused(ctx, name, false)
 }
 
+// PauseAll pauses every session not already paused. Reversible and cheap,
+// so unlike DeleteAll it needs no typed confirmation. Returns how many it
+// paused.
+func (s *Store) PauseAll(ctx context.Context) (int, error) {
+	return s.setAllPaused(ctx, true)
+}
+
+// ResumeAll brings every paused session back.
+func (s *Store) ResumeAll(ctx context.Context) (int, error) {
+	return s.setAllPaused(ctx, false)
+}
+
+func (s *Store) setAllPaused(ctx context.Context, pause bool) (int, error) {
+	list := &agentsv1.SessionList{}
+	if err := s.Kube.Client.List(ctx, list, client.InNamespace(s.Kube.Namespace)); err != nil {
+		return 0, err
+	}
+	n := 0
+	for i := range list.Items {
+		alreadyPaused := list.Items[i].Annotations[PausedAnnotation] == trueWord
+		if pause == alreadyPaused {
+			continue // already in the wanted state
+		}
+		name := list.Items[i].Name
+		var err error
+		if pause {
+			err = s.Pause(ctx, name)
+		} else {
+			err = s.Resume(ctx, name)
+		}
+		if err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
+
 func (s *Store) scaleWorkload(ctx context.Context, name string, replicas int32) error {
 	depName := name + "-agent" // workload.DeploymentName(session)
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
