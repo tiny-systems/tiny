@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -23,6 +24,28 @@ import (
 //	                                first contact, one confirm)
 //	tiny sessions                   the fleet screen: ✳ needs-you rows,
 //	                                attach, answer, start, delete
+
+// confirmStart names the target and asks once before a session is created.
+// Default is yes — the pinned profile is almost always right — and -y or a
+// non-interactive stdin skips it entirely, so scripts are unaffected.
+func confirmStart(k *kube.Client) error {
+	if flagYes || !stdinIsTTY() {
+		return nil
+	}
+	line := "context " + k.ContextName + " · namespace " + k.Namespace
+	if flagProfile != "" {
+		line += " · profile " + flagProfile
+	}
+	fmt.Printf("  → %s\n", line)
+	fmt.Print("  Start the session here? [Y/n] ")
+	r := bufio.NewReader(os.Stdin)
+	ans, _ := r.ReadString('\n')
+	ans = strings.ToLower(strings.TrimSpace(ans))
+	if ans == "n" || ans == "no" {
+		return fmt.Errorf("aborted — pick another target with -p <profile> or --context")
+	}
+	return nil
+}
 
 func sessionKube() (*kube.Client, error) {
 	ctxName, ns, err := resolveTarget()
@@ -91,6 +114,12 @@ func newNewCmd() *cobra.Command {
 			}
 			k, err := sessionKube()
 			if err != nil {
+				return err
+			}
+			// Name the target before creating anything: tiny new uses the
+			// pinned profile silently, and a session on the wrong cluster is
+			// easy to start when you have forgotten which one is pinned.
+			if err := confirmStart(k); err != nil {
 				return err
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Minute)
