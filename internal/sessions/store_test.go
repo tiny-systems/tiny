@@ -217,3 +217,36 @@ func TestSetOriginNeedsTheSessionToExist(t *testing.T) {
 		t.Fatalf("origin = %q, want the stamped value", got.Annotations[OriginAnnotation])
 	}
 }
+
+// DeleteAll must remove every session and report the count. It is gated in
+// the UI behind a typed confirmation; this covers the store side.
+func TestDeleteAll(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := agentsv1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	a := session("a", "Running", time.Hour, now)
+	b := session("b", "Done", time.Hour, now)
+	c := session("c", "", time.Minute, now)
+	for _, se := range []*agentsv1.Session{&a, &b, &c} {
+		se.Namespace = "agents"
+	}
+	fc := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(&a, &b, &c).Build()
+	s := &Store{Kube: &kube.Client{Client: fc, Namespace: "agents"}}
+
+	n, err := s.DeleteAll(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 3 {
+		t.Fatalf("deleted %d, want 3", n)
+	}
+	var left agentsv1.SessionList
+	if err := fc.List(t.Context(), &left, client.InNamespace("agents")); err != nil {
+		t.Fatal(err)
+	}
+	if len(left.Items) != 0 {
+		t.Fatalf("%d sessions survived DeleteAll", len(left.Items))
+	}
+}

@@ -49,6 +49,7 @@ const (
 	modeSettings
 	modeMessage
 	modeRunnerEdit
+	modeKillAll
 )
 
 // formLabels order the options form; CreateOpts is filled in this order.
@@ -78,6 +79,11 @@ type actionDoneMsg struct{ err error }
 
 // broadcastDoneMsg reports how far the megaphone reached.
 type broadcastDoneMsg struct {
+	n   int
+	err error
+}
+
+type killAllDoneMsg struct {
 	n   int
 	err error
 }
@@ -166,7 +172,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The list ends two rows past the sessions: the "new" items are
 		// real cursor targets and a refresh must not evict the cursor
 		// from them.
-		if maxIdx := len(m.snap.Rows) + 4; m.cursor > maxIdx {
+		if maxIdx := len(m.snap.Rows) + 5; m.cursor > maxIdx {
 			m.cursor = maxIdx
 		}
 		return m, nil
@@ -193,6 +199,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = msg.err
 		}
 		m.status = fmt.Sprintf("✉ delivered to %d session(s)", msg.n)
+		return m, m.load()
+
+	case killAllDoneMsg:
+		if msg.err != nil {
+			m.err = msg.err
+		}
+		m.status = fmt.Sprintf("✕ deleted %d session(s)", msg.n)
 		return m, m.load()
 
 	case tea.KeyMsg:
@@ -231,7 +244,7 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor--
 		}
 	case keyDown, "j":
-		if m.snap != nil && m.cursor < len(m.snap.Rows)+4 {
+		if m.snap != nil && m.cursor < len(m.snap.Rows)+5 {
 			m.cursor++
 		}
 	case keyEnter:
@@ -354,6 +367,22 @@ func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
 				return actionDoneMsg{store.Answer(ctx, q, text)}
+			}
+		case modeKillAll:
+			// Only the exact phrase fires it; anything else returns to the
+			// list without touching a thing.
+			if strings.ToLower(text) != "delete all" {
+				m.mode = modeList
+				m.status = "delete-all cancelled"
+				return m, nil
+			}
+			m.mode = modeList
+			m.status = "deleting all sessions…"
+			return m, func() tea.Msg {
+				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+				defer cancel()
+				n, err := store.DeleteAll(ctx)
+				return killAllDoneMsg{n: n, err: err}
 			}
 		}
 	}
@@ -600,7 +629,7 @@ func (m Model) View() string {
 			b.WriteString(m.clip(line) + "\n")
 		}
 		newIdx := len(m.snap.Rows)
-		for i, label := range []string{"✉ broadcast to all…", "＋ new session", "⚙ new session with options…", "☰ namespace settings", "✕ quit"} {
+		for i, label := range []string{"✉ broadcast to all…", "＋ new session", "⚙ new session with options…", "☰ namespace settings", "✕ delete ALL sessions…", "✕ quit"} {
 			line := "  " + glyphGreen.Render("·") + " " + helpStyle.Render(label)
 			if m.cursor == newIdx+i {
 				line = rowSel.Render("▸ · " + label)
@@ -632,6 +661,9 @@ func (m Model) View() string {
 		f.WriteString("  message → " + m.messaging.Name + "  (lands in the agent's prompt)\n  " + m.input.View() + "\n")
 	case modeBroadcast:
 		f.WriteString("  broadcast → every unfinished session\n  " + m.input.View() + "\n")
+	case modeKillAll:
+		f.WriteString(errStyle.Render("  delete EVERY session — workspaces and transcripts go too") + "\n")
+		f.WriteString("  type " + errStyle.Render("delete all") + " to confirm, esc to cancel\n  " + m.input.View() + "\n")
 	case modeAnswer:
 		f.WriteString("  answer " + glyphAmber.Render(trunc(m.answering.Question.Spec.Text, detailW)) + "\n  " + m.input.View() + "\n")
 	default:
@@ -697,9 +729,21 @@ func (m Model) enterVirtualRow(idx int) (tea.Model, tea.Cmd) {
 		return m.openForm(), textinput.Blink
 	case 3:
 		return m.openSettings()
+	case 4:
+		mm := m.openKillAll()
+		return mm, mm.input.Focus()
 	default:
 		return m, tea.Quit
 	}
+}
+
+// openKillAll asks for a typed confirmation before deleting every session —
+// a keystroke is too easy when the cost is every workspace and transcript.
+func (m Model) openKillAll() Model {
+	m.mode = modeKillAll
+	m.input.Placeholder = "delete all"
+	m.input.SetValue("")
+	return m
 }
 
 // openBroadcast is the compose behind both the ✉ row and the b key.
@@ -833,6 +877,8 @@ func (m Model) listHints() string {
 	case 3:
 		return "[enter] open settings  [q] quit"
 	case 4:
+		return "[enter] delete ALL sessions (asks you to type it)  [q] quit"
+	case 5:
 		return "[enter] quit"
 	}
 	hints := "[enter] attach"

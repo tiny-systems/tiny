@@ -388,6 +388,24 @@ func (s *Store) Delete(ctx context.Context, name string) error {
 	})
 }
 
+// DeleteAll removes every session in the namespace. Each one takes its
+// workspace and transcript with it — the caller gates this behind a typed
+// confirmation, not a keystroke. Returns how many were asked to delete.
+func (s *Store) DeleteAll(ctx context.Context) (int, error) {
+	list := &agentsv1.SessionList{}
+	if err := s.Kube.Client.List(ctx, list, client.InNamespace(s.Kube.Namespace)); err != nil {
+		return 0, err
+	}
+	n := 0
+	for i := range list.Items {
+		if err := s.Kube.Client.Delete(ctx, &list.Items[i]); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
+
 // Birth reports where a starting session is on its way to running, as a
 // human-readable stage. Empty stage means the agent is up; failure carries a
 // terminal reason (bad image, unschedulable) so callers stop waiting instead
