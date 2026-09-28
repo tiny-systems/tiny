@@ -299,10 +299,36 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "d", "y":
 		return m.updateDelete(msg.String())
+	case "p":
+		return m.togglePause()
 	case "r":
 		return m, m.load()
 	}
 	return m, nil
+}
+
+// togglePause pauses a running session or resumes a paused one — scaling
+// its workload to zero and back to free cpu/memory without losing state.
+func (m Model) togglePause() (tea.Model, tea.Cmd) {
+	row, ok := m.selected()
+	if !ok {
+		return m, nil
+	}
+	r, store := row, m.store
+	resume := r.Paused
+	if resume {
+		m.status = "resuming " + r.Name + "…"
+	} else {
+		m.status = "pausing " + r.Name + " (frees its cpu/memory, keeps the workspace)…"
+	}
+	return m, func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if resume {
+			return actionDoneMsg{store.Resume(ctx, r.Name)}
+		}
+		return actionDoneMsg{store.Pause(ctx, r.Name)}
+	}
 }
 
 // updateDelete is the two-keystroke delete: d arms, y fires.
@@ -885,7 +911,11 @@ func (m Model) listHints() string {
 	if row, ok := m.selected(); ok && row.NeedsHuman() {
 		hints += "  [a] answer"
 	}
-	return hints + "  [m] message  [b] broadcast  [d] delete  [n] new  [o] new with options  [q] quit"
+	pr := "[p] pause"
+	if row, ok := m.selected(); ok && row.Paused {
+		pr = "[p] resume"
+	}
+	return hints + "  [m] message  " + pr + "  [b] broadcast  [d] delete  [n] new  [q] quit"
 }
 
 func (m Model) glyph(row Row) string {
@@ -903,6 +933,9 @@ func (m Model) glyph(row Row) string {
 func phaseWord(row Row) string {
 	if row.NeedsHuman() {
 		return "needs you"
+	}
+	if row.Paused {
+		return "paused"
 	}
 	if row.Phase == "" {
 		return "…"

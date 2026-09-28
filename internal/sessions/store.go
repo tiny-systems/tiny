@@ -65,6 +65,7 @@ type Row struct {
 	Pod      string
 	Age      time.Duration
 	Question *agentsv1.Question // open (unanswered) question, newest wins
+	Paused   bool               // workload scaled to zero on purpose
 }
 
 // NeedsHuman reports whether the row should wear the amber mark.
@@ -75,6 +76,8 @@ func (r Row) Glyph() string {
 	switch {
 	case r.NeedsHuman():
 		return "✳"
+	case r.Paused:
+		return "⏸"
 	case r.Phase == string(agentsv1.SessionRunning):
 		return "●"
 	case r.Phase == string(agentsv1.SessionDone):
@@ -225,6 +228,7 @@ func join(sessions []agentsv1.Session, questions []agentsv1.Question, live map[s
 			Pod:      podName,
 			Age:      now.Sub(se.CreationTimestamp.Time),
 			Question: open[se.Name],
+			Paused:   se.Annotations[PausedAnnotation] == trueWord,
 		})
 	}
 	// Creation order, oldest first: rows never jump when a question arrives
@@ -404,6 +408,55 @@ func (s *Store) DeleteAll(ctx context.Context) (int, error) {
 		n++
 	}
 	return n, nil
+}
+
+// Pause scales a session's workload to zero, freeing its CPU and memory
+// while keeping the workspace and transcript. Idempotent: pausing a paused
+// session is a no-op.
+func (s *Store) Pause(ctx context.Context, name string) error {
+	if err := s.scaleWorkload(ctx, name, 0); err != nil {
+		return err
+	}
+	return s.setPaused(ctx, name, true)
+}
+
+// Resume scales the workload back to one; a fresh pod replays the
+// transcript and the agent picks up where it left off.
+func (s *Store) Resume(ctx context.Context, name string) error {
+	if err := s.scaleWorkload(ctx, name, 1); err != nil {
+		return err
+	}
+	return s.setPaused(ctx, name, false)
+}
+
+func (s *Store) scaleWorkload(ctx context.Context, name string, replicas int32) error {
+	depName := name + "-agent" // workload.DeploymentName(session)
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		dep := &appsv1.Deployment{}
+		if err := s.Kube.Client.Get(ctx, client.ObjectKey{Namespace: s.Kube.Namespace, Name: depName}, dep); err != nil {
+			return err
+		}
+		dep.Spec.Replicas = &replicas
+		return s.Kube.Client.Update(ctx, dep)
+	})
+}
+
+func (s *Store) setPaused(ctx context.Context, name string, paused bool) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		se := &agentsv1.Session{}
+		if err := s.Kube.Client.Get(ctx, client.ObjectKey{Namespace: s.Kube.Namespace, Name: name}, se); err != nil {
+			return err
+		}
+		if se.Annotations == nil {
+			se.Annotations = map[string]string{}
+		}
+		if paused {
+			se.Annotations[PausedAnnotation] = trueWord
+		} else {
+			delete(se.Annotations, PausedAnnotation)
+		}
+		return s.Kube.Client.Update(ctx, se)
+	})
 }
 
 // Birth reports where a starting session is on its way to running, as a
@@ -742,6 +795,11 @@ func (s *Store) addonState(ctx context.Context, name string, enabled bool) strin
 // an event source writes and later reads back, which is how the CLI stays
 // ignorant of GitHub.
 const OriginAnnotation = "tinysystems.io/origin"
+
+// PausedAnnotation marks a session whose workload has been scaled to zero
+// on purpose. The PVC and transcript stay; only the pod (and its CPU and
+// memory) go. Resume scales it back and the agent replays the transcript.
+const PausedAnnotation = "tinysystems.io/paused"
 
 // SetOrigin stamps the origin on a session. It creates nothing, so the
 // caller must run it AFTER the session exists — a missing session is a

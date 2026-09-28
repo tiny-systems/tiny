@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -248,5 +249,52 @@ func TestDeleteAll(t *testing.T) {
 	}
 	if len(left.Items) != 0 {
 		t.Fatalf("%d sessions survived DeleteAll", len(left.Items))
+	}
+}
+
+// Pause scales the workload to zero and marks the session; Resume undoes
+// both. The PVC and Session object must survive — only the pod goes.
+func TestPauseResume(t *testing.T) {
+	scheme := runtime.NewScheme()
+	for _, add := range []func(*runtime.Scheme) error{agentsv1.AddToScheme, appsv1.AddToScheme, corev1.AddToScheme} {
+		if err := add(scheme); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now()
+	se := session("root", "Running", time.Hour, now)
+	se.Namespace = "agents"
+	one := int32(1)
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "agents", Name: "root-agent"},
+		Spec:       appsv1.DeploymentSpec{Replicas: &one},
+	}
+	fc := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(&se, dep).Build()
+	s := &Store{Kube: &kube.Client{Client: fc, Namespace: "agents"}}
+
+	if err := s.Pause(t.Context(), "root"); err != nil {
+		t.Fatal(err)
+	}
+	var d appsv1.Deployment
+	_ = fc.Get(t.Context(), client.ObjectKey{Namespace: "agents", Name: "root-agent"}, &d)
+	if *d.Spec.Replicas != 0 {
+		t.Fatalf("after pause replicas = %d, want 0", *d.Spec.Replicas)
+	}
+	var got agentsv1.Session
+	_ = fc.Get(t.Context(), client.ObjectKey{Namespace: "agents", Name: "root"}, &got)
+	if got.Annotations[PausedAnnotation] != trueWord {
+		t.Fatal("session not marked paused")
+	}
+
+	if err := s.Resume(t.Context(), "root"); err != nil {
+		t.Fatal(err)
+	}
+	_ = fc.Get(t.Context(), client.ObjectKey{Namespace: "agents", Name: "root-agent"}, &d)
+	if *d.Spec.Replicas != 1 {
+		t.Fatalf("after resume replicas = %d, want 1", *d.Spec.Replicas)
+	}
+	_ = fc.Get(t.Context(), client.ObjectKey{Namespace: "agents", Name: "root"}, &got)
+	if got.Annotations[PausedAnnotation] == trueWord {
+		t.Fatal("paused annotation not cleared on resume")
 	}
 }
