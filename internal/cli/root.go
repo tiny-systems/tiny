@@ -126,8 +126,16 @@ func newInitCmd() *cobra.Command {
 			// init is the explicit, reviewable path to the same state, so
 			// it must not leave a namespace less contained than the
 			// implicit one does.
-			if err := newStore(k).EnsureNamespaceDefaults(ctx); err != nil {
+			store := newStore(k)
+			if err := store.EnsureNamespaceDefaults(ctx); err != nil {
 				fmt.Printf("  ! egress policy not applied: %v\n", err)
+			}
+			// Add-ons already switched on get this CLI's spec for them —
+			// the only upgrade path, since nothing runs to do it later.
+			if err := store.ReapplyAddons(ctx); err != nil {
+				fmt.Printf("  ! add-ons not re-applied: %v\n", err)
+			} else {
+				fmt.Println("  ✓ add-ons match the switchboard")
 			}
 			fmt.Println("  ✓ runtime installed")
 			fmt.Printf("  start a session:  tiny new \"your task\" -n %s\n", k.Namespace)

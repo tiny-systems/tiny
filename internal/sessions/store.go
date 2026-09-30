@@ -717,6 +717,19 @@ func (s *Store) SaveSettings(ctx context.Context, ns NamespaceSettings) error {
 	return s.applyAddons(ctx, ns)
 }
 
+// ReapplyAddons makes the namespace's add-ons match the switchboard as it
+// stands. This is the upgrade path: a new CLI ships new add-on specs (a
+// proxy that also resolves, a web page with a new port) and, with no
+// manager running, nothing would roll them out until someone toggled the
+// checkbox off and on. tiny init calls it.
+func (s *Store) ReapplyAddons(ctx context.Context) error {
+	ns, err := s.LoadSettings(ctx)
+	if err != nil {
+		return err
+	}
+	return s.applyAddons(ctx, ns)
+}
+
 // applyAddons makes the cluster match the switchboard — done HERE, by the
 // toggling client, because nothing else is running to do it.
 func (s *Store) applyAddons(ctx context.Context, ns NamespaceSettings) error {
