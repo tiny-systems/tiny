@@ -15,6 +15,7 @@ import (
 	"context"
 	"flag"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -53,6 +54,8 @@ func runProxy(args []string) {
 	fs := flag.NewFlagSet("proxy", flag.ExitOnError)
 	addr := fs.String("addr", ":3128", "listen address")
 	allowFile := fs.String("allow-file", "/etc/tiny/egress-allow", "file of permitted hosts, one per line")
+	dnsAddr := fs.String("dns", ":5353", "answer session DNS here; empty disables")
+	resolv := fs.String("resolv", "/etc/resolv.conf", "where the cluster nameserver and search domains are read from")
 	_ = fs.Parse(args)
 
 	rules, err := egressproxy.LoadRules(*allowFile)
@@ -61,6 +64,30 @@ func runProxy(args []string) {
 	}
 	p := egressproxy.New(rules)
 	go egressproxy.WatchRules(*allowFile, p, 15*time.Second)
+
+	// Sessions get this pod as their only nameserver. Names inside the
+	// cluster are forwarded to the resolver this pod itself uses; every
+	// other name is NXDOMAIN, which is what actually closes DNS as a
+	// channel out — "DNS to kube-system only" in the policy still forwards
+	// upstream from there.
+	if *dnsAddr != "" {
+		upstream, search, err := egressproxy.ResolvConf(*resolv)
+		if err != nil {
+			log.Fatalf("session dns: %v", err)
+		}
+		res := egressproxy.NewResolver(upstream, search)
+		pc, err := net.ListenPacket("udp", *dnsAddr)
+		if err != nil {
+			log.Fatalf("session dns udp: %v", err)
+		}
+		l, err := net.Listen("tcp", *dnsAddr)
+		if err != nil {
+			log.Fatalf("session dns tcp: %v", err)
+		}
+		go func() { log.Fatal(res.ServeUDP(pc)) }()
+		go func() { log.Fatal(res.ServeTCP(l)) }()
+		log.Printf("session dns on %s: forwarding %v to %s, refusing the rest", *dnsAddr, search, upstream)
+	}
 
 	log.Printf("tiny egress proxy on %s, allow-list %s", *addr, *allowFile)
 	srv := &http.Server{Addr: *addr, Handler: p, ReadHeaderTimeout: 20 * time.Second}

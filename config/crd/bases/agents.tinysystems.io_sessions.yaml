@@ -114,6 +114,13 @@ spec:
                   Task the agent starts with. Optional — a session without one boots
                   the agent idle, ready for a human to attach and talk.
                 type: string
+              unconfined:
+                description: |-
+                  Unconfined lifts the container hardening — seccomp RuntimeDefault,
+                  every capability dropped, no privilege escalation — for images whose
+                  tooling needs user namespaces or setuid helpers: rootless buildah and
+                  podman. False is the hardened default, on purpose.
+                type: boolean
               user:
                 description: |-
                   User overrides the uid the agent runs as — for images whose tooling

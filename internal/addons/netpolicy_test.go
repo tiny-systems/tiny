@@ -191,10 +191,11 @@ func TestProxyModeRemovesTheInternetRule(t *testing.T) {
 	}
 }
 
-// DNS narrows to the cluster's own resolvers, closing the tunnel to an
-// attacker-run nameserver. Link-local stays open on 53 ONLY, for
-// NodeLocal DNSCache — that must not reopen the metadata endpoint.
-func TestProxyModeNarrowsDNSWithoutReopeningMetadata(t *testing.T) {
+// With the proxy on, sessions must have no route to any resolver but
+// the proxy itself. "DNS to kube-system only" is not a closed tunnel: the
+// cluster resolver forwards unknown names upstream, and the attacker's
+// nameserver is upstream.
+func TestProxyModeLeavesNoResolverButTheProxy(t *testing.T) {
 	r := &Applier{Client: fake.NewClientBuilder().WithScheme(testScheme(t)).Build()}
 	ctx := context.Background()
 	if err := r.EnsureEgressPolicy(ctx, "team-a", true); err != nil {
@@ -204,27 +205,27 @@ func TestProxyModeNarrowsDNSWithoutReopeningMetadata(t *testing.T) {
 	if err := r.Get(ctx, types.NamespacedName{Namespace: "team-a", Name: egressPolicyName}, &pol); err != nil {
 		t.Fatal(err)
 	}
-	var linkLocalPorts []int32
+	sawNamespace := false
 	for _, rule := range pol.Spec.Egress {
+		for _, p := range rule.Ports {
+			if p.Port != nil && p.Port.IntVal == 53 {
+				t.Fatal("a port-53 rule survives in proxy mode — that is the DNS tunnel, via the cluster resolver's upstream")
+			}
+		}
 		for _, peer := range rule.To {
-			if peer.IPBlock == nil || peer.IPBlock.CIDR != cidrLinkLocal {
+			if peer.NamespaceSelector != nil || peer.IPBlock != nil {
+				if len(rule.Ports) == 0 {
+					t.Fatal("proxy mode opened a peer outside the namespace on all ports")
+				}
 				continue
 			}
-			if len(rule.Ports) == 0 {
-				t.Fatal("link-local allowed on ALL ports — that reopens the metadata endpoint")
-			}
-			for _, p := range rule.Ports {
-				linkLocalPorts = append(linkLocalPorts, p.Port.IntVal)
+			if peer.PodSelector != nil && len(rule.Ports) == 0 {
+				sawNamespace = true
 			}
 		}
 	}
-	if len(linkLocalPorts) == 0 {
-		t.Fatal("no link-local DNS rule — NodeLocal DNSCache clusters would stop resolving")
-	}
-	for _, p := range linkLocalPorts {
-		if p != 53 {
-			t.Fatalf("link-local open on port %d, want 53 only", p)
-		}
+	if !sawNamespace {
+		t.Fatal("the in-namespace rule is gone — sessions could not even reach the proxy")
 	}
 }
 

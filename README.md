@@ -60,6 +60,8 @@ are here.
 | cloud credentials | none in the pod, and the egress policy blocks `169.254.169.254`, the endpoint that hands out an instance's IAM role |
 | inbound network | nothing listens — no `containerPort`, the MCP sidecar binds `127.0.0.1`. You reach a session through the Kubernetes API, under your RBAC |
 | lateral movement | default-deny egress cuts other namespaces, the node, and every port except 80/443 |
+| the container | restricted profile: runtime seccomp, every capability dropped, no privilege escalation, non-root — what keeps "owns the agent's uid" from becoming "owns the node". `--unconfined` lifts it per session, for rootless buildah |
+| DNS as a channel out | with the allow-list on, the proxy is the session's only resolver: cluster names are answered, everything else is `NXDOMAIN`, and external hosts are resolved by the proxy on `CONNECT` |
 | acting as the agent | approving a question runs in *your* client with *your* credentials — which is why the web page is read-only |
 
 | open | why |
@@ -130,9 +132,10 @@ Full detail: [threat model](https://tinysystems.io/docs/threat-model/) ·
 - **A hostname allow-list, not an address one.** Switch on the proxy and
   every outbound connection goes through a `CONNECT` filter that reads
   the hostname before the tunnel opens — no CA in your image, no TLS
-  terminated. The internet rule disappears from the policy and DNS
-  narrows with it, so the tunnelling channel closes too. Refusals name
-  the host and land in `kubectl logs deploy/tiny-egress`.
+  terminated. The internet rule disappears from the policy, and the
+  proxy becomes the session's only nameserver — cluster names answered,
+  everything else `NXDOMAIN` — so DNS stops being a channel out too.
+  Refusals, lookups included, land in `tiny egress denied`.
 - **Containment the agent can't opt out of.** The `egress` add-on puts a
   default-deny NetworkPolicy on session pods: this namespace and
   http/https out, nothing else. That closes the cloud metadata endpoint
@@ -246,7 +249,7 @@ transcript resumes.
 | `tiny` | the fleet screen — who runs, who needs you |
 | `tiny new [task]` | start a session; with no task, attaches you straight to the agent's terminal |
 | `tiny new --image golang:1.26 --cpu 2 --memory 4Gi "…"` | session in your toolchain, sized |
-| `tiny new --image quay.io/buildah/stable --user 1000 "…"` | a builder — agents build images and push them to the namespace registry |
+| `tiny new --image quay.io/buildah/stable --user 1000 --unconfined "…"` | a builder — agents build images and push them to the namespace registry (`--unconfined`: rootless buildah needs user namespaces) |
 | `tiny new --agent codex --model gpt-5.2-codex "…"` | the same session, OpenAI's Codex inside |
 | `tiny new --dir . "…"` | ship this folder as the workspace — uncommitted changes and `.git` included, no git remote needed |
 | `tiny broadcast "demo at 10 — wrap up"` | one message into every unfinished session's inbox |

@@ -344,6 +344,9 @@ type CreateOpts struct {
 	CPU    string
 	Memory string
 	User   int64
+	// Unconfined lifts the container hardening for images that need
+	// user namespaces or setuid helpers (rootless buildah).
+	Unconfined bool
 	// EnvSecret names a secret (labeled for this session) whose keys land
 	// in the agent's env — the Actions job token path.
 	EnvSecret string
@@ -366,6 +369,7 @@ func (s *Store) Create(ctx context.Context, o CreateOpts) (*agentsv1.Session, er
 	if o.User > 0 {
 		se.Spec.User = &o.User
 	}
+	se.Spec.Unconfined = o.Unconfined
 	if o.Name != "" {
 		se.Name = o.Name
 	} else {

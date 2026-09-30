@@ -84,6 +84,7 @@ func ensureRuntime(ctx context.Context, k *kube.Client) error {
 func newNewCmd() *cobra.Command {
 	var name, repo, dir, image, cpu, memory, agent, model string
 	var user int64
+	var unconfined bool
 	var noAttachHint bool
 	cmd := &cobra.Command{
 		Use:   "new [task]",
@@ -131,7 +132,7 @@ func newNewCmd() *cobra.Command {
 			se, err := store.Create(ctx, sessions.CreateOpts{
 				Name: name, Task: task, Repo: repo,
 				Image: image, Agent: agent, Model: model,
-				CPU: cpu, Memory: memory, User: user,
+				CPU: cpu, Memory: memory, User: user, Unconfined: unconfined,
 				// A shipped folder arrives after the pod starts, so the
 				// entrypoint must wait for it instead of starting the agent
 				// on an empty workspace.
@@ -175,6 +176,7 @@ func newNewCmd() *cobra.Command {
 	cmd.Flags().StringVar(&cpu, "cpu", "", "CPU request (e.g. 2, 500m)")
 	cmd.Flags().StringVar(&memory, "memory", "", "memory request and limit (e.g. 4Gi)")
 	cmd.Flags().Int64Var(&user, "user", 0, "uid to run as, for images wired to a specific user (buildah: 1000)")
+	cmd.Flags().BoolVar(&unconfined, "unconfined", false, "lift the seccomp/capability hardening — for rootless buildah and podman, which need user namespaces")
 	cmd.Flags().BoolVar(&noAttachHint, "quiet", false, "skip the follow-up hint")
 	return cmd
 }

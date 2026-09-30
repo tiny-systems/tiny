@@ -133,19 +133,28 @@ func egressList(cmd *cobra.Command) error {
 // one line per refusal — "egress DENIED <method> <host>" — so counting
 // them is the whole job.
 func readDenials(ctx context.Context, k *kube.Client, tail int64) (map[string]int, map[string]string, error) {
+	counts, latest, viaDNS, err := readDenialsDetailed(ctx, k, tail)
+	for h := range viaDNS {
+		latest[h] += "  (lookup, not connect — the tool is not using HTTPS_PROXY)"
+	}
+	return counts, latest, err
+}
+
+func readDenialsDetailed(ctx context.Context, k *kube.Client, tail int64) (map[string]int, map[string]string, map[string]bool, error) {
 	cs, err := kubernetes.NewForConfig(k.RESTConfig)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	pods, err := cs.CoreV1().Pods(k.Namespace).List(ctx, metav1.ListOptions{LabelSelector: "app=" + addons.ProxyName})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if len(pods.Items) == 0 {
-		return nil, nil, fmt.Errorf("the egress proxy is not running — switch on the hostname allow-list in namespace settings")
+		return nil, nil, nil, fmt.Errorf("the egress proxy is not running — switch on the hostname allow-list in namespace settings")
 	}
 	counts := map[string]int{}
 	latest := map[string]string{}
+	viaDNS := map[string]bool{}
 	for i := range pods.Items {
 		p := &pods.Items[i]
 		if p.Status.Phase != corev1.PodRunning {
@@ -153,7 +162,7 @@ func readDenials(ctx context.Context, k *kube.Client, tail int64) (map[string]in
 		}
 		stream, err := cs.CoreV1().Pods(k.Namespace).GetLogs(p.Name, &corev1.PodLogOptions{TailLines: &tail, Timestamps: true}).Stream(ctx)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		sc := bufio.NewScanner(stream)
 		sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -173,6 +182,13 @@ func readDenials(ctx context.Context, k *kube.Client, tail int64) (map[string]in
 			if h, _, err := net.SplitHostPort(host); err == nil {
 				host = h
 			}
+			// A refused LOOKUP is a different animal from a refused
+			// connect: something in the session tried to resolve the name
+			// itself instead of handing it to the proxy, so allow-listing
+			// the host will not help it.
+			if rest[0] == "DNS" {
+				viaDNS[host] = true
+			}
 			counts[host]++
 			// the RFC3339 timestamp is the first field of the line
 			if ts := strings.Fields(line); len(ts) > 0 {
@@ -183,5 +199,5 @@ func readDenials(ctx context.Context, k *kube.Client, tail int64) (map[string]in
 		}
 		_ = stream.Close()
 	}
-	return counts, latest, nil
+	return counts, latest, viaDNS, nil
 }

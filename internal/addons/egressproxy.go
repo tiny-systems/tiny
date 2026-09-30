@@ -38,8 +38,19 @@ const (
 	proxyArg     = "proxy"
 	proxyAllowCM = ProxyAllowConfigMap
 	proxyPort    = 3128
+	dnsPort      = 5353 // unprivileged; the Service maps 53 onto it
 	allowKey     = "hosts"
 )
+
+// proxyServicePorts is what sessions see: the CONNECT proxy, and DNS on
+// the standard port so a pod's resolv.conf can name this Service's IP.
+func proxyServicePorts() []corev1.ServicePort {
+	return []corev1.ServicePort{
+		{Name: proxyArg, Port: proxyPort, TargetPort: intstr.FromInt32(proxyPort)},
+		{Name: "dns-udp", Protocol: corev1.ProtocolUDP, Port: 53, TargetPort: intstr.FromInt32(dnsPort)},
+		{Name: "dns-tcp", Protocol: corev1.ProtocolTCP, Port: 53, TargetPort: intstr.FromInt32(dnsPort)},
+	}
+}
 
 // DefaultAllowList is what a namespace starts with: the model APIs both
 // agents need, and the package registries a coding session cannot work
@@ -112,19 +123,39 @@ func (r *Applier) ensureAllowList(ctx context.Context, ns string) error {
 func (r *Applier) ensureProxyService(ctx context.Context, ns string) error {
 	var svc corev1.Service
 	err := r.Get(ctx, types.NamespacedName{Namespace: ns, Name: proxyName}, &svc)
-	if err == nil {
-		return nil
+	if apierrors.IsNotFound(err) {
+		return r.Create(ctx, &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: proxyName, Labels: map[string]string{appLabel: proxyName}},
+			Spec: corev1.ServiceSpec{
+				Selector: map[string]string{appLabel: proxyName},
+				Ports:    proxyServicePorts(),
+			},
+		})
 	}
-	if !apierrors.IsNotFound(err) {
+	if err != nil {
 		return err
 	}
-	return r.Create(ctx, &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: proxyName, Labels: map[string]string{appLabel: proxyName}},
-		Spec: corev1.ServiceSpec{
-			Selector: map[string]string{appLabel: proxyName},
-			Ports:    []corev1.ServicePort{{Name: proxyArg, Port: proxyPort, TargetPort: intstr.FromInt32(proxyPort)}},
-		},
-	})
+	// Ports only: an upgrade that adds DNS must reach a Service created
+	// before it existed, and the ClusterIP sessions were handed must not
+	// change under them.
+	if servicePortsMatch(svc.Spec.Ports, proxyServicePorts()) {
+		return nil
+	}
+	svc.Spec.Ports = proxyServicePorts()
+	return r.Update(ctx, &svc)
+}
+
+func servicePortsMatch(have, want []corev1.ServicePort) bool {
+	if len(have) != len(want) {
+		return false
+	}
+	for i := range want {
+		if have[i].Name != want[i].Name || have[i].Port != want[i].Port ||
+			have[i].TargetPort != want[i].TargetPort || have[i].Protocol != want[i].Protocol {
+			return false
+		}
+	}
+	return true
 }
 
 func (r *Applier) ensureProxyDeployment(ctx context.Context, ns, image string) error {
@@ -143,9 +174,21 @@ func (r *Applier) ensureProxyDeployment(ctx context.Context, ns, image string) e
 						ImagePullPolicy: workload.PullPolicyFor(image),
 						Args: []string{proxyArg,
 							fmt.Sprintf("--addr=:%d", proxyPort),
+							fmt.Sprintf("--dns=:%d", dnsPort),
 							"--allow-file=/etc/tiny/" + allowKey,
 						},
-						Ports: []corev1.ContainerPort{{ContainerPort: proxyPort}},
+						Ports: []corev1.ContainerPort{
+							{Name: proxyArg, ContainerPort: proxyPort},
+							{Name: "dns-udp", ContainerPort: dnsPort, Protocol: corev1.ProtocolUDP},
+							{Name: "dns-tcp", ContainerPort: dnsPort, Protocol: corev1.ProtocolTCP},
+						},
+						// The proxy is the one thing every session's traffic
+						// passes through; it gets the same confinement they do.
+						SecurityContext: &corev1.SecurityContext{
+							RunAsNonRoot:             ptr(true),
+							AllowPrivilegeEscalation: ptr(false),
+							Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+						},
 						VolumeMounts: []corev1.VolumeMount{{
 							Name: "allow", MountPath: "/etc/tiny",
 						}},

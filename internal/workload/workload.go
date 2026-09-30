@@ -249,12 +249,13 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 	initImage := "busybox:1.36"
 	registryEnv := ""
 	proxyEnv := ""
+	proxyIP := ""
 	cfg, cfgErr := settings.Load(ctx, c, s.Namespace)
 	if cfgErr == nil && cfg.EgressProxy {
 		// An ADDRESS, not a name: with the proxy resolving on the session's
 		// behalf, the session itself needs no DNS for anything outside.
-		if ip := serviceIP(ctx, c, s.Namespace, "tiny-egress"); ip != "" {
-			proxyEnv = fmt.Sprintf("http://%s:%d", ip, 3128)
+		if proxyIP = serviceIP(ctx, c, s.Namespace, egressService); proxyIP != "" {
+			proxyEnv = fmt.Sprintf("http://%s:%d", proxyIP, 3128)
 		}
 	}
 	if cfgErr == nil && cfg.Zot {
@@ -306,7 +307,8 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 		// The agent runs unprivileged (uid 61000); fsGroup makes the
 		// freshly-provisioned workspace volume writable for it.
 		SecurityContext: &corev1.PodSecurityContext{
-			FSGroup: ptr(AgentUID),
+			FSGroup:        ptr(AgentUID),
+			SeccompProfile: seccomp(s),
 		},
 		// hostPath-backed provisioners (minikube, kind) ignore fsGroup, so
 		// ownership is set explicitly, once, by a root init container.
@@ -316,10 +318,9 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 				Name:    "workspace-perms",
 				Image:   initImage,
 				Command: []string{"sh", "-c", fmt.Sprintf("chown %d:%d %s", AgentUID, AgentUID, workspaceMount)},
-				SecurityContext: &corev1.SecurityContext{
-					RunAsUser: ptr(int64(0)),
-				},
-				VolumeMounts: []corev1.VolumeMount{{Name: workspaceVolume, MountPath: workspaceMount}},
+				// Root, for one chown: that is the single capability it keeps.
+				SecurityContext: confine(&corev1.SecurityContext{RunAsUser: ptr(int64(0))}, s, "CHOWN"),
+				VolumeMounts:    []corev1.VolumeMount{{Name: workspaceVolume, MountPath: workspaceMount}},
 			},
 			// The agent travels as a payload, not an image: claude, a
 			// static tmux and the entrypoint are copied into /tiny, and
@@ -331,6 +332,7 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 				Image:           images.Agent,
 				ImagePullPolicy: PullPolicyFor(images.Agent),
 				Command:         []string{"sh", "-c", "cp -a /opt/tiny/* /tiny/"}, // children, not the dir: the mountpoint's own metadata is not ours to set
+				SecurityContext: confine(&corev1.SecurityContext{}, s),
 				VolumeMounts:    []corev1.VolumeMount{tinyHome},
 			},
 		},
@@ -369,10 +371,10 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 				// Explicit uid: a custom image may default to root, and
 				// claude's bypass mode is not for root. spec.user
 				// overrides for images wired to their own uid (buildah).
-				SecurityContext: &corev1.SecurityContext{
+				SecurityContext: confine(&corev1.SecurityContext{
 					RunAsUser:    ptr(agentUID(s)),
 					RunAsNonRoot: ptr(true),
-				},
+				}, s),
 				// Credentials by convention: the tiny-agent-env Secret
 				// (ANTHROPIC_API_KEY and friends) lands in the agent's env,
 				// plus — for spawner-born sessions — the trigger's own
@@ -406,6 +408,7 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 				Image:           images.Sidecar,
 				ImagePullPolicy: PullPolicyFor(images.Sidecar),
 				Args:            []string{"serve", "--addr=127.0.0.1:8080"},
+				SecurityContext: confine(&corev1.SecurityContext{RunAsNonRoot: ptr(true)}, s),
 				Env: []corev1.EnvVar{
 					{Name: "TINY_SESSION_NAME", Value: s.Name},
 					{Name: "POD_NAME", ValueFrom: &corev1.EnvVarSource{
@@ -427,6 +430,7 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 			},
 		})
 	}
+	proxyDNS(&podSpec, s.Namespace, proxyIP)
 	return podSpec, labels, nil
 }
 
@@ -485,6 +489,54 @@ func sessionEnvFrom(extra string) []corev1.EnvFromSource {
 }
 
 // agentUID is AgentUID unless the session claims an image-native uid.
+// clusterDomain is what a session searches under when the egress proxy
+// is its only resolver. Kubernetes' default, and the proxy forwards
+// whatever its own resolv.conf lists — a cluster that renamed the domain
+// needs the allow-list off, and the fleet row shows the names failing.
+const clusterDomain = "cluster.local"
+
+// egressService is the proxy add-on's Service: HTTPS_PROXY, the session
+// resolver, and a NO_PROXY entry all point at it.
+const egressService = "tiny-egress"
+
+// proxyDNS makes the proxy the session's only nameserver. It answers
+// names inside the cluster and refuses the rest, so no query — not even
+// one the cluster resolver would have forwarded upstream — can carry
+// data out. External hosts are resolved by the proxy, on CONNECT.
+func proxyDNS(spec *corev1.PodSpec, ns, proxyIP string) {
+	if proxyIP == "" {
+		return
+	}
+	spec.DNSPolicy = corev1.DNSNone
+	spec.DNSConfig = &corev1.PodDNSConfig{
+		Nameservers: []string{proxyIP},
+		Searches:    []string{ns + ".svc." + clusterDomain, "svc." + clusterDomain, clusterDomain},
+		Options:     []corev1.PodDNSConfigOption{{Name: "ndots", Value: ptr("5")}},
+	}
+}
+
+// confine is the "restricted" Pod Security Standard, per container: no
+// capability beyond what is named, no privilege escalation, and (at pod
+// level, see seccomp) the runtime's default syscall filter. It is what
+// stands between "an attacker owns the agent's uid" and "an attacker
+// owns the node". spec.unconfined lifts it for images whose tooling
+// needs user namespaces or setuid helpers — rootless buildah.
+func confine(sc *corev1.SecurityContext, s *agentsv1.Session, keep ...corev1.Capability) *corev1.SecurityContext {
+	if s.Spec.Unconfined {
+		return sc
+	}
+	sc.AllowPrivilegeEscalation = ptr(false)
+	sc.Capabilities = &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}, Add: keep}
+	return sc
+}
+
+func seccomp(s *agentsv1.Session) *corev1.SeccompProfile {
+	if s.Spec.Unconfined {
+		return nil
+	}
+	return &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}
+}
+
 func agentUID(s *agentsv1.Session) int64 {
 	if s.Spec.User != nil && *s.Spec.User > 0 {
 		return *s.Spec.User
@@ -521,7 +573,7 @@ func noProxyList(proxyEnv string) string {
 	}
 	return strings.Join([]string{
 		"localhost", "127.0.0.1",
-		"tiny-minio", "tiny-zot", "tiny-egress",
+		"tiny-minio", "tiny-zot", egressService,
 		".svc", ".svc.cluster.local", ".cluster.local",
 		"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
 	}, ",")

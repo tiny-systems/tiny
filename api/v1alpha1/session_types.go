@@ -59,6 +59,12 @@ type SessionSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	// +optional
 	User *int64 `json:"user,omitempty"`
+	// Unconfined lifts the container hardening — seccomp RuntimeDefault,
+	// every capability dropped, no privilege escalation — for images whose
+	// tooling needs user namespaces or setuid helpers: rootless buildah and
+	// podman. False is the hardened default, on purpose.
+	// +optional
+	Unconfined bool `json:"unconfined,omitempty"`
 	// Inbox is the durable mailbox: messages for the agent, appended by
 	// humans (the fleet screen's m key) and delivered into the agent's
 	// prompt by its own pod — surviving restarts, usage-limit pauses, and

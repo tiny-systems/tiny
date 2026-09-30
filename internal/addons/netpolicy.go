@@ -68,9 +68,11 @@ func tcp(port int32) networkingv1.NetworkPolicyPort {
 // session pod in the namespace.
 //
 // viaProxy narrows it further: with the egress proxy running, sessions
-// have no internet rule at all. Everything outbound goes through the
-// proxy, which is in-namespace, and is filtered there BY HOSTNAME —
-// which is the thing a NetworkPolicy fundamentally cannot do.
+// have no internet rule and no DNS rule at all. Everything outbound goes
+// through the proxy, which is in-namespace, and is filtered there BY
+// HOSTNAME — which is the thing a NetworkPolicy fundamentally cannot do.
+// The proxy is also the sessions' only nameserver (see workload's
+// dnsConfig), answering cluster names and refusing the rest.
 func (r *Applier) EnsureEgressPolicy(ctx context.Context, ns string, viaProxy bool) error {
 	dnsUDP := corev1.ProtocolUDP
 	dnsPort := intstr.FromInt32(53)
@@ -114,12 +116,14 @@ func (r *Applier) EnsureEgressPolicy(ctx context.Context, ns string, viaProxy bo
 // with private space cut out — the metadata endpoint is closed, but any
 // host is not.
 //
-// With it, the internet rule disappears entirely and DNS narrows to the
-// cluster's own resolvers: kube-system, plus link-local on port 53 ONLY,
-// which is where NodeLocal DNSCache listens. Port 53 to 169.254.0.0/16
-// does not reopen the metadata endpoint, which answers on 80 and 443.
-// Queries to a nameserver an attacker controls stop being reachable
-// directly, which is the DNS tunnel closed.
+// With it, the internet rule disappears entirely and so does DNS. A
+// rule allowing "port 53 to kube-system" would not close the tunnel: the
+// cluster resolver forwards what it does not know upstream, and the
+// attacker's nameserver is upstream. So sessions get NO path to a
+// resolver except the proxy pod, in this namespace, which answers
+// cluster names and NXDOMAINs everything else. NodeLocal DNSCache is
+// irrelevant to sessions in this mode; the proxy pod uses it like any
+// other pod.
 func egressRules(viaProxy bool, internet []networkingv1.NetworkPolicyPeer, dnsUDP corev1.Protocol, dnsPort intstr.IntOrString, apiPeers []networkingv1.NetworkPolicyPeer, apiPorts []networkingv1.NetworkPolicyPort) []networkingv1.NetworkPolicyEgressRule {
 	dnsPorts := []networkingv1.NetworkPolicyPort{{Protocol: &dnsUDP, Port: &dnsPort}, tcp(53)}
 	// This namespace: the artifact store, each other's exposed ports, and
@@ -141,15 +145,7 @@ func egressRules(viaProxy bool, internet []networkingv1.NetworkPolicyPeer, dnsUD
 		}
 		return out
 	}
-	viaProxyRules := []networkingv1.NetworkPolicyEgressRule{
-		{Ports: dnsPorts, To: []networkingv1.NetworkPolicyPeer{
-			{NamespaceSelector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{"kubernetes.io/metadata.name": nsKubeSystem},
-			}},
-			{IPBlock: &networkingv1.IPBlock{CIDR: cidrLinkLocal}},
-		}},
-		inNamespace,
-	}
+	viaProxyRules := []networkingv1.NetworkPolicyEgressRule{inNamespace}
 	if len(apiPeers) > 0 {
 		viaProxyRules = append(viaProxyRules, apiRule)
 	}
