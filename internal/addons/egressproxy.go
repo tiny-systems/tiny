@@ -11,6 +11,7 @@ package addons
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -25,10 +26,17 @@ import (
 	"github.com/tiny-systems/tiny/internal/workload"
 )
 
+// ProxyName and ProxyAllowConfigMap are the add-on's object names, exported
+// so the CLI can read its logs and point at the list without guessing.
 const (
-	proxyName    = "tiny-egress"
+	ProxyName           = "tiny-egress"
+	ProxyAllowConfigMap = "tiny-egress-allow"
+)
+
+const (
+	proxyName    = ProxyName
 	proxyArg     = "proxy"
-	proxyAllowCM = "tiny-egress-allow"
+	proxyAllowCM = ProxyAllowConfigMap
 	proxyPort    = 3128
 	allowKey     = "hosts"
 )
@@ -187,20 +195,51 @@ func (r *Applier) TeardownProxyAddon(ctx context.Context, ns string) error {
 	return nil
 }
 
+// AllowHost appends a host to the namespace allow-list. Idempotent, and
+// it keeps the operator's comments and ordering: the list is theirs, we
+// only add a line. The proxy re-reads the file within a minute.
+func (r *Applier) AllowHost(ctx context.Context, ns, host string) (added bool, err error) {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "" || strings.ContainsAny(host, " \t#") {
+		return false, fmt.Errorf("not a hostname: %q", host)
+	}
+	var cm corev1.ConfigMap
+	if err := r.Get(ctx, types.NamespacedName{Namespace: ns, Name: proxyAllowCM}, &cm); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, fmt.Errorf("no allow-list yet: switch on the hostname allow-list in namespace settings first")
+		}
+		return false, err
+	}
+	if slices.Contains(r.parseHosts(cm.Data[allowKey]), host) {
+		return false, nil
+	}
+	body := strings.TrimRight(cm.Data[allowKey], "\n") + "\n" + host + "\n"
+	if cm.Data == nil {
+		cm.Data = map[string]string{}
+	}
+	cm.Data[allowKey] = body
+	return true, r.Update(ctx, &cm)
+}
+
+// parseHosts is AllowedHosts' parser, shared so add and list agree.
+func (r *Applier) parseHosts(raw string) []string {
+	var out []string
+	for line := range strings.SplitSeq(raw, "\n") {
+		if i := strings.IndexByte(line, '#'); i >= 0 {
+			line = line[:i]
+		}
+		if h := strings.TrimSpace(line); h != "" {
+			out = append(out, strings.ToLower(h))
+		}
+	}
+	return out
+}
+
 // AllowedHosts reports the list as the settings screen shows it.
 func (r *Applier) AllowedHosts(ctx context.Context, ns string) []string {
 	var cm corev1.ConfigMap
 	if err := r.Get(ctx, types.NamespacedName{Namespace: ns, Name: proxyAllowCM}, &cm); err != nil {
 		return nil
 	}
-	var out []string
-	for line := range strings.SplitSeq(cm.Data[allowKey], "\n") {
-		if i := strings.IndexByte(line, '#'); i >= 0 {
-			line = line[:i]
-		}
-		if h := strings.TrimSpace(line); h != "" {
-			out = append(out, h)
-		}
-	}
-	return out
+	return r.parseHosts(cm.Data[allowKey])
 }

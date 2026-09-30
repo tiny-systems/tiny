@@ -16,3 +16,4 @@ vendor/
 # Kubebuilder tooling
 /bin/
 Dockerfile.cross
+images/agent/agent

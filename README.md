@@ -255,6 +255,7 @@ transcript resumes.
 | `tiny diff [session]` | what a session changed; with no name, the whole fleet plus file collisions |
 | `tiny shell <session>` | shell on a session's workspace — finished sessions too |
 | `tiny questions` | every decision waiting on a human; `--json` for event sources, `--all` to include idle nudges |
+| `tiny egress denied` | hosts agents tried to reach and were refused by the allow-list; `tiny egress allow <host>` widens it |
 | `tiny answer <question> <text>` | answer a ✳ card — and perform its action, as you |
 | `echo "…" \| tiny deliver <session> --ensure --origin "github:o/r#3"` | pipe a message into a session's inbox; `--origin` remembers where the work came from, so a blocked session can be reported back there |
 | `tiny setup` | interactive setup — and rotation: token, repo key |

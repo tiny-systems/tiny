@@ -3,6 +3,7 @@ package addons
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -350,5 +351,43 @@ func TestRunnerCanReadQuestionsButNotAnswerThem(t *testing.T) {
 	}
 	if !canRead {
 		t.Error("runner cannot list questions, so blocked sessions are never reported")
+	}
+}
+
+// AllowHost appends without clobbering the operator's list: comments and
+// order survive, duplicates are refused, and garbage is rejected.
+func TestAllowHostKeepsTheOperatorsList(t *testing.T) {
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "agents", Name: ProxyAllowConfigMap},
+		Data:       map[string]string{"hosts": "# mine\napi.anthropic.com\n.npmjs.org\n"},
+	}
+	r := &Applier{Client: fake.NewClientBuilder().WithScheme(testScheme(t)).WithRuntimeObjects(cm).Build()}
+	ctx := context.Background()
+
+	added, err := r.AllowHost(ctx, "agents", "PyPI.org")
+	if err != nil || !added {
+		t.Fatalf("first add: added=%v err=%v", added, err)
+	}
+	added, err = r.AllowHost(ctx, "agents", "pypi.org")
+	if err != nil || added {
+		t.Fatalf("duplicate should be a no-op: added=%v err=%v", added, err)
+	}
+	if _, err := r.AllowHost(ctx, "agents", "bad host"); err == nil {
+		t.Fatal("a hostname with a space must be rejected")
+	}
+	var got corev1.ConfigMap
+	if err := r.Get(ctx, types.NamespacedName{Namespace: "agents", Name: ProxyAllowConfigMap}, &got); err != nil {
+		t.Fatal(err)
+	}
+	body := got.Data["hosts"]
+	if !strings.HasPrefix(body, "# mine\n") {
+		t.Fatalf("operator comment lost: %q", body)
+	}
+	if !strings.HasSuffix(body, "pypi.org\n") {
+		t.Fatalf("host not appended, lowercased: %q", body)
+	}
+	hosts := r.AllowedHosts(ctx, "agents")
+	if len(hosts) != 3 || hosts[2] != "pypi.org" {
+		t.Fatalf("AllowedHosts = %v", hosts)
 	}
 }
