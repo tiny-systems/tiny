@@ -25,7 +25,7 @@ func podFor(t *testing.T, s *agentsv1.Session, objs ...corev1.Service) corev1.Po
 	for i := range objs {
 		b = b.WithObjects(&objs[i])
 	}
-	spec, _, err := buildPodSpec(context.Background(), b.Build(), Images{Agent: "a", Sidecar: "s"}, s)
+	spec, _, err := buildPodSpec(context.Background(), b.Build(), Images{Agent: "a", Sidecar: "s"}, s, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestProxyIsTheOnlyResolverWhenOn(t *testing.T) {
 	}
 	b := clientfake.NewClientBuilder().WithScheme(workspaceScheme(t)).WithObjects(&proxy,
 		&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: settings.Name}, Data: map[string]string{"egressProxy": "true"}})
-	spec, _, err := buildPodSpec(context.Background(), b.Build(), Images{Agent: "a", Sidecar: "s"}, s)
+	spec, _, err := buildPodSpec(context.Background(), b.Build(), Images{Agent: "a", Sidecar: "s"}, s, false)
 	if err != nil {
 		t.Fatal(err)
 	}

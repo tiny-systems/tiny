@@ -125,10 +125,22 @@ func DefaultSidecarImage() string { return defaultSidecarRepo + ":" + DefaultIma
 func DefaultWebImage() string { return defaultWebRepo + ":" + DefaultImageTag }
 
 // ResolveImages reads per-namespace overrides — the dev loop's home.
+// A failed read keeps the defaults.
 func ResolveImages(ctx context.Context, c client.Client, ns string) Images {
+	img, _ := resolveImages(ctx, c, ns)
+	return img
+}
+
+// resolveImages is ResolveImages that also reports a read failure other
+// than NotFound (a missing ConfigMap just means no overrides).
+func resolveImages(ctx context.Context, c client.Client, ns string) (Images, error) {
 	img := Images{Agent: DefaultAgentImage(), Sidecar: DefaultSidecarImage(), Web: DefaultWebImage()}
 	cm := &corev1.ConfigMap{}
-	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: settings.Name}, cm); err == nil {
+	err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: settings.Name}, cm)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return img, fmt.Errorf("read configmap %s/%s: %w", ns, settings.Name, err)
+	}
+	if err == nil {
 		if v := cm.Data["agentImage"]; v != "" {
 			img.Agent = v
 		}
@@ -139,7 +151,7 @@ func ResolveImages(ctx context.Context, c client.Client, ns string) Images {
 			img.Web = v
 		}
 	}
-	return img
+	return img, nil
 }
 
 func workspaceName(s *agentsv1.Session) string { return s.Name + "-workspace" }
@@ -150,7 +162,23 @@ func DeploymentName(s *agentsv1.Session) string { return s.Name + "-agent" }
 func ptr[T any](v T) *T { return &v }
 
 // Ensure materialises PVC + Deployment for the session, both owned by it.
+// A failed read of the settings ConfigMap or an add-on Service is
+// tolerated: the pod is built without what that read would have added.
 func Ensure(ctx context.Context, c client.Client, s *agentsv1.Session) error {
+	return ensure(ctx, c, s, false)
+}
+
+// EnsureStrict is Ensure for callers outside the cluster operator's
+// trusted path (pkg/session). A read of the settings ConfigMap or the
+// egress/registry Service that fails for any reason other than NotFound
+// (typically Forbidden) is returned instead of producing a pod without its
+// proxy settings, which the namespace's NetworkPolicy would then cut off.
+// NotFound still means the add-on is not installed and succeeds.
+func EnsureStrict(ctx context.Context, c client.Client, s *agentsv1.Session) error {
+	return ensure(ctx, c, s, true)
+}
+
+func ensure(ctx context.Context, c client.Client, s *agentsv1.Session, strict bool) error {
 	if err := ensureWorkspace(ctx, c, s); err != nil {
 		return fmt.Errorf("workspace: %w", err)
 	}
@@ -162,8 +190,11 @@ func Ensure(ctx context.Context, c client.Client, s *agentsv1.Session) error {
 	if !apierrors.IsNotFound(err) {
 		return err
 	}
-	images := ResolveImages(ctx, c, s.Namespace)
-	podSpec, labels, err := buildPodSpec(ctx, c, images, s)
+	images, imgErr := resolveImages(ctx, c, s.Namespace)
+	if strict && imgErr != nil {
+		return imgErr
+	}
+	podSpec, labels, err := buildPodSpec(ctx, c, images, s, strict)
 	if err != nil {
 		return err
 	}
@@ -235,8 +266,7 @@ func ensureWorkspace(ctx context.Context, c client.Client, s *agentsv1.Session) 
 	return c.Create(ctx, pvc)
 }
 
-//nolint:unparam // error reserved: settings/zot lookups may become fallible
-func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agentsv1.Session) (corev1.PodSpec, map[string]string, error) {
+func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agentsv1.Session, strict bool) (corev1.PodSpec, map[string]string, error) {
 	agentImage := s.Spec.Image
 	if agentImage == "" {
 		agentImage = images.Agent
@@ -251,15 +281,26 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 	proxyEnv := ""
 	proxyIP := ""
 	cfg, cfgErr := settings.Load(ctx, c, s.Namespace)
+	if strict && cfgErr != nil {
+		return corev1.PodSpec{}, nil, fmt.Errorf("read configmap %s/%s: %w", s.Namespace, settings.Name, cfgErr)
+	}
 	if cfgErr == nil && cfg.EgressProxy {
 		// An ADDRESS, not a name: with the proxy resolving on the session's
 		// behalf, the session itself needs no DNS for anything outside.
-		if proxyIP = serviceIP(ctx, c, s.Namespace, egressService); proxyIP != "" {
+		ip, err := serviceIP(ctx, c, s.Namespace, egressService)
+		if strict && err != nil {
+			return corev1.PodSpec{}, nil, err
+		}
+		if proxyIP = ip; proxyIP != "" {
 			proxyEnv = fmt.Sprintf("http://%s:%d", proxyIP, 3128)
 		}
 	}
 	if cfgErr == nil && cfg.Zot {
-		if ip := serviceIP(ctx, c, s.Namespace, "tiny-zot"); ip != "" {
+		ip, err := serviceIP(ctx, c, s.Namespace, "tiny-zot")
+		if strict && err != nil {
+			return corev1.PodSpec{}, nil, err
+		}
+		if ip != "" {
 			// Agents learn the namespace registry's address from env — it
 			// is a push target too (built images), not just a cache.
 			registryEnv = fmt.Sprintf("%s:%d", ip, 5000)
@@ -546,12 +587,17 @@ func agentUID(s *agentsv1.Session) int64 {
 
 // zotIP finds the cache Service's ClusterIP — the address node runtimes can
 // actually reach (they cannot resolve cluster DNS).
-func serviceIP(ctx context.Context, c client.Client, ns, name string) string {
+// A missing Service gives "" and no error; any other read failure gives ""
+// and the error, for callers that need to fail loud.
+func serviceIP(ctx context.Context, c client.Client, ns, name string) (string, error) {
 	svc := &corev1.Service{}
 	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, svc); err != nil {
-		return ""
+		if apierrors.IsNotFound(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("read service %s/%s: %w", ns, name, err)
 	}
-	return svc.Spec.ClusterIP
+	return svc.Spec.ClusterIP, nil
 }
 
 // noProxyList keeps cluster-local traffic direct. Sending the artifact

@@ -21,8 +21,10 @@ v1alpha1 (agentsv1.AddToScheme): owner references are built from it.
 # Permissions
 
 The caller's identity needs these rights in the session's namespace. The
-runner Role that tiny installs for its GitHub Actions add-on grants the
-same set.
+runner Role that tiny installs for its GitHub Actions add-on covers most
+of them but not all: it has no sessions delete (Delete needs it), and its
+extra rights (pods, pods/exec, questions, secrets create/update, list and
+update on sessions) are not needed here.
 
   - agents.tinysystems.io sessions: create, get (Create, and Ensure when
     the Session has no UID yet); delete (Delete).
@@ -35,12 +37,13 @@ same set.
     tinysystems.io/env-secret annotation (the secret must exist and be
     labelled tinysystems.io/for-session=<session name>).
 
-Read the last three as required, not optional. When a read fails, the
-workload is still created, just without what that read would have added.
-Without configmaps or services get, a session in a namespace with the
-egress allow-list switched on is created without its proxy settings. The
-namespace's NetworkPolicy then drops its traffic, so the agent cannot
-reach its model API.
+Create and Ensure fail rather than build a pod without its proxy settings:
+if reading the tiny-settings ConfigMap, or the tiny-egress or tiny-zot
+Service when the add-on is switched on, fails for any reason other than
+NotFound (for example Forbidden), the error is returned and no Deployment
+is created. NotFound means the add-on is not installed and is fine. The
+workspace PVC may already exist by then; calling Ensure again after fixing
+the rights completes the session.
 
 Clusters that enable the OwnerReferencesPermissionEnforcement admission
 plugin also require update on sessions/finalizers, because the PVC and
@@ -81,17 +84,18 @@ const SessionLabel = workload.SessionLabel
 // process-wide state: call it once, before creating sessions.
 func SetImageTag(version string) { workload.SetDefaultImageTag(version) }
 
-// Create creates the Session CR and materialises its workload. If a
-// Session with s's name already exists, Create adopts it: s is overwritten
-// with the live object (your spec is not applied) and its workload is
-// ensured. A second call with the same name is therefore safe. With only
-// GenerateName set, every call creates a new session.
+// Create creates the Session CR and materialises its workload. It never
+// adopts an existing Session: if one with s's name exists, the API's
+// AlreadyExists error is returned unchanged (test it with
+// apierrors.IsAlreadyExists) and nothing is created for the existing
+// object, as with `tiny new`. To finish the workload of a Session that
+// already exists, call Ensure. With only GenerateName set, every call
+// creates a new session.
 func Create(ctx context.Context, c client.Client, s *agentsv1.Session) error {
-	err := c.Create(ctx, s)
-	if apierrors.IsAlreadyExists(err) && s.Name != "" {
-		err = c.Get(ctx, client.ObjectKeyFromObject(s), s)
-	}
-	if err != nil {
+	if err := c.Create(ctx, s); err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			return err
+		}
 		return fmt.Errorf("create session: %w", err)
 	}
 	return Ensure(ctx, c, s)
@@ -107,7 +111,7 @@ func Ensure(ctx context.Context, c client.Client, s *agentsv1.Session) error {
 			return fmt.Errorf("get session: %w", err)
 		}
 	}
-	if err := workload.Ensure(ctx, c, s); err != nil {
+	if err := workload.EnsureStrict(ctx, c, s); err != nil {
 		return fmt.Errorf("session %s exists but its workload failed: %w", s.Name, err)
 	}
 	return nil
