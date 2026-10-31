@@ -383,7 +383,7 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 				// reports a missing key as a question instead of
 				// crashlooping.
 				EnvFrom: sessionEnvFrom(envSecret),
-				Env: []corev1.EnvVar{
+				Env: append([]corev1.EnvVar{
 					{Name: "TINY_TASK", Value: s.Spec.Task},
 					{Name: "TINY_REPO", Value: s.Spec.Repo},
 					{Name: "TINY_AGENT", Value: s.Spec.Agent},
@@ -400,7 +400,7 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 					{Name: "http_proxy", Value: proxyEnv},
 					{Name: "NO_PROXY", Value: noProxyList(proxyEnv)},
 					{Name: "no_proxy", Value: noProxyList(proxyEnv)},
-				},
+				}, mcpEnv(s.Spec.MCPServers)...),
 				VolumeMounts: agentMounts(workspace, tinyHome, envSecret),
 			},
 			{

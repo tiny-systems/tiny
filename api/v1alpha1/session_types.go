@@ -71,6 +71,35 @@ type SessionSpec struct {
 	// everything between. Delivered entries are pruned by the writer.
 	// +optional
 	Inbox []InboxMessage `json:"inbox,omitempty"`
+	// MCPServers are extra MCP servers the agent registers next to tiny's
+	// own. Reaches the entrypoint as TINY_MCP_CONFIG (claude) and
+	// TINY_CODEX_MCP_ARGS (codex).
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=8
+	// +optional
+	MCPServers []MCPServer `json:"mcpServers,omitempty"`
+}
+
+// MCPServer is an extra MCP server the agent registers next to tiny's own.
+// Values are patterned to exclude whitespace, quotes and backslashes: they
+// are rendered into env vars and codex -c overrides without escaping.
+// +kubebuilder:validation:XValidation:rule="has(self.url) != has(self.command)",message="set exactly one of url or command"
+// +kubebuilder:validation:XValidation:rule="self.name != 'tiny'",message="the name tiny is reserved for the built-in server"
+type MCPServer struct {
+	// +kubebuilder:validation:Pattern=`^[a-z][a-z0-9-]{0,31}$`
+	Name string `json:"name"`
+	// HTTP endpoint. Mutually exclusive with Command.
+	// +kubebuilder:validation:Pattern=`^https?://[^\s"'\\]+$`
+	// +optional
+	URL string `json:"url,omitempty"`
+	// Stdio server started inside the agent container.
+	// +kubebuilder:validation:Pattern=`^[^\s"'\\]+$`
+	// +optional
+	Command string `json:"command,omitempty"`
+	// +kubebuilder:validation:items:Pattern=`^[^\s"'\\]+$`
+	// +optional
+	Args []string `json:"args,omitempty"`
 }
 
 // InboxMessage is one undelivered line for the agent.

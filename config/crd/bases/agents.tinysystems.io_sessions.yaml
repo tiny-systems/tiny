@@ -89,6 +89,46 @@ spec:
                   - text
                   type: object
                 type: array
+              mcpServers:
+                description: |-
+                  MCPServers are extra MCP servers the agent registers next to tiny's
+                  own. Reaches the entrypoint as TINY_MCP_CONFIG (claude) and
+                  TINY_CODEX_MCP_ARGS (codex).
+                items:
+                  description: |-
+                    MCPServer is an extra MCP server the agent registers next to tiny's own.
+                    Values are patterned to exclude whitespace, quotes and backslashes: they
+                    are rendered into env vars and codex -c overrides without escaping.
+                  properties:
+                    args:
+                      items:
+                        pattern: ^[^\s"'\\]+$
+                        type: string
+                      type: array
+                    command:
+                      description: Stdio server started inside the agent container.
+                      pattern: ^[^\s"'\\]+$
+                      type: string
+                    name:
+                      pattern: ^[a-z][a-z0-9-]{0,31}$
+                      type: string
+                    url:
+                      description: HTTP endpoint. Mutually exclusive with Command.
+                      pattern: ^https?://[^\s"'\\]+$
+                      type: string
+                  required:
+                  - name
+                  type: object
+                  x-kubernetes-validations:
+                  - message: set exactly one of url or command
+                    rule: has(self.url) != has(self.command)
+                  - message: the name tiny is reserved for the built-in server
+                    rule: self.name != 'tiny'
+                maxItems: 8
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               model:
                 description: |-
                   Model overrides the agent's default model (claude --model,
