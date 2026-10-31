@@ -113,10 +113,11 @@ Full detail: [threat model](https://tinysystems.io/docs/threat-model/) ·
   container injects the agent (claude, codex, a static tmux, the
   entrypoint) into whatever you name. The contract is glibc, git and
   /bin/sh; you don't maintain a special image.
-- **Extra MCP servers per session.** `spec.mcpServers` hands the agent more
-  tools, for claude and codex alike. Use `url` for a remote server or
-  `command` and `args` to run one inside the pod; names, urls, commands and
-  args may not contain whitespace, quotes or backslashes.
+- **Extra MCP servers per session.** `spec.mcpServers` gives the agent
+  more tools, with claude or codex. Set `url` for a server the pod can
+  reach over HTTP, or `command` (with optional `args`) to start one inside
+  the agent container. Values may not contain whitespace, quotes or
+  backslashes.
 
   ```yaml
   apiVersion: agents.tinysystems.io/v1alpha1
@@ -127,11 +128,18 @@ Full detail: [threat model](https://tinysystems.io/docs/threat-model/) ·
     task: "Open the staging site and check the login page."
     mcpServers:
       - name: bp
-        url: http://director:8080/mcp/run/abc
+        url: http://director.tools.svc:8080/mcp/run/abc
       - name: pw
         command: npx
         args: ["@playwright/mcp", "--headless"]
   ```
+
+  Every session in the namespace can read these values, because session
+  pods are allowed to read Sessions and pods. Keep tokens and passwords
+  out of URLs and arguments. With the egress allow-list on, address an
+  HTTP server inside the cluster as `<service>.<namespace>.svc`. A bare
+  service name like `http://director:8080` is sent through the proxy, and
+  the proxy refuses it unless the name is on the allow-list.
 - **Sessions spawn sessions — through a human gate.** A light root session
   plans, then asks to start specialists in the right toolchain with the
   right cpu/memory. You approve each spawn from the fleet screen; children
@@ -232,6 +240,10 @@ replacement mounts the same workspace and resumes the transcript.
 - Whoever **creates** a session materialises its workload with their own
   credentials — your CLI on `tiny new`, a runner job on `tiny deliver`.
   Deleting the session garbage-collects everything via owner references.
+  A Go program can do the same with `github.com/tiny-systems/tiny/pkg/session`:
+  `session.Create` makes the Session and its workload with the client you
+  pass in, and `session.Delete` removes it. The package docs list the RBAC
+  the caller needs.
 - The sidecar is powerless by design: it can create Questions and update
   its own session's status, nothing else. When the agent reaches a
   decision it must not make alone, the tool call **blocks** — minutes or
@@ -384,6 +396,7 @@ One repository, one version:
 | `cmd/tiny` | the CLI and the fleet screen |
 | `cmd/controller` | the tiny-mcp sidecar (its only remaining role) |
 | `internal/workload`, `internal/actions`, `internal/addons` | what used to be the manager — run by whoever creates, answers, or toggles |
+| `pkg/session` | create and delete sessions from your own Go code |
 | `api/`, `config/` | the Session + Question CRDs and the embedded install manifests |
 | `images/agent` | the agent image and the injectable payload |
 
