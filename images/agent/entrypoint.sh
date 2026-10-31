@@ -287,16 +287,17 @@ RUNEOF
   else
     cat > "$RUN" <<'RUNEOF'
 #!/bin/sh
+# --mcp-config is variadic: keep a flag after it so the prompt is not eaten.
 # --continue alone reopens the transcript and then WAITS for input — a
 # restarted pod would sit idle forever. The nudge turns resumption back into
 # motion. But a nudge whose turn never RAN (usage-limit park, rapid pod
 # cycles) must not stack another on top: the pending marker survives on the
 # workspace and is cleared by the Stop hook when a turn truly completes.
 if [ -f /workspace/.tiny/nudge-pending ]; then
-  claude ${TINY_MODEL:+--model "$TINY_MODEL"} --continue --permission-mode bypassPermissions ${TINY_MCP_CONFIG:+--mcp-config "$TINY_MCP_CONFIG"}
+  claude ${TINY_MODEL:+--model "$TINY_MODEL"} --continue ${TINY_MCP_CONFIG:+--mcp-config "$TINY_MCP_CONFIG"} --permission-mode bypassPermissions
 else
   touch /workspace/.tiny/nudge-pending
-  claude ${TINY_MODEL:+--model "$TINY_MODEL"} --continue --permission-mode bypassPermissions ${TINY_MCP_CONFIG:+--mcp-config "$TINY_MCP_CONFIG"} \
+  claude ${TINY_MODEL:+--model "$TINY_MODEL"} --continue ${TINY_MCP_CONFIG:+--mcp-config "$TINY_MCP_CONFIG"} --permission-mode bypassPermissions \
     "The infrastructure restarted your session. Pick up your task where the transcript leaves off; if it was already complete, say so and stop."
 fi
 code=$?
@@ -326,7 +327,8 @@ RUNEOF
   else
     cat > "$RUN" <<'RUNEOF'
 #!/bin/sh
-claude ${TINY_MODEL:+--model "$TINY_MODEL"} --permission-mode bypassPermissions ${TINY_MCP_CONFIG:+--mcp-config "$TINY_MCP_CONFIG"} "${TINY_TASK:-No task was given. Call set_title with 'waiting for instructions' now, then wait for the human here. Output no greeting - just wait.}"
+# --mcp-config is variadic: keep a flag after it so the prompt is not eaten.
+claude ${TINY_MODEL:+--model "$TINY_MODEL"} ${TINY_MCP_CONFIG:+--mcp-config "$TINY_MCP_CONFIG"} --permission-mode bypassPermissions "${TINY_TASK:-No task was given. Call set_title with 'waiting for instructions' now, then wait for the human here. Output no greeting - just wait.}"
 code=$?
 tiny-notify --exited "$code" 2>/dev/null || true
 echo
