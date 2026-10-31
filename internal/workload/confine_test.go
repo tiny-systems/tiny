@@ -19,12 +19,9 @@ import (
 	"github.com/tiny-systems/tiny/internal/settings"
 )
 
-func podFor(t *testing.T, s *agentsv1.Session, objs ...corev1.Service) corev1.PodSpec {
+func podFor(t *testing.T, s *agentsv1.Session) corev1.PodSpec {
 	t.Helper()
 	b := clientfake.NewClientBuilder().WithScheme(workspaceScheme(t))
-	for i := range objs {
-		b = b.WithObjects(&objs[i])
-	}
 	spec, _, err := buildPodSpec(context.Background(), b.Build(), Images{Agent: "a", Sidecar: "s"}, s, false)
 	if err != nil {
 		t.Fatal(err)

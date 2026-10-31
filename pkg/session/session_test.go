@@ -115,7 +115,8 @@ func TestCreateRefusesExistingSession(t *testing.T) {
 		t.Fatalf("workload created for a foreign session: %d deployments, %d PVCs", d, p)
 	}
 	got := &agentsv1.Session{}
-	if err := c.Get(ctx, types.NamespacedName{Namespace: "ns", Name: "s1"}, got); err != nil || got.Spec.Task != "someone else's task" {
+	err = c.Get(ctx, types.NamespacedName{Namespace: "ns", Name: "s1"}, got)
+	if err != nil || got.Spec.Task != "someone else's task" {
 		t.Fatalf("foreign session changed: %v %+v", err, got.Spec)
 	}
 }
@@ -138,7 +139,10 @@ func forbidGet(t *testing.T, resource string) client.Client {
 	t.Helper()
 	base := fakeClient(t)
 	return interceptor.NewClient(base, interceptor.Funcs{
-		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+		Get: func(
+			ctx context.Context, c client.WithWatch,
+			key client.ObjectKey, obj client.Object, opts ...client.GetOption,
+		) error {
 			switch obj.(type) {
 			case *corev1.ConfigMap:
 				if resource == "configmaps" {
