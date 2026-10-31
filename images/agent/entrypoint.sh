@@ -272,8 +272,13 @@ if [ -f "$MARKER" ]; then
 # resume --last reopens the newest rollout and then WAITS for input; the
 # entrypoint nudges through tmux once the TUI is up. Approvals and sandbox
 # are settled in config.toml, model rides TINY_MODEL.
-codex resume --last ${TINY_MODEL:+-c model="$TINY_MODEL"}
+# TINY_CODEX_MCP_ARGS is left unquoted on purpose: the controller guarantees
+# no whitespace or quotes inside it, so word-splitting is safe. Globbing is
+# off around it because the args contain [ ] and a file in the cwd could match.
+set -f
+codex resume --last ${TINY_MODEL:+-c model="$TINY_MODEL"} $TINY_CODEX_MCP_ARGS
 code=$?
+set +f
 tiny-notify --exited "$code" 2>/dev/null || true
 echo
 echo "tiny: agent exited — session stays for inspection"
@@ -288,10 +293,10 @@ RUNEOF
 # cycles) must not stack another on top: the pending marker survives on the
 # workspace and is cleared by the Stop hook when a turn truly completes.
 if [ -f /workspace/.tiny/nudge-pending ]; then
-  claude ${TINY_MODEL:+--model "$TINY_MODEL"} --continue --permission-mode bypassPermissions
+  claude ${TINY_MODEL:+--model "$TINY_MODEL"} --continue --permission-mode bypassPermissions ${TINY_MCP_CONFIG:+--mcp-config "$TINY_MCP_CONFIG"}
 else
   touch /workspace/.tiny/nudge-pending
-  claude ${TINY_MODEL:+--model "$TINY_MODEL"} --continue --permission-mode bypassPermissions \
+  claude ${TINY_MODEL:+--model "$TINY_MODEL"} --continue --permission-mode bypassPermissions ${TINY_MCP_CONFIG:+--mcp-config "$TINY_MCP_CONFIG"} \
     "The infrastructure restarted your session. Pick up your task where the transcript leaves off; if it was already complete, say so and stop."
 fi
 code=$?
@@ -307,8 +312,12 @@ else
   if [ "$AGENT" = "codex" ]; then
     cat > "$RUN" <<'RUNEOF'
 #!/bin/sh
-codex ${TINY_MODEL:+-m "$TINY_MODEL"} "${TINY_TASK:-No task was given. Call set_title with 'waiting for instructions' now, then wait for the human here. Output no greeting - just wait.}"
+# Unquoted TINY_CODEX_MCP_ARGS is safe (no whitespace or quotes inside); globbing
+# is off because the args contain [ ] and a file in the cwd could match.
+set -f
+codex ${TINY_MODEL:+-m "$TINY_MODEL"} $TINY_CODEX_MCP_ARGS "${TINY_TASK:-No task was given. Call set_title with 'waiting for instructions' now, then wait for the human here. Output no greeting - just wait.}"
 code=$?
+set +f
 tiny-notify --exited "$code" 2>/dev/null || true
 echo
 echo "tiny: agent exited — session stays for inspection"
@@ -317,7 +326,7 @@ RUNEOF
   else
     cat > "$RUN" <<'RUNEOF'
 #!/bin/sh
-claude ${TINY_MODEL:+--model "$TINY_MODEL"} --permission-mode bypassPermissions "${TINY_TASK:-No task was given. Call set_title with 'waiting for instructions' now, then wait for the human here. Output no greeting - just wait.}"
+claude ${TINY_MODEL:+--model "$TINY_MODEL"} --permission-mode bypassPermissions ${TINY_MCP_CONFIG:+--mcp-config "$TINY_MCP_CONFIG"} "${TINY_TASK:-No task was given. Call set_title with 'waiting for instructions' now, then wait for the human here. Output no greeting - just wait.}"
 code=$?
 tiny-notify --exited "$code" 2>/dev/null || true
 echo

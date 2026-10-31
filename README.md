@@ -113,6 +113,25 @@ Full detail: [threat model](https://tinysystems.io/docs/threat-model/) ·
   container injects the agent (claude, codex, a static tmux, the
   entrypoint) into whatever you name. The contract is glibc, git and
   /bin/sh; you don't maintain a special image.
+- **Extra MCP servers per session.** `spec.mcpServers` hands the agent more
+  tools, for claude and codex alike. Use `url` for a remote server or
+  `command` and `args` to run one inside the pod; names, urls, commands and
+  args may not contain whitespace, quotes or backslashes.
+
+  ```yaml
+  apiVersion: agents.tinysystems.io/v1alpha1
+  kind: Session
+  metadata:
+    name: browse
+  spec:
+    task: "Open the staging site and check the login page."
+    mcpServers:
+      - name: bp
+        url: http://director:8080/mcp/run/abc
+      - name: pw
+        command: npx
+        args: ["@playwright/mcp", "--headless"]
+  ```
 - **Sessions spawn sessions — through a human gate.** A light root session
   plans, then asks to start specialists in the right toolchain with the
   right cpu/memory. You approve each spawn from the fleet screen; children
