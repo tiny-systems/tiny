@@ -51,13 +51,14 @@ func TestMCPServersRejectsUnsafeValues(t *testing.T) {
 	}
 
 	bad := map[string][]MCPServer{
-		"arg-with-space":  {{Name: "pw", Command: "npx", Args: []string{"a b"}}},
-		"bad-name":        {{Name: "Bad Name", URL: "http://x/y"}},
-		"reserved-name":   {{Name: "tiny", URL: "http://x/y"}},
-		"both":            {{Name: "pw", URL: "http://x/y", Command: "npx"}},
-		"neither":         {{Name: "pw"}},
-		"url-with-quote":  {{Name: "pw", URL: `http://x/"y`}},
-		"duplicate-names": {{Name: "pw", URL: "http://x/y"}, {Name: "pw", URL: "http://x/z"}},
+		"arg-with-space":       {{Name: "pw", Command: "npx", Args: []string{"a b"}}},
+		"bad-name":             {{Name: "Bad Name", URL: "http://x/y"}},
+		"reserved-name":        {{Name: "tiny", URL: "http://x/y"}},
+		"both":                 {{Name: "pw", URL: "http://x/y", Command: "npx"}},
+		"neither":              {{Name: "pw"}},
+		"args-without-command": {{Name: "pw", URL: "http://x/y", Args: []string{"a"}}},
+		"url-with-quote":       {{Name: "pw", URL: `http://x/"y`}},
+		"duplicate-names":      {{Name: "pw", URL: "http://x/y"}, {Name: "pw", URL: "http://x/z"}},
 	}
 	for name, servers := range bad {
 		if err := create(name, servers...); err == nil {

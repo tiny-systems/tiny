@@ -86,6 +86,7 @@ type SessionSpec struct {
 // are rendered into env vars and codex -c overrides without escaping.
 // +kubebuilder:validation:XValidation:rule="has(self.url) != has(self.command)",message="set exactly one of url or command"
 // +kubebuilder:validation:XValidation:rule="self.name != 'tiny'",message="the name tiny is reserved for the built-in server"
+// +kubebuilder:validation:XValidation:rule="!has(self.args) || has(self.command)",message="args requires command"
 type MCPServer struct {
 	// +kubebuilder:validation:Pattern=`^[a-z][a-z0-9-]{0,31}$`
 	Name string `json:"name"`

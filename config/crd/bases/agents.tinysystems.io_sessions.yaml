@@ -124,6 +124,8 @@ spec:
                     rule: has(self.url) != has(self.command)
                   - message: the name tiny is reserved for the built-in server
                     rule: self.name != 'tiny'
+                  - message: args requires command
+                    rule: '!has(self.args) || has(self.command)'
                 maxItems: 8
                 type: array
                 x-kubernetes-list-map-keys:
