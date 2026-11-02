@@ -169,6 +169,8 @@ spec:
                   Tolerations let the session pod onto tainted nodes; together with
                   NodeSelector they keep heavy sessions on their own pool and
                   everything else off it. Copied to the pod as is.
+                  Every toleration names its taint key: a key-less wildcard would let
+                  the session onto every tainted pool in the cluster.
                 items:
                   description: |-
                     The pod this Toleration is attached to tolerates any taint that matches
@@ -208,6 +210,9 @@ spec:
                   type: object
                 maxItems: 8
                 type: array
+                x-kubernetes-validations:
+                - message: each toleration needs a key; wildcard tolerations are refused
+                  rule: self.all(t, has(t.key) && t.key != '')
               unconfined:
                 description: |-
                   Unconfined lifts the container hardening — seccomp RuntimeDefault,

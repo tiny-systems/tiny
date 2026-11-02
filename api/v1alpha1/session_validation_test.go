@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -64,5 +65,18 @@ func TestMCPServersRejectsUnsafeValues(t *testing.T) {
 		if err := create(name, servers...); err == nil {
 			t.Errorf("%s: want validation error, got none", name)
 		}
+	}
+
+	tolerate := func(name string, ts ...corev1.Toleration) error {
+		return c.Create(context.Background(), &Session{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+			Spec:       SessionSpec{Tolerations: ts},
+		})
+	}
+	if err := tolerate("keyed", corev1.Toleration{Key: "pool", Operator: corev1.TolerationOpEqual, Value: "runs", Effect: corev1.TaintEffectNoSchedule}); err != nil {
+		t.Fatalf("keyed toleration rejected: %v", err)
+	}
+	if err := tolerate("wildcard", corev1.Toleration{Operator: corev1.TolerationOpExists}); err == nil {
+		t.Error("wildcard toleration: want validation error, got none")
 	}
 }

@@ -88,7 +88,10 @@ type SessionSpec struct {
 	// Tolerations let the session pod onto tainted nodes; together with
 	// NodeSelector they keep heavy sessions on their own pool and
 	// everything else off it. Copied to the pod as is.
+	// Every toleration names its taint key: a key-less wildcard would let
+	// the session onto every tainted pool in the cluster.
 	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:XValidation:rule="self.all(t, has(t.key) && t.key != '')",message="each toleration needs a key; wildcard tolerations are refused"
 	// +optional
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 }
