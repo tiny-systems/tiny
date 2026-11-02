@@ -113,3 +113,19 @@ func TestClusterResolverStaysWhenProxyIsOff(t *testing.T) {
 		t.Fatal("without the proxy the pod must keep ClusterFirst DNS")
 	}
 }
+
+func TestPlacementReachesThePod(t *testing.T) {
+	s := testSession("u1")
+	s.Spec.NodeSelector = map[string]string{"pool": "runs"}
+	s.Spec.Tolerations = []corev1.Toleration{{Key: "pool", Operator: corev1.TolerationOpEqual, Value: "runs", Effect: corev1.TaintEffectNoSchedule}}
+	spec := podFor(t, s)
+	if spec.NodeSelector["pool"] != "runs" {
+		t.Fatalf("nodeSelector = %v", spec.NodeSelector)
+	}
+	if len(spec.Tolerations) != 1 || spec.Tolerations[0].Value != "runs" {
+		t.Fatalf("tolerations = %v", spec.Tolerations)
+	}
+	if spec := podFor(t, testSession("u2")); spec.NodeSelector != nil || spec.Tolerations != nil {
+		t.Fatal("a session without placement must schedule anywhere")
+	}
+}

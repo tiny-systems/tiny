@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -79,6 +80,17 @@ type SessionSpec struct {
 	// +kubebuilder:validation:MaxItems=8
 	// +optional
 	MCPServers []MCPServer `json:"mcpServers,omitempty"`
+	// NodeSelector pins the session pod to matching nodes — a dedicated
+	// node pool for browser or build sessions, say. Copied to the pod as is.
+	// +kubebuilder:validation:MaxProperties=8
+	// +optional
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+	// Tolerations let the session pod onto tainted nodes; together with
+	// NodeSelector they keep heavy sessions on their own pool and
+	// everything else off it. Copied to the pod as is.
+	// +kubebuilder:validation:MaxItems=8
+	// +optional
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 }
 
 // MCPServer is an extra MCP server the agent registers next to tiny's own.

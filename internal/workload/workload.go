@@ -343,6 +343,10 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 		// pods are replaced by Kubernetes itself — no tiny process
 		// involved.
 		RestartPolicy: corev1.RestartPolicyAlways,
+		// Placement is the session's to choose: a dedicated pool keeps
+		// heavy sessions away from everything else on the cluster.
+		NodeSelector: s.Spec.NodeSelector,
+		Tolerations:  s.Spec.Tolerations,
 		// The session's identity: may create Questions, nothing else.
 		ServiceAccountName: "tiny-session",
 		// The agent runs unprivileged (uid 61000); fsGroup makes the
