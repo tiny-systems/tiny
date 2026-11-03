@@ -55,8 +55,8 @@ type QuestionSpec struct {
 	// +optional
 	Reason string `json:"reason,omitempty"`
 	// Action, when set, is what an "allow" answer authorizes. The sidecar
-	// only ever writes this request; the controller is the one with the
-	// permissions to carry it out. That split is the security model.
+	// only ever writes this request; the answering client carries it out
+	// with the answerer's own credentials. That split is the security model.
 	// +optional
 	Action *QuestionAction `json:"action,omitempty"`
 }
@@ -103,13 +103,13 @@ type QuestionStatus struct {
 	// "kubectl"), informational.
 	// +optional
 	AnsweredBy string `json:"answeredBy,omitempty"`
-	// Result of the action after an allow: the controller reports what it
-	// did (a URL, a session name) or the error it hit. The sidecar hands
-	// this back to the waiting agent.
+	// Result of the action after an allow: the answering client reports
+	// what it did (a URL, a session name) or the error it hit. The sidecar
+	// hands this back to the waiting agent.
 	// +optional
 	Result string `json:"result,omitempty"`
 	// ActionDone marks the action carried out (or terminally refused), so
-	// the controller acts exactly once.
+	// the action runs exactly once however many clients answer.
 	// +optional
 	ActionDone bool `json:"actionDone,omitempty"`
 }

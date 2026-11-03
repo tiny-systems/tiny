@@ -1051,8 +1051,9 @@ func (s *Store) ListOutbox(ctx context.Context, pod string) ([]string, error) {
 	return names, nil
 }
 
-// FetchOutboxBundle streams one bundle out of the pod to a local path and
-// moves the original into outbox/.done — export is exactly-once.
+// FetchOutboxBundle streams one bundle out of the pod to a local path.
+// The original stays put: AckOutboxBundle retires it only after its
+// branch reaches GitHub, so a failed push re-exports on the next run.
 func (s *Store) FetchOutboxBundle(ctx context.Context, pod, name, localPath string) error {
 	if !bundleNameOK.MatchString(name) {
 		return fmt.Errorf("bundle name %q is not a valid outbox name", name)
