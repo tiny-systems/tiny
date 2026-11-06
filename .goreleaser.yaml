@@ -63,6 +63,19 @@ release:
 changelog:
   use: github
   sort: asc
+  # The commits are authored by an address with no GitHub account behind it,
+  # so the default format rendered an empty "( <>)" after every line.
+  abbrev: 8
+  format: "{{ .SHA }} {{ .Message }}"
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Other changes
+      order: 999
   filters:
     exclude:
       - "^docs:"

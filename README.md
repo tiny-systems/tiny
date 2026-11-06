@@ -1,5 +1,11 @@
 # ◇ tiny
 
+[![test](https://github.com/tiny-systems/tiny/actions/workflows/test.yml/badge.svg)](https://github.com/tiny-systems/tiny/actions/workflows/test.yml)
+[![lint](https://github.com/tiny-systems/tiny/actions/workflows/lint.yml/badge.svg)](https://github.com/tiny-systems/tiny/actions/workflows/lint.yml)
+[![release](https://img.shields.io/github/v/release/tiny-systems/tiny)](https://github.com/tiny-systems/tiny/releases/latest)
+[![Go Reference](https://pkg.go.dev/badge/github.com/tiny-systems/tiny/pkg/session.svg)](https://pkg.go.dev/github.com/tiny-systems/tiny/pkg/session)
+[![license](https://img.shields.io/github/license/tiny-systems/tiny)](LICENSE)
+
 **A coding agent with no keys and no open ports — the real Claude Code and Codex CLIs, as pods on your own Kubernetes.**
 
 ![tiny demo: a session is created, its pod is killed mid-task, and the fleet screen shows it still working](https://tinysystems.io/static/demo.gif?v=clean1)
