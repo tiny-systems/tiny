@@ -66,6 +66,16 @@ type SessionSpec struct {
 	// podman. False is the hardened default, on purpose.
 	// +optional
 	Unconfined bool `json:"unconfined,omitempty"`
+	// RuntimeClassName runs the session under a sandboxed container runtime
+	// the cluster provides: gVisor (runsc) or Kata Containers. The agent's
+	// system calls then reach that runtime rather than the node's kernel,
+	// which closes the shared-kernel path out of the container. The
+	// RuntimeClass must already exist on the cluster; tiny doesn't install
+	// one. Empty is the cluster's default runtime.
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	// +optional
+	RuntimeClassName string `json:"runtimeClassName,omitempty"`
 	// Inbox is the durable mailbox: messages for the agent, appended by
 	// humans (the fleet screen's m key) and delivered into the agent's
 	// prompt by its own pod — surviving restarts, usage-limit pauses, and

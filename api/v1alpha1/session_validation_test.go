@@ -2,6 +2,7 @@ package v1alpha1
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -78,5 +79,20 @@ func TestMCPServersRejectsUnsafeValues(t *testing.T) {
 	}
 	if err := tolerate("wildcard", corev1.Toleration{Operator: corev1.TolerationOpExists}); err == nil {
 		t.Error("wildcard toleration: want validation error, got none")
+	}
+
+	withRuntime := func(name, class string) error {
+		return c.Create(context.Background(), &Session{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+			Spec:       SessionSpec{RuntimeClassName: class},
+		})
+	}
+	if err := withRuntime("gvisor", "gvisor"); err != nil {
+		t.Fatalf("valid runtime class rejected: %v", err)
+	}
+	for _, bad := range []string{"GVisor", "has space", "-leading", "trailing-", "a;b"} {
+		if err := withRuntime("rc-"+fmt.Sprint(len(bad))+"-"+fmt.Sprintf("%x", bad)[:6], bad); err == nil {
+			t.Errorf("runtime class %q: want validation error, got none", bad)
+		}
 	}
 }

@@ -20,6 +20,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	nodev1 "k8s.io/api/node/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -190,6 +191,9 @@ func ensure(ctx context.Context, c client.Client, s *agentsv1.Session, strict bo
 	if !apierrors.IsNotFound(err) {
 		return err
 	}
+	if err := checkRuntimeClass(ctx, c, s); err != nil {
+		return err
+	}
 	images, imgErr := resolveImages(ctx, c, s.Namespace)
 	if strict && imgErr != nil {
 		return imgErr
@@ -347,6 +351,8 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 		// heavy sessions away from everything else on the cluster.
 		NodeSelector: s.Spec.NodeSelector,
 		Tolerations:  s.Spec.Tolerations,
+		// A sandboxed runtime (gVisor, Kata) when the session asks for one.
+		RuntimeClassName: runtimeClass(s),
 		// The session's identity: may create Questions, nothing else.
 		ServiceAccountName: "tiny-session",
 		// The agent runs unprivileged (uid 61000); fsGroup makes the
@@ -580,6 +586,35 @@ func seccomp(s *agentsv1.Session) *corev1.SeccompProfile {
 		return nil
 	}
 	return &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}
+}
+
+func runtimeClass(s *agentsv1.Session) *string {
+	if s.Spec.RuntimeClassName == "" {
+		return nil
+	}
+	return ptr(s.Spec.RuntimeClassName)
+}
+
+// checkRuntimeClass refuses a session that names a RuntimeClass the
+// cluster doesn't have. Without it the Deployment is created, the pod is
+// rejected at admission, and the only trace is an event on a ReplicaSet
+// nobody looks at. A caller who may not read RuntimeClasses (they're
+// cluster-scoped, and namespace-only users often can't) gets the benefit
+// of the doubt in both modes: the pod reports it if the name is wrong.
+func checkRuntimeClass(ctx context.Context, c client.Client, s *agentsv1.Session) error {
+	name := s.Spec.RuntimeClassName
+	if name == "" {
+		return nil
+	}
+	err := c.Get(ctx, types.NamespacedName{Name: name}, &nodev1.RuntimeClass{})
+	switch {
+	case err == nil, apierrors.IsForbidden(err):
+		return nil
+	case apierrors.IsNotFound(err):
+		return fmt.Errorf("runtime class %q does not exist on this cluster: install it first (gVisor: runsc; Kata: kata-containers), or drop --runtime-class", name)
+	default:
+		return fmt.Errorf("runtime class %q: %w", name, err)
+	}
 }
 
 func agentUID(s *agentsv1.Session) int64 {

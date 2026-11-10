@@ -8,12 +8,20 @@ package workload
 
 import (
 	"context"
+	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	nodev1 "k8s.io/api/node/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	agentsv1 "github.com/tiny-systems/tiny/api/v1alpha1"
 	"github.com/tiny-systems/tiny/internal/settings"
@@ -128,4 +136,66 @@ func TestPlacementReachesThePod(t *testing.T) {
 	if spec := podFor(t, testSession("u2")); spec.NodeSelector != nil || spec.Tolerations != nil {
 		t.Fatal("a session without placement must schedule anywhere")
 	}
+}
+
+// A sandboxed runtime is how the shared-kernel path out of the container
+// closes. The pod must carry the class exactly when the session asks.
+func TestRuntimeClassReachesThePod(t *testing.T) {
+	s := testSession("u1")
+	s.Spec.RuntimeClassName = "gvisor"
+	gv := &nodev1.RuntimeClass{ObjectMeta: metav1.ObjectMeta{Name: "gvisor"}, Handler: "runsc"}
+	c := clientfake.NewClientBuilder().WithScheme(runtimeScheme(t)).WithObjects(gv).Build()
+	if err := checkRuntimeClass(context.Background(), c, s); err != nil {
+		t.Fatalf("existing runtime class refused: %v", err)
+	}
+	spec := podFor(t, s)
+	if spec.RuntimeClassName == nil || *spec.RuntimeClassName != "gvisor" {
+		t.Fatalf("runtimeClassName = %v, want gvisor", spec.RuntimeClassName)
+	}
+	if spec := podFor(t, testSession("u2")); spec.RuntimeClassName != nil {
+		t.Fatal("a session without a runtime class must use the cluster default")
+	}
+}
+
+// Naming a runtime the cluster doesn't have would otherwise create a
+// Deployment whose pod is rejected at admission, with the reason buried in
+// a ReplicaSet event. Refuse up front and say what to do.
+func TestMissingRuntimeClassIsRefusedLoudly(t *testing.T) {
+	s := testSession("u1")
+	s.Spec.RuntimeClassName = "gvisor"
+	c := clientfake.NewClientBuilder().WithScheme(runtimeScheme(t)).Build()
+	err := checkRuntimeClass(context.Background(), c, s)
+	if err == nil || !strings.Contains(err.Error(), `"gvisor" does not exist`) {
+		t.Fatalf("want a clear refusal, got %v", err)
+	}
+	if err := checkRuntimeClass(context.Background(), c, testSession("u2")); err != nil {
+		t.Fatalf("no runtime class asked for, but got %v", err)
+	}
+}
+
+// RuntimeClasses are cluster-scoped and namespace-only users usually can't
+// read them. That must not block session creation.
+func TestUnreadableRuntimeClassGetsTheBenefitOfTheDoubt(t *testing.T) {
+	s := testSession("u1")
+	s.Spec.RuntimeClassName = "gvisor"
+	c := interceptor.NewClient(clientfake.NewClientBuilder().WithScheme(runtimeScheme(t)).Build(), interceptor.Funcs{
+		Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if _, ok := obj.(*nodev1.RuntimeClass); ok {
+				return apierrors.NewForbidden(schema.GroupResource{Group: "node.k8s.io", Resource: "runtimeclasses"}, key.Name, errors.New("namespace-scoped user"))
+			}
+			return cl.Get(ctx, key, obj, opts...)
+		},
+	})
+	if err := checkRuntimeClass(context.Background(), c, s); err != nil {
+		t.Fatalf("forbidden lookup should not block creation, got %v", err)
+	}
+}
+
+func runtimeScheme(t *testing.T) *runtime.Scheme {
+	t.Helper()
+	s := workspaceScheme(t)
+	if err := nodev1.AddToScheme(s); err != nil {
+		t.Fatal(err)
+	}
+	return s
 }

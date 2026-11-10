@@ -347,6 +347,9 @@ type CreateOpts struct {
 	// Unconfined lifts the container hardening for images that need
 	// user namespaces or setuid helpers (rootless buildah).
 	Unconfined bool
+	// RuntimeClass runs the session under a sandboxed runtime the cluster
+	// provides (gVisor, Kata).
+	RuntimeClass string
 	// EnvSecret names a secret (labeled for this session) whose keys land
 	// in the agent's env — the Actions job token path.
 	EnvSecret string
@@ -370,6 +373,7 @@ func (s *Store) Create(ctx context.Context, o CreateOpts) (*agentsv1.Session, er
 		se.Spec.User = &o.User
 	}
 	se.Spec.Unconfined = o.Unconfined
+	se.Spec.RuntimeClassName = o.RuntimeClass
 	if o.Name != "" {
 		se.Name = o.Name
 	} else {

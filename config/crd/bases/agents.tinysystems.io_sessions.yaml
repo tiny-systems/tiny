@@ -159,6 +159,17 @@ spec:
                   memory:
                     type: string
                 type: object
+              runtimeClassName:
+                description: |-
+                  RuntimeClassName runs the session under a sandboxed container runtime
+                  the cluster provides: gVisor (runsc) or Kata Containers. The agent's
+                  system calls then reach that runtime rather than the node's kernel,
+                  which closes the shared-kernel path out of the container. The
+                  RuntimeClass must already exist on the cluster; tiny doesn't install
+                  one. Empty is the cluster's default runtime.
+                maxLength: 253
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                type: string
               task:
                 description: |-
                   Task the agent starts with. Optional — a session without one boots
