@@ -66,7 +66,7 @@ are here.
 | cloud credentials | none in the pod, and the egress policy blocks `169.254.169.254`, the endpoint that hands out an instance's IAM role |
 | inbound network | nothing listens — no `containerPort`, the MCP sidecar binds `127.0.0.1`. You reach a session through the Kubernetes API, under your RBAC |
 | lateral movement | default-deny egress cuts other namespaces, the node, and every port except 80/443 |
-| the container | restricted profile: runtime seccomp, every capability dropped, no privilege escalation, non-root — what keeps "owns the agent's uid" from becoming "owns the node". `--unconfined` lifts it per session, for rootless buildah |
+| the container | restricted profile: runtime seccomp, every capability dropped, no privilege escalation, non-root — what keeps "owns the agent's uid" from becoming "owns the node". `--runtime-class gvisor` adds a user-space kernel on clusters that have gVisor, closing the shared-kernel path. `--unconfined` lifts the profile per session, for rootless buildah |
 | DNS as a channel out | with the allow-list on, the proxy is the session's only resolver: cluster names are answered, everything else is `NXDOMAIN`, and external hosts are resolved by the proxy on `CONNECT` |
 | acting as the agent | approving a question runs in *your* client with *your* credentials — which is why the web page is read-only |
 
@@ -286,6 +286,7 @@ transcript resumes.
 | `tiny` | the fleet screen — who runs, who needs you |
 | `tiny new [task]` | start a session; with no task, attaches you straight to the agent's terminal |
 | `tiny new --image golang:1.26 --cpu 2 --memory 4Gi "…"` | session in your toolchain, sized |
+| `tiny new --runtime-class gvisor "…"` | a session under gVisor: its system calls never reach the node's kernel (needs gVisor on the cluster) |
 | `tiny new --image quay.io/buildah/stable --user 1000 --unconfined "…"` | a builder — agents build images and push them to the namespace registry (`--unconfined`: rootless buildah needs user namespaces) |
 | `tiny new --agent codex --model gpt-5.2-codex "…"` | the same session, OpenAI's Codex inside |
 | `tiny new --dir . "…"` | ship this folder as the workspace — uncommitted changes and `.git` included, no git remote needed |
