@@ -1,6 +1,8 @@
 package sessions
 
 import (
+	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	agentsv1 "github.com/tiny-systems/tiny/api/v1alpha1"
 	"github.com/tiny-systems/tiny/internal/kube"
@@ -296,5 +299,44 @@ func TestPauseResume(t *testing.T) {
 	_ = fc.Get(t.Context(), client.ObjectKey{Namespace: "agents", Name: "root"}, &got)
 	if got.Annotations[PausedAnnotation] == trueWord {
 		t.Fatal("paused annotation not cleared on resume")
+	}
+}
+
+// `tiny new --runtime-class gvisor` against a cluster whose CRD predates the
+// field must not start an unsandboxed session. Create refuses, and nothing
+// is left behind.
+func TestCreateRefusesWhenTheClusterPrunesAField(t *testing.T) {
+	scheme := runtime.NewScheme()
+	for _, add := range []func(*runtime.Scheme) error{corev1.AddToScheme, agentsv1.AddToScheme, appsv1.AddToScheme} {
+		if err := add(scheme); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fc := interceptor.NewClient(clientfake.NewClientBuilder().WithScheme(scheme).Build(), interceptor.Funcs{
+		Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			if s, ok := obj.(*agentsv1.Session); ok {
+				s.Spec.RuntimeClassName = ""
+			}
+			return c.Create(ctx, obj, opts...)
+		},
+	})
+	store := &Store{Kube: &kube.Client{Client: fc, Namespace: "agents"}}
+	_, err := store.Create(t.Context(), CreateOpts{Name: "gv", Task: "t", RuntimeClass: "gvisor"})
+	if err == nil || !strings.Contains(err.Error(), "runtimeClassName") {
+		t.Fatalf("want a refusal naming runtimeClassName, got %v", err)
+	}
+	var list agentsv1.SessionList
+	if err := fc.List(t.Context(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Items) != 0 {
+		t.Fatalf("refused create left %d session(s) behind", len(list.Items))
+	}
+	var deps appsv1.DeploymentList
+	if err := fc.List(t.Context(), &deps); err != nil {
+		t.Fatal(err)
+	}
+	if len(deps.Items) != 0 {
+		t.Fatal("a workload was created for a refused session")
 	}
 }

@@ -382,7 +382,11 @@ func (s *Store) Create(ctx context.Context, o CreateOpts) (*agentsv1.Session, er
 	if o.EnvSecret != "" {
 		se.Annotations = map[string]string{"tinysystems.io/env-secret": o.EnvSecret}
 	}
+	want := *se.Spec.DeepCopy()
 	if err := s.Kube.Client.Create(ctx, se); err != nil {
+		return nil, err
+	}
+	if err := workload.RefuseIfPruned(ctx, s.Kube.Client, want, se); err != nil {
 		return nil, err
 	}
 	// No manager exists: the creator materialises the workload, and the
