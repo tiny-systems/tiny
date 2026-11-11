@@ -294,15 +294,18 @@ transcript resumes.
 | `tiny handoff` | move THIS directory's local Claude Code session to the cluster, mid-conversation |
 | `tiny attach <session>` | join the session's terminal directly (detach: `ctrl-q d`) |
 | `tiny diff [session]` | what a session changed; with no name, the whole fleet plus file collisions |
+| `tiny pause <session>` / `tiny resume <session>` | scale a session to zero and back; workspace and transcript kept (`--all` for every one) |
+| `tiny rm <session>` | delete a session with its workspace; asks first, warns about unexported bundles (`--all`, `-y` for scripts) |
+| `tiny pull <session> [dir]` | bring a session's workspace back to this machine |
 | `tiny shell <session>` | shell on a session's workspace — finished sessions too |
 | `tiny questions` | every decision waiting on a human; `--json` for event sources, `--all` to include idle nudges |
 | `tiny egress denied` | hosts agents tried to reach and were refused by the allow-list; `tiny egress allow <host>` widens it |
 | `tiny answer <question> <text>` | answer a ✳ card — and perform its action, as you |
 | `echo "…" \| tiny deliver <session> --ensure --origin "github:o/r#3"` | pipe a message into a session's inbox; `--origin` remembers where the work came from, so a blocked session can be reported back there |
 | `tiny setup` | interactive setup — and rotation: token, repo key |
-| `tiny profile save work` | name a cluster/namespace target; use anywhere with `-p work` |
-| `tiny init` | scriptable runtime install for CI (`--context X -n Y --yes`) |
-| `tiny upgrade` | update the binary (checksum-verified, never downgrades) |
+| `tiny profile save work` | name a cluster/namespace target; use anywhere with `-p work` (`tiny profile list`, `tiny profile delete`) |
+| `tiny init` | install or upgrade the runtime on a cluster; scriptable for CI (`--context X -n Y --yes`) |
+| `tiny upgrade` | update the binary (checksum-verified, never downgrades), then run `tiny init` per cluster |
 
 Every command and flag: **[tinysystems.io/docs/commands](https://tinysystems.io/docs/commands/)**.
 

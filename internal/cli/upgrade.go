@@ -94,6 +94,10 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("apply update: %w", err)
 	}
 	fmt.Printf("  %s updated to %s\n", styleOK.Render("✓"), styleTitle.Render(rel.TagName))
+	// This updated the binary only. The runtime on each cluster (CRDs, the
+	// session account) is upgraded by init, and an outdated one silently
+	// drops newer session fields.
+	fmt.Println("  " + styleSubtle.Render("now run `tiny init` against each cluster you use, so its runtime matches this version"))
 	if brew {
 		fmt.Println("  " + styleSubtle.Render("(Homebrew still lists the old version — `brew upgrade tiny` reconciles it; harmless to leave)"))
 	}

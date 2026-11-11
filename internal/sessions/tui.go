@@ -471,7 +471,7 @@ var settingsItems = []string{
 	"minio artifact store — sessions hand each other files (mc alias: store)",
 	"web page — read-only fleet + blast radius (kubectl port-forward svc/tiny-web 8080)",
 	"egress policy — sessions reach http/https and this namespace, nothing else",
-	"  ↳ hostname allow-list — all egress through a proxy; only listed hosts (kubectl edit cm tiny-egress-allow)",
+	"  ↳ hostname allow-list — all egress through a proxy; only listed hosts (tiny egress allow <host>)",
 	"GitHub runner — issues labeled `tiny` become sessions (org or owner/repo; enter edits, empty = off)",
 }
 

@@ -77,7 +77,7 @@ Your cluster, your keys, your repos.`,
 	root.PersistentFlags().StringVar(&flagContext, "context", "", "kubeconfig context override (first run pins it; edit the config file to change)")
 	root.PersistentFlags().StringVarP(&flagNamespace, "namespace", "n", "", "namespace override (default: pinned, else \"tiny\")")
 	root.PersistentFlags().BoolVarP(&flagYes, "yes", "y", false, "skip the target confirmation prompt (for CI)")
-	root.PersistentFlags().StringVarP(&flagProfile, "profile", "p", "", "named target from `tiny profile list` (e.g. work, home)")
+	root.PersistentFlags().StringVarP(&flagProfile, "profile", "p", "", "named target, as listed by tiny profile list (e.g. work, home)")
 
 	root.AddCommand(
 		newNewCmd(),
@@ -91,6 +91,7 @@ Your cluster, your keys, your repos.`,
 		newQuestionsCmd(),
 		newPauseCmd(),
 		newResumeCmd(),
+		newRmCmd(),
 		newEgressCmd(),
 		newHandoffCmd(),
 		newPullCmd(),

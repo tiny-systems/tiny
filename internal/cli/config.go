@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"golang.org/x/term"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -205,9 +206,11 @@ func confirmed(answer string) bool {
 // with the last one preselected so enter-enter repeats it. Flags (or a
 // non-TTY stdin) skip the ceremony.
 // stdinIsTTY reports whether a human is on the other end of stdin.
+// stdinIsTTY reports a real terminal. A character-device check is not
+// enough: /dev/null is a character device, so `cmd < /dev/null` in a
+// script looked interactive and got prompts it could never answer.
 func stdinIsTTY() bool {
-	fi, err := os.Stdin.Stat()
-	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+	return term.IsTerminal(int(os.Stdin.Fd()))
 }
 
 func pickEveryStart() error {

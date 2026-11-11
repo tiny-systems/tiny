@@ -73,6 +73,12 @@ func ensureRuntime(ctx context.Context, k *kube.Client) error {
 	// The CRDs are cluster-scoped, so an installed cluster tells us nothing
 	// about THIS namespace: a second team's namespace still arrives with no
 	// switchboard and needs its defaults.
+	// A runtime older than this binary silently drops newer spec fields.
+	// Creates refuse that on their own; say it here first, once, so the
+	// fix is known before anything is attempted.
+	if missing := runtimeinstall.MissingFields(ctx, k); len(missing) > 0 {
+		fmt.Printf("  ! the tiny runtime on this cluster is older than this CLI (it lacks %s): run `tiny init` to upgrade it\n", strings.Join(missing, ", "))
+	}
 	if err := newStore(k).EnsureNamespaceDefaults(ctx); err != nil {
 		// A namespace that cannot hold a NetworkPolicy is still a namespace
 		// that should run sessions. Say so and carry on.
