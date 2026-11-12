@@ -7,6 +7,7 @@ package workload
 import (
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -34,7 +35,7 @@ func sessionPair() (claude, command *agentsv1.Session) {
 		return s
 	}
 	claude, command = base(), base()
-	command.Spec.Agent = "command"
+	command.Spec.Agent = commandAgent
 	command.Spec.Command = []string{"bp-replay", "--journey-url=http://d/j/t"}
 	return claude, command
 }
@@ -58,11 +59,12 @@ func TestCommandSessionRunsTheCommand(t *testing.T) {
 	if !reflect.DeepEqual(a.SecurityContext, b.SecurityContext) || !reflect.DeepEqual(a.Resources, b.Resources) {
 		t.Fatal("a command session must keep the agent container's hardening and resources")
 	}
-	for _, name := range []string{"HTTPS_PROXY", "NO_PROXY"} {
-		va, _ := envValue(a.Env, name)
-		vb, ok := envValue(b.Env, name)
-		if !ok || va != vb {
-			t.Fatalf("%s differs: %q vs %q", name, va, vb)
+	for _, e := range a.Env {
+		if !strings.Contains(strings.ToUpper(e.Name), "PROXY") {
+			continue
+		}
+		if v, ok := envValue(b.Env, e.Name); !ok || v != e.Value {
+			t.Fatalf("%s differs: %q vs %q", e.Name, e.Value, v)
 		}
 	}
 	if !reflect.DeepEqual(cl.NodeSelector, cm.NodeSelector) || !reflect.DeepEqual(cl.Tolerations, cm.Tolerations) ||

@@ -317,7 +317,7 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 	workspace := corev1.VolumeMount{Name: workspaceVolume, MountPath: workspaceMount}
 	tinyHome := corev1.VolumeMount{Name: tinyVolume, MountPath: "/tiny"}
 	envSecret := verifiedEnvSecret(ctx, c, s)
-	command := s.Spec.Agent == "command"
+	command := s.Spec.Agent == commandAgent
 	if command {
 		// No model runs here, so no model credentials either: a command
 		// session gets no secrets at all.
@@ -491,6 +491,9 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 	proxyDNS(&podSpec, s.Namespace, proxyIP)
 	return podSpec, labels, nil
 }
+
+// commandAgent is the session agent that runs spec.command with no model.
+const commandAgent = "command"
 
 // agentMounts adds the refreshing token file when a session has a
 // published env secret: env vars freeze at container start, secret VOLUMES
