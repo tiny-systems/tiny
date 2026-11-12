@@ -1,6 +1,7 @@
 #!/bin/sh
 # tiny agent entrypoint — the coding agent in tmux, resumable by design.
-# TINY_AGENT picks which one: claude (default) or codex.
+# TINY_AGENT picks which one: claude (default) or codex — or "command",
+# which starts no agent and runs the container's args once instead.
 #
 # POSIX sh on purpose: this script is INJECTED into arbitrary session images
 # (spec.image: golang, maven, your dev image) which may not carry bash.
@@ -51,6 +52,19 @@ die() {
   echo "tiny: $1" > /dev/termination-log 2>/dev/null || true
   exit 1
 }
+# A command session runs its args ONCE — no model, no tmux, no resume. The
+# exit code lands in the workspace so a restarted container (a Deployment
+# restarts it, always) never runs the command a second time; the pod then
+# idles so its logs stay readable until the owner deletes the session.
+if [ "$AGENT" = "command" ]; then
+  [ "$#" -gt 0 ] || die "a command session needs a command."
+  DONE="$WORKSPACE/.tiny/command-done"
+  if [ ! -f "$DONE" ]; then
+    "$@"
+    echo "$?" > "$DONE"
+  fi
+  exec sleep infinity
+fi
 if [ "$AGENT" = "codex" ]; then
   # codex is a static musl binary — it runs in any linux image.
   if ! "$TINY_HOME/bin/codex" --version >/dev/null 2>&1; then

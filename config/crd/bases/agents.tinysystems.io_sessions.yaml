@@ -62,10 +62,22 @@ spec:
                 description: |-
                   Agent selects which coding agent the payload starts: "claude"
                   (default) or "codex". Reaches the entrypoint as TINY_AGENT.
+                  "command" starts no agent at all: the entrypoint runs Command once,
+                  with no model and no agent credentials, and keeps the pod for its
+                  logs until the session is deleted.
                 enum:
                 - claude
                 - codex
+                - command
                 type: string
+              command:
+                description: |-
+                  Command is what a "command" session runs, as argv. Required for
+                  that agent and refused for every other.
+                items:
+                  type: string
+                maxItems: 32
+                type: array
               image:
                 description: |-
                   Agent image to run. The image owns how the agent is started (tmux,
@@ -243,6 +255,13 @@ spec:
                   to 2Gi.
                 type: string
             type: object
+            x-kubernetes-validations:
+            - message: agent command needs a command
+              rule: '!has(self.agent) || self.agent != ''command'' || (has(self.command)
+                && size(self.command) > 0)'
+            - message: command requires agent command
+              rule: '!has(self.command) || size(self.command) == 0 || (has(self.agent)
+                && self.agent == ''command'')'
           status:
             description: SessionStatus is what the controller observed.
             properties:

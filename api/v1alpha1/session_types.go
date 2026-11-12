@@ -26,6 +26,8 @@ import (
 
 // SessionSpec is what a session runs: one agent, one workspace, and
 // optionally a task to start on.
+// +kubebuilder:validation:XValidation:rule="!has(self.agent) || self.agent != 'command' || (has(self.command) && size(self.command) > 0)",message="agent command needs a command"
+// +kubebuilder:validation:XValidation:rule="!has(self.command) || size(self.command) == 0 || (has(self.agent) && self.agent == 'command')",message="command requires agent command"
 type SessionSpec struct {
 	// Task the agent starts with. Optional — a session without one boots
 	// the agent idle, ready for a human to attach and talk.
@@ -41,9 +43,17 @@ type SessionSpec struct {
 	Image string `json:"image,omitempty"`
 	// Agent selects which coding agent the payload starts: "claude"
 	// (default) or "codex". Reaches the entrypoint as TINY_AGENT.
-	// +kubebuilder:validation:Enum=claude;codex
+	// "command" starts no agent at all: the entrypoint runs Command once,
+	// with no model and no agent credentials, and keeps the pod for its
+	// logs until the session is deleted.
+	// +kubebuilder:validation:Enum=claude;codex;command
 	// +optional
 	Agent string `json:"agent,omitempty"`
+	// Command is what a "command" session runs, as argv. Required for
+	// that agent and refused for every other.
+	// +kubebuilder:validation:MaxItems=32
+	// +optional
+	Command []string `json:"command,omitempty"`
 	// Model overrides the agent's default model (claude --model,
 	// codex -m). Unset means the agent's own default.
 	// +optional

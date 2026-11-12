@@ -95,4 +95,23 @@ func TestMCPServersRejectsUnsafeValues(t *testing.T) {
 			t.Errorf("runtime class %q: want validation error, got none", bad)
 		}
 	}
+
+	withCommand := func(name, agent string, command ...string) error {
+		return c.Create(context.Background(), &Session{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+			Spec:       SessionSpec{Agent: agent, Command: command},
+		})
+	}
+	if err := withCommand("cmd-ok", "command", "bp-replay", "--self"); err != nil {
+		t.Fatalf("valid command session rejected: %v", err)
+	}
+	if err := withCommand("cmd-empty", "command"); err == nil {
+		t.Error("command agent without a command: want validation error, got none")
+	}
+	if err := withCommand("cmd-claude", "claude", "ls"); err == nil {
+		t.Error("command on a claude session: want validation error, got none")
+	}
+	if err := withCommand("cmd-default", "", "ls"); err == nil {
+		t.Error("command with the default agent: want validation error, got none")
+	}
 }

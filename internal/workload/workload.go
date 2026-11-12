@@ -317,6 +317,12 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 	workspace := corev1.VolumeMount{Name: workspaceVolume, MountPath: workspaceMount}
 	tinyHome := corev1.VolumeMount{Name: tinyVolume, MountPath: "/tiny"}
 	envSecret := verifiedEnvSecret(ctx, c, s)
+	command := s.Spec.Agent == "command"
+	if command {
+		// No model runs here, so no model credentials either: a command
+		// session gets no secrets at all.
+		envSecret = ""
+	}
 
 	// The agent container's resources, when the session asks for them.
 	var resources corev1.ResourceRequirements
@@ -417,6 +423,7 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 				Image:           agentImage,
 				ImagePullPolicy: PullPolicyFor(agentImage),
 				Command:         []string{"/tiny/entrypoint.sh"},
+				Args:            s.Spec.Command,
 				WorkingDir:      workspaceMount,
 				Resources:       resources,
 				// Explicit uid: a custom image may default to root, and
@@ -433,7 +440,7 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 				// cluster without them still schedules, and the agent
 				// reports a missing key as a question instead of
 				// crashlooping.
-				EnvFrom: sessionEnvFrom(envSecret),
+				EnvFrom: sessionEnvFrom(envSecret, command),
 				Env: append([]corev1.EnvVar{
 					{Name: "TINY_TASK", Value: s.Spec.Task},
 					{Name: "TINY_REPO", Value: s.Spec.Repo},
@@ -519,7 +526,10 @@ func verifiedEnvSecret(ctx context.Context, c client.Client, s *agentsv1.Session
 // sessionEnvFrom assembles the agent container's secret env: the agent
 // token and store credentials by convention (both optional), and any
 // secret a spawner pinned via annotation.
-func sessionEnvFrom(extra string) []corev1.EnvFromSource {
+func sessionEnvFrom(extra string, command bool) []corev1.EnvFromSource {
+	if command {
+		return nil
+	}
 	out := []corev1.EnvFromSource{
 		{SecretRef: &corev1.SecretEnvSource{
 			LocalObjectReference: corev1.LocalObjectReference{Name: AgentEnvSecret},
