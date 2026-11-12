@@ -91,3 +91,35 @@ func TestCommandSessionHasNoAgentSecret(t *testing.T) {
 		t.Fatalf("a command session sees secrets %v", got)
 	}
 }
+
+// Journey code in a command session is untrusted and runs unattended: no
+// deploy key, no service account token, and no tiny-mcp sidecar (it serves
+// an agent, and a command session has none).
+func TestCommandSessionHasNoKeysOrToken(t *testing.T) {
+	claudeS, commandS := sessionPair()
+	cl, cm := podFor(t, claudeS), podFor(t, commandS)
+	mounts := func(c corev1.Container) []string {
+		out := make([]string, 0, len(c.VolumeMounts))
+		for _, m := range c.VolumeMounts {
+			out = append(out, m.Name)
+		}
+		return out
+	}
+	if !slices.Contains(mounts(agentOf(t, cl)), repoKeysVolume) {
+		t.Fatal("an agent session lost its deploy key")
+	}
+	if slices.Contains(mounts(agentOf(t, cm)), repoKeysVolume) {
+		t.Fatal("a command session mounts the deploy key")
+	}
+	if cm.AutomountServiceAccountToken == nil || *cm.AutomountServiceAccountToken {
+		t.Fatal("a command session gets a service account token")
+	}
+	if len(cm.Containers) != 1 {
+		t.Fatalf("a command session runs %d containers", len(cm.Containers))
+	}
+	for _, v := range cm.Volumes {
+		if v.Secret != nil {
+			t.Fatalf("a command session has secret volume %s", v.Name)
+		}
+	}
+}

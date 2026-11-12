@@ -16,6 +16,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -408,7 +409,7 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 			// session has a published env secret — that secret as a
 			// REFRESHING file volume: the token relay's delivery path.
 			{
-				Name: "repo-keys",
+				Name: repoKeysVolume,
 				VolumeSource: corev1.VolumeSource{
 					Secret: &corev1.SecretVolumeSource{
 						SecretName: RepoKeysSecret,
@@ -488,9 +489,22 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 			},
 		})
 	}
+	if command {
+		// The command is untrusted and runs unattended: it gets no deploy
+		// key, no service account token, and no tiny-mcp sidecar (that
+		// serves an agent, and a command session has none).
+		podSpec.AutomountServiceAccountToken = ptr(false)
+		podSpec.Containers = podSpec.Containers[:1]
+		podSpec.Containers[0].VolumeMounts = slices.DeleteFunc(podSpec.Containers[0].VolumeMounts,
+			func(m corev1.VolumeMount) bool { return m.Name == repoKeysVolume })
+		podSpec.Volumes = slices.DeleteFunc(podSpec.Volumes, func(v corev1.Volume) bool { return v.Name == repoKeysVolume })
+	}
 	proxyDNS(&podSpec, s.Namespace, proxyIP)
 	return podSpec, labels, nil
 }
+
+// repoKeysVolume carries the repo deploy key (RepoKeysSecret) into agent pods.
+const repoKeysVolume = "repo-keys"
 
 // commandAgent is the session agent that runs spec.command with no model.
 const commandAgent = "command"
@@ -500,7 +514,7 @@ const commandAgent = "command"
 // keep syncing — the token relay only works through the file.
 func agentMounts(workspace, tinyHome corev1.VolumeMount, envSecret string) []corev1.VolumeMount {
 	m := []corev1.VolumeMount{workspace, tinyHome,
-		{Name: "repo-keys", MountPath: "/tiny-keys", ReadOnly: true}}
+		{Name: repoKeysVolume, MountPath: "/tiny-keys", ReadOnly: true}}
 	if envSecret != "" {
 		m = append(m, corev1.VolumeMount{Name: "env-secret", MountPath: "/tiny-env", ReadOnly: true})
 	}
