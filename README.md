@@ -249,7 +249,9 @@ replacement mounts the same workspace and resumes the transcript.
   A Go program can do the same with `github.com/tiny-systems/tiny/pkg/session`:
   `session.Create` makes the Session and its workload with the client you
   pass in, and `session.Delete` removes it. The package docs list the RBAC
-  the caller needs.
+  the caller needs. With `agent: command` it runs one command instead of
+  an agent, with no model, no credentials, no token and no sidecar, under
+  the same confinement as any session.
 - The sidecar is powerless by design: it can create Questions and update
   its own session's status, nothing else. When the agent reaches a
   decision it must not make alone, the tool call **blocks** — minutes or
