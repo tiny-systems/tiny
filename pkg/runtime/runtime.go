@@ -3,7 +3,7 @@ Package runtime installs tiny's session runtime from a Go program outside
 this module, the way `tiny init` does: an installer that sets up a cluster
 for its own users and should not make them install the tiny CLI first.
 
-	err := runtime.Init(ctx, cfg, "tiny")
+	err := runtime.Init(ctx, cfg, "tiny", runtime.Options{EgressProxy: true})
 
 Init is safe to re-run: everything is server-side applied, so an upgrade is
 the same call as an install.
@@ -30,6 +30,14 @@ import (
 	"github.com/tiny-systems/tiny/internal/sessions"
 )
 
+// Options are switchboard settings Init makes sure of on top of tiny's
+// defaults. Each one only ever turns something on.
+type Options struct {
+	// EgressProxy sends session traffic through tiny's in-namespace proxy,
+	// which filters by hostname (and turns the egress fence on with it).
+	EgressProxy bool
+}
+
 // Init installs or upgrades the session runtime in namespace, creating the
 // namespace if needed. A new namespace gets tiny's defaults (egress fenced);
 // a configured one keeps its settings, and the add-ons it has on are
@@ -38,7 +46,7 @@ import (
 // Unlike `tiny init`, a namespace left without its egress policy is an
 // error here: an installer that hands people a cluster must not hand them
 // one whose sessions can reach anything.
-func Init(ctx context.Context, cfg *rest.Config, namespace string) error {
+func Init(ctx context.Context, cfg *rest.Config, namespace string, o Options) error {
 	if namespace == "" {
 		return fmt.Errorf("namespace is required")
 	}
@@ -52,6 +60,18 @@ func Init(ctx context.Context, cfg *rest.Config, namespace string) error {
 	store := &sessions.Store{Kube: k}
 	if err := store.EnsureNamespaceDefaults(ctx); err != nil {
 		return fmt.Errorf("apply the namespace defaults: %w", err)
+	}
+	if o.EgressProxy {
+		set, err := store.LoadSettings(ctx)
+		if err != nil {
+			return err
+		}
+		if !set.Egress || !set.EgressProxy {
+			set.Egress, set.EgressProxy = true, true
+			if err := store.SaveSettings(ctx, set); err != nil {
+				return fmt.Errorf("turn the egress proxy on: %w", err)
+			}
+		}
 	}
 	if err := store.ReapplyAddons(ctx); err != nil {
 		return fmt.Errorf("re-apply add-ons: %w", err)

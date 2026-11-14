@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -31,7 +32,7 @@ func TestInitInstallsAFencedRuntime(t *testing.T) {
 
 	ctx := context.Background()
 	for i := range 2 {
-		if err := Init(ctx, cfg, "bp"); err != nil {
+		if err := Init(ctx, cfg, "bp", Options{}); err != nil {
 			t.Fatalf("run %d: %v", i+1, err)
 		}
 	}
@@ -99,14 +100,46 @@ func TestInitRefusesAnUnfencedNamespace(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	err = Init(ctx, cfg, "open")
+	err = Init(ctx, cfg, "open", Options{})
 	if err == nil || !strings.Contains(err.Error(), "egress") {
 		t.Fatalf("Init on an unfenced namespace: %v, want an egress error", err)
 	}
 }
 
+// TestInitTurnsTheEgressProxyOn: asked for the proxy, Init switches it on
+// in the switchboard and deploys it.
+func TestInitTurnsTheEgressProxyOn(t *testing.T) {
+	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+		t.Skip("KUBEBUILDER_ASSETS not set; run via make test")
+	}
+	env := &envtest.Environment{}
+	cfg, err := env.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = env.Stop() })
+	ctx := context.Background()
+	if err := Init(ctx, cfg, "bp", Options{EgressProxy: true}); err != nil {
+		t.Fatal(err)
+	}
+	c, err := client.New(cfg, client.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm := &corev1.ConfigMap{}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: "bp", Name: "tiny-settings"}, cm); err != nil {
+		t.Fatal(err)
+	}
+	if cm.Data["egress"] != "true" || cm.Data["egressProxy"] != "true" {
+		t.Fatalf("settings %v, want egress and egressProxy on", cm.Data)
+	}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: "bp", Name: "tiny-egress"}, &appsv1.Deployment{}); err != nil {
+		t.Fatalf("proxy deployment: %v", err)
+	}
+}
+
 func TestInitNeedsANamespace(t *testing.T) {
-	if err := Init(context.Background(), nil, ""); err == nil {
+	if err := Init(context.Background(), nil, "", Options{}); err == nil {
 		t.Fatal("Init with no namespace succeeded")
 	}
 }
