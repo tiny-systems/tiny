@@ -35,6 +35,10 @@ type Settings struct {
 	// workflows whose jobs land here and spawn sessions. Registration uses
 	// the tiny-runner-pat Secret.
 	RunnerRepo string
+	// Egress is the fence: a NetworkPolicy keeping sessions to their
+	// namespace, the API server and (without the proxy) the internet on
+	// 80/443.
+	Egress bool
 	// EgressProxy routes a session's outbound traffic through the
 	// namespace's hostname allow-list instead of letting it reach any
 	// address on 80/443.
@@ -59,6 +63,7 @@ func Load(ctx context.Context, c client.Client, namespace string) (Settings, err
 		Zot:          cm.Data["zot"] == on,
 		ZotNodeTrust: cm.Data["zotNodeTrust"] == on,
 		Minio:        cm.Data["minio"] == on,
+		Egress:       cm.Data["egress"] == on,
 		EgressProxy:  cm.Data["egressProxy"] == on,
 		RunnerRepo:   cm.Data["runnerRepo"],
 	}, nil

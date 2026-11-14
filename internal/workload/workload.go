@@ -499,6 +499,10 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 			func(m corev1.VolumeMount) bool { return m.Name == repoKeysVolume })
 		podSpec.Volumes = slices.DeleteFunc(podSpec.Volumes, func(v corev1.Volume) bool { return v.Name == repoKeysVolume })
 	}
+	if cfgErr == nil && cfg.Egress {
+		// Last, so nothing of the session runs before the fence holds.
+		podSpec.InitContainers = append(podSpec.InitContainers, fenceWait(images.Agent, s))
+	}
 	proxyDNS(&podSpec, s.Namespace, proxyIP)
 	return podSpec, labels, nil
 }
