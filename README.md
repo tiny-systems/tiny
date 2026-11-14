@@ -409,6 +409,7 @@ One repository, one version:
 | `cmd/controller` | the tiny-mcp sidecar (its only remaining role) |
 | `internal/workload`, `internal/actions`, `internal/addons` | what used to be the manager — run by whoever creates, answers, or toggles |
 | `pkg/session` | create and delete sessions from your own Go code |
+| `pkg/runtime` | install or upgrade the runtime from your own Go code, as `tiny init` does |
 | `api/`, `config/` | the Session + Question CRDs and the embedded install manifests |
 | `images/agent` | the agent image and the injectable payload |
 
