@@ -119,7 +119,7 @@ func TestInitTurnsTheEgressProxyOn(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = env.Stop() })
 	ctx := context.Background()
-	if err := Init(ctx, cfg, "bp", Options{EgressProxy: true}); err != nil {
+	if err := Init(ctx, cfg, "bp", Options{EgressProxy: true, FenceWait: true}); err != nil {
 		t.Fatal(err)
 	}
 	c, err := client.New(cfg, client.Options{})
@@ -130,8 +130,8 @@ func TestInitTurnsTheEgressProxyOn(t *testing.T) {
 	if err := c.Get(ctx, client.ObjectKey{Namespace: "bp", Name: "tiny-settings"}, cm); err != nil {
 		t.Fatal(err)
 	}
-	if cm.Data["egress"] != "true" || cm.Data["egressProxy"] != "true" {
-		t.Fatalf("settings %v, want egress and egressProxy on", cm.Data)
+	if cm.Data["egress"] != "true" || cm.Data["egressProxy"] != "true" || cm.Data["fenceWait"] != "true" {
+		t.Fatalf("settings %v, want egress, egressProxy and fenceWait on", cm.Data)
 	}
 	if err := c.Get(ctx, client.ObjectKey{Namespace: "bp", Name: "tiny-egress"}, &appsv1.Deployment{}); err != nil {
 		t.Fatalf("proxy deployment: %v", err)

@@ -9,9 +9,11 @@ import (
 )
 
 // fenceContainer waits, before the agent starts, until the egress fence
-// holds the session pod. A NetworkPolicy reaches a new pod a moment after
-// the pod starts (seconds on k3s), and an agent that starts first starts
-// outside the fence.
+// holds the session pod. On kube-router (k3s) a NetworkPolicy reaches a
+// new pod a moment after the pod starts, and an agent that starts first
+// starts outside the fence. Only with fenceWait in the switchboard: on GKE
+// the policy is in place before the pod starts, and a pod there reaches
+// its node past the fence, so the probe would wait out its 20s for nothing.
 const fenceContainer = "egress-fence"
 
 // fenceWaitSeconds bounds the wait. A cluster whose CNI does not enforce

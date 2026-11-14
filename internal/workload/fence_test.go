@@ -1,8 +1,9 @@
 package workload
 
-// A NetworkPolicy reaches a new pod a moment after the pod starts: on k3s
-// a session pod's first connection got past the fence. With the fence on,
-// the agent waits until the fence blocks a probe before it starts.
+// On kube-router (k3s) a NetworkPolicy reaches a new pod a moment after
+// the pod starts: a session pod's first connection got past the fence.
+// With the fence on and fenceWait set, the agent waits until the fence
+// blocks a probe before it starts.
 
 import (
 	"context"
@@ -36,8 +37,8 @@ func podWithSettings(t *testing.T, data map[string]string) corev1.PodSpec {
 
 func TestFencedSessionWaitsForTheFence(t *testing.T) {
 	for name, data := range map[string]map[string]string{
-		"fence":       {"egress": "true"},
-		"fence+proxy": {"egress": "true", "egressProxy": "true"},
+		"fence":       {"egress": "true", "fenceWait": "true"},
+		"fence+proxy": {"egress": "true", "egressProxy": "true", "fenceWait": "true"},
 	} {
 		spec := podWithSettings(t, data)
 		last := spec.InitContainers[len(spec.InitContainers)-1]
@@ -66,7 +67,10 @@ func TestFencedSessionWaitsForTheFence(t *testing.T) {
 func TestUnfencedSessionStartsAtOnce(t *testing.T) {
 	for name, data := range map[string]map[string]string{
 		"no settings": nil,
-		"fence off":   {"egress": "false"},
+		"fence off":   {"egress": "false", "fenceWait": "true"},
+		// GKE applies a pod's policy before it starts, and a pod there
+		// reaches its node past the fence: the wait would only cost 20s.
+		"wait not asked for": {"egress": "true", "egressProxy": "true"},
 	} {
 		for _, c := range podWithSettings(t, data).InitContainers {
 			if c.Name == fenceContainer {

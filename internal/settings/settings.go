@@ -39,6 +39,10 @@ type Settings struct {
 	// namespace, the API server and (without the proxy) the internet on
 	// 80/443.
 	Egress bool
+	// FenceWait holds a fenced session's agent until the fence blocks a
+	// probe. For CNIs that program a new pod's policy after the pod starts
+	// (kube-router, which k3s ships); elsewhere it only delays sessions.
+	FenceWait bool
 	// EgressProxy routes a session's outbound traffic through the
 	// namespace's hostname allow-list instead of letting it reach any
 	// address on 80/443.
@@ -64,6 +68,7 @@ func Load(ctx context.Context, c client.Client, namespace string) (Settings, err
 		ZotNodeTrust: cm.Data["zotNodeTrust"] == on,
 		Minio:        cm.Data["minio"] == on,
 		Egress:       cm.Data["egress"] == on,
+		FenceWait:    cm.Data["fenceWait"] == on,
 		EgressProxy:  cm.Data["egressProxy"] == on,
 		RunnerRepo:   cm.Data["runnerRepo"],
 	}, nil

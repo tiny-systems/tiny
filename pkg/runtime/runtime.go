@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -28,6 +29,7 @@ import (
 	"github.com/tiny-systems/tiny/internal/kube"
 	"github.com/tiny-systems/tiny/internal/runtimeinstall"
 	"github.com/tiny-systems/tiny/internal/sessions"
+	"github.com/tiny-systems/tiny/internal/settings"
 )
 
 // Options are switchboard settings Init makes sure of on top of tiny's
@@ -36,6 +38,10 @@ type Options struct {
 	// EgressProxy sends session traffic through tiny's in-namespace proxy,
 	// which filters by hostname (and turns the egress fence on with it).
 	EgressProxy bool
+	// FenceWait holds each fenced session's agent until the fence blocks a
+	// probe. Turn it on for k3s (kube-router), which programs a new pod's
+	// policy a moment after the pod starts; on other CNIs it only delays.
+	FenceWait bool
 }
 
 // Init installs or upgrades the session runtime in namespace, creating the
@@ -73,6 +79,21 @@ func Init(ctx context.Context, cfg *rest.Config, namespace string, o Options) er
 			}
 		}
 	}
+	if o.FenceWait {
+		cm := &corev1.ConfigMap{}
+		if err := k.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: settings.Name}, cm); err != nil {
+			return fmt.Errorf("read %s: %w", settings.Name, err)
+		}
+		if cm.Data[fenceWaitKey] != on {
+			if cm.Data == nil {
+				cm.Data = map[string]string{}
+			}
+			cm.Data[fenceWaitKey] = on
+			if err := k.Client.Update(ctx, cm); err != nil {
+				return fmt.Errorf("turn the fence wait on: %w", err)
+			}
+		}
+	}
 	if err := store.ReapplyAddons(ctx); err != nil {
 		return fmt.Errorf("re-apply add-ons: %w", err)
 	}
@@ -85,6 +106,12 @@ func Init(ctx context.Context, cfg *rest.Config, namespace string, o Options) er
 	}
 	return nil
 }
+
+// fenceWaitKey and on are the switchboard's fence-wait key and true value.
+const (
+	fenceWaitKey = "fenceWait"
+	on           = "true"
+)
 
 // egressPolicy is the NetworkPolicy the egress add-on maintains.
 const egressPolicy = "tiny-session-egress"
