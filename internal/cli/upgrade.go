@@ -81,6 +81,15 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("no release asset for %s/%s in %s", runtime.GOOS, runtime.GOARCH, rel.TagName)
 	}
 
+	// krew owns its plugins: it keeps a receipt per installed version and
+	// swaps a symlink on upgrade. Overwriting the binary under it would
+	// leave krew believing the old version is installed.
+	if exe, _ := os.Executable(); isKrew(exe) {
+		fmt.Printf("  %s %s is out; krew manages this copy — run:  kubectl krew upgrade tiny\n",
+			styleKey.Render("upgrade"), styleTitle.Render(rel.TagName))
+		return nil
+	}
+
 	// We self-update in place even on Homebrew installs (we resolve the symlink
 	// and overwrite the real binary, so brew's bin/ link still points at it).
 	// brew's recorded version goes stale — harmless — so just note it after.
@@ -261,6 +270,27 @@ func extractBinary(r io.Reader) (string, error) {
 
 // isHomebrew detects a brew-managed install so the summary can note that
 // brew's recorded version goes stale after an in-place self-update.
+// isKrew reports whether exe is a krew-installed plugin: it lives under
+// krew's root (~/.krew, or $KREW_ROOT), directly or through the symlink in
+// krew's bin directory.
+func isKrew(exe string) bool {
+	if exe == "" {
+		return false
+	}
+	paths := []string{exe}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		paths = append(paths, resolved)
+	}
+	root := os.Getenv("KREW_ROOT")
+	for _, p := range paths {
+		p = filepath.ToSlash(p)
+		if strings.Contains(p, "/.krew/") || (root != "" && strings.HasPrefix(p, filepath.ToSlash(root)+"/")) {
+			return true
+		}
+	}
+	return false
+}
+
 func isHomebrew(exe string) bool {
 	if exe == "" {
 		return false

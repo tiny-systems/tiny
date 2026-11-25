@@ -73,3 +73,16 @@ func TestFilesCount(t *testing.T) {
 		t.Fatal("files")
 	}
 }
+
+func TestPluginDisplayName(t *testing.T) {
+	for argv0, want := range map[string]string{
+		"/Users/ana/.krew/bin/kubectl-tiny": "kubectl tiny",
+		"kubectl-tiny.exe":                  "kubectl tiny",
+		"/usr/local/bin/tiny":               "",
+		"tiny":                              "",
+	} {
+		if got := pluginDisplayName(argv0); got != want {
+			t.Errorf("pluginDisplayName(%q) = %q, want %q", argv0, got, want)
+		}
+	}
+}

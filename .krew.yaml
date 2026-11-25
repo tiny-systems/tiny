@@ -1,0 +1,61 @@
+apiVersion: krew.googlecontainertools.github.com/v1alpha2
+kind: Plugin
+metadata:
+  name: tiny
+spec:
+  version: {{ .TagName }}
+  homepage: https://tinysystems.io
+  shortDescription: Run Claude Code and Codex agents as pods
+  description: |
+    Runs the Claude Code and Codex CLIs as long-lived sessions in your
+    own cluster: one Deployment and a workspace volume per session, a
+    fleet screen to watch them, and tmux attach to step in. Agents hold
+    no git or cloud credentials; work leaves as git bundles that a
+    separate job pushes. Sessions survive pod loss and resume their
+    transcript. `kubectl tiny run` runs one untrusted command in the
+    same confined pod, optionally under gVisor.
+  caveats: |
+    The first command against a cluster installs two CRDs and a
+    ServiceAccount (it asks first; `kubectl tiny init` does it on its
+    own). Sessions need a model credential: `kubectl tiny setup`.
+
+    Hints printed by the tool say `tiny <command>`; as a plugin, run
+    them as `kubectl tiny <command>`. Upgrade with
+    `kubectl krew upgrade tiny`.
+  platforms:
+  - selector:
+      matchLabels:
+        os: darwin
+        arch: amd64
+    {{addURIAndSha "https://github.com/tiny-systems/tiny/releases/download/{{ .TagName }}/tiny_{{ slice .TagName 1 }}_darwin_amd64.tar.gz" .TagName }}
+    bin: tiny
+  - selector:
+      matchLabels:
+        os: darwin
+        arch: arm64
+    {{addURIAndSha "https://github.com/tiny-systems/tiny/releases/download/{{ .TagName }}/tiny_{{ slice .TagName 1 }}_darwin_arm64.tar.gz" .TagName }}
+    bin: tiny
+  - selector:
+      matchLabels:
+        os: linux
+        arch: amd64
+    {{addURIAndSha "https://github.com/tiny-systems/tiny/releases/download/{{ .TagName }}/tiny_{{ slice .TagName 1 }}_linux_amd64.tar.gz" .TagName }}
+    bin: tiny
+  - selector:
+      matchLabels:
+        os: linux
+        arch: arm64
+    {{addURIAndSha "https://github.com/tiny-systems/tiny/releases/download/{{ .TagName }}/tiny_{{ slice .TagName 1 }}_linux_arm64.tar.gz" .TagName }}
+    bin: tiny
+  - selector:
+      matchLabels:
+        os: windows
+        arch: amd64
+    {{addURIAndSha "https://github.com/tiny-systems/tiny/releases/download/{{ .TagName }}/tiny_{{ slice .TagName 1 }}_windows_amd64.zip" .TagName }}
+    bin: tiny.exe
+  - selector:
+      matchLabels:
+        os: windows
+        arch: arm64
+    {{addURIAndSha "https://github.com/tiny-systems/tiny/releases/download/{{ .TagName }}/tiny_{{ slice .TagName 1 }}_windows_arm64.zip" .TagName }}
+    bin: tiny.exe

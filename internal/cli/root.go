@@ -15,6 +15,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -78,6 +80,12 @@ Your cluster, your keys, your repos.`,
 		},
 	}
 
+	// Installed by krew, the binary is kubectl-tiny and runs as
+	// `kubectl tiny`: help and usage should say so.
+	if name := pluginDisplayName(os.Args[0]); name != "" {
+		root.Annotations = map[string]string{cobra.CommandDisplayNameAnnotation: name}
+	}
+
 	root.PersistentFlags().StringVar(&flagContext, "context", "", "kubeconfig context override (first run pins it; edit the config file to change)")
 	root.PersistentFlags().StringVarP(&flagNamespace, "namespace", "n", "", "namespace override (default: pinned, else \"tiny\")")
 	root.PersistentFlags().BoolVarP(&flagYes, "yes", "y", false, "skip the target confirmation prompt (for CI)")
@@ -111,6 +119,16 @@ Your cluster, your keys, your repos.`,
 		fmt.Fprintln(os.Stderr, "Error:", err)
 	}
 	return err
+}
+
+// pluginDisplayName turns a kubectl plugin binary name (kubectl-tiny) into
+// how it is invoked (kubectl tiny); any other name gives "".
+func pluginDisplayName(argv0 string) string {
+	base := strings.TrimSuffix(filepath.Base(argv0), ".exe")
+	if !strings.HasPrefix(base, "kubectl-") {
+		return ""
+	}
+	return "kubectl " + strings.ReplaceAll(strings.TrimPrefix(base, "kubectl-"), "_", "-")
 }
 
 func newInitCmd() *cobra.Command {

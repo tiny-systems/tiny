@@ -31,3 +31,22 @@ jobs:
           # PAT with write access to tiny-systems/homebrew-tap so the
           # formula can be pushed there. Add it as a repo secret.
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+
+      # The krew manifest for this release, with the real checksums, as a
+      # release asset: `kubectl krew install --manifest-url=<it>` installs
+      # from it, and it is what krew-index receives.
+      - name: Attach the krew manifest
+        run: |
+          go run ./hack/krewmanifest -tag "$GITHUB_REF_NAME" -checksums dist/checksums.txt > tiny-krew.yaml
+          gh release upload "$GITHUB_REF_NAME" tiny-krew.yaml --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Opens the version-bump PR in kubernetes-sigs/krew-index from
+      # .krew.yaml, so `kubectl krew upgrade tiny` sees the release. It can
+      # only update a plugin the index already has (the first submission is
+      # a manual PR), so a failure here never fails the release. Pinned to
+      # v0.0.51 by commit.
+      - name: Update the krew index
+        uses: rajatjindal/krew-release-bot@c970b8a8f6dbc2f2285a26e3ae160903b87002c3
+        continue-on-error: true
