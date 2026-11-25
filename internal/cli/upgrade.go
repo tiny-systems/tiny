@@ -85,7 +85,7 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 	// swaps a symlink on upgrade. Overwriting the binary under it would
 	// leave krew believing the old version is installed.
 	if exe, _ := os.Executable(); isKrew(exe) {
-		fmt.Printf("  %s %s is out; krew manages this copy — run:  kubectl krew upgrade tiny\n",
+		fmt.Printf("  %s %s is out; krew manages this copy — run:  kubectl krew upgrade tiny-agents\n",
 			styleKey.Render("upgrade"), styleTitle.Render(rel.TagName))
 		return nil
 	}

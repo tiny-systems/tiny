@@ -43,7 +43,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Opens the version-bump PR in kubernetes-sigs/krew-index from
-      # .krew.yaml, so `kubectl krew upgrade tiny` sees the release. The
+      # .krew.yaml, so `kubectl krew upgrade tiny-agents` sees the release. The
       # index only accepts these for a plugin it already lists; the first
       # submission must be a PR opened by a person (the bot's attempt was
       # closed). So it runs only once the repo variable KREW_INDEXED is

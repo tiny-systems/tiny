@@ -80,8 +80,9 @@ Your cluster, your keys, your repos.`,
 		},
 	}
 
-	// Installed by krew, the binary is kubectl-tiny and runs as
-	// `kubectl tiny`: help and usage should say so.
+	// Installed by krew as the tiny-agents plugin, the binary is
+	// kubectl-tiny_agents and runs as `kubectl tiny-agents`: help and
+	// usage should say so.
 	if name := pluginDisplayName(os.Args[0]); name != "" {
 		root.Annotations = map[string]string{cobra.CommandDisplayNameAnnotation: name}
 	}
@@ -121,8 +122,8 @@ Your cluster, your keys, your repos.`,
 	return err
 }
 
-// pluginDisplayName turns a kubectl plugin binary name (kubectl-tiny) into
-// how it is invoked (kubectl tiny); any other name gives "".
+// pluginDisplayName turns a kubectl plugin binary name (kubectl-tiny_agents)
+// into how it is invoked (kubectl tiny-agents); any other name gives "".
 func pluginDisplayName(argv0 string) string {
 	base := strings.TrimSuffix(filepath.Base(argv0), ".exe")
 	if !strings.HasPrefix(base, "kubectl-") {

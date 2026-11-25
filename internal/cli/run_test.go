@@ -76,10 +76,11 @@ func TestFilesCount(t *testing.T) {
 
 func TestPluginDisplayName(t *testing.T) {
 	for argv0, want := range map[string]string{
-		"/Users/ana/.krew/bin/kubectl-tiny": "kubectl tiny",
-		"kubectl-tiny.exe":                  "kubectl tiny",
-		"/usr/local/bin/tiny":               "",
-		"tiny":                              "",
+		"/Users/ana/.krew/bin/kubectl-tiny_agents": "kubectl tiny-agents",
+		"kubectl-tiny_agents.exe":                  "kubectl tiny-agents",
+		"kubectl-tiny":                             "kubectl tiny",
+		"/usr/local/bin/tiny":                      "",
+		"tiny":                                     "",
 	} {
 		if got := pluginDisplayName(argv0); got != want {
 			t.Errorf("pluginDisplayName(%q) = %q, want %q", argv0, got, want)

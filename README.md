@@ -278,10 +278,11 @@ As a kubectl plugin, with [krew](https://krew.sigs.k8s.io/):
 
 ```sh
 kubectl krew install --manifest-url=https://github.com/tiny-systems/tiny/releases/latest/download/tiny-krew.yaml
-kubectl tiny setup
+kubectl tiny-agents setup
 ```
 
-Upgrade a krew install with `kubectl krew upgrade tiny`.
+The plugin is named `tiny-agents`, so it runs as `kubectl tiny-agents`.
+Upgrade a krew install with `kubectl krew upgrade tiny-agents`.
 
 `tiny setup` pins your cluster, installs the runtime (2 CRDs and one
 ServiceAccount — no pods), stores your agent credential (`claude setup-token` or an API

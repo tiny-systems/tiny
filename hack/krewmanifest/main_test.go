@@ -43,7 +43,7 @@ func archive(version, platform string) string {
 
 // The template must point every platform at the archive goreleaser
 // publishes (tiny_<version without v>_<os>_<arch>) with the binary name
-// inside it, or `kubectl krew install tiny` breaks on the next release.
+// inside it, or `kubectl krew install tiny-agents` breaks on the next release.
 func TestTemplateMatchesReleaseAssets(t *testing.T) {
 	raw, err := os.ReadFile("../../.krew.yaml")
 	if err != nil {
@@ -65,7 +65,7 @@ func TestTemplateMatchesReleaseAssets(t *testing.T) {
 	if err := yaml.Unmarshal(out, &m); err != nil {
 		t.Fatalf("rendered manifest is not YAML: %v\n%s", err, out)
 	}
-	if m.Metadata.Name != "tiny" || m.Spec.Version != "v1.2.3" {
+	if m.Metadata.Name != "tiny-agents" || m.Spec.Version != "v1.2.3" {
 		t.Fatalf("name=%q version=%q", m.Metadata.Name, m.Spec.Version)
 	}
 	if n := len(m.Spec.ShortDescription); n == 0 || n > 50 {
