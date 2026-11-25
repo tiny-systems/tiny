@@ -43,10 +43,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Opens the version-bump PR in kubernetes-sigs/krew-index from
-      # .krew.yaml, so `kubectl krew upgrade tiny` sees the release. It can
-      # only update a plugin the index already has (the first submission is
-      # a manual PR), so a failure here never fails the release. Pinned to
-      # v0.0.51 by commit.
+      # .krew.yaml, so `kubectl krew upgrade tiny` sees the release. The
+      # index only accepts these for a plugin it already lists; the first
+      # submission must be a PR opened by a person (the bot's attempt was
+      # closed). So it runs only once the repo variable KREW_INDEXED is
+      # "true", set after the plugin is accepted. A failure never fails the
+      # release. Pinned to v0.0.51 by commit.
       - name: Update the krew index
+        if: vars.KREW_INDEXED == 'true'
         uses: rajatjindal/krew-release-bot@c970b8a8f6dbc2f2285a26e3ae160903b87002c3
         continue-on-error: true
