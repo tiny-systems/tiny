@@ -72,7 +72,7 @@ are here.
 
 | open | why |
 |---|---|
-| the model credential | it lives in the agent pod. Running the real vendor CLI requires it; this is inherent, not an oversight |
+| the model credential | by default it lives in the agent pod, because the real vendor CLI needs one. For Claude you can take it out: `tiny gateway on` keeps it in the egress proxy and gives pods a placeholder, and `tiny federation` (API billing) stores none at all. Either way a compromised session can still spend quota while it runs; it can't walk off with a long-lived key ([details](https://tinysystems.io/docs/model-credentials/)) |
 | HTTPS to the internet | by default, yes: a NetworkPolicy matches addresses, not hostnames. The [hostname allow-list](https://tinysystems.io/docs/egress/) narrows it to named hosts — though allow-listing `github.com` still permits a gist |
 | the agent's own tool calls | it runs `--permission-mode bypassPermissions`. `ask_human` is cooperative — nothing intercepts it |
 | a deploy key, if you add one | `tiny setup` offers to mint one, and the entrypoint copies it to the agent's `~/.ssh`. Convenient for private repos, but it is a long-lived write credential in the pod. The outbox exists so you never have to |
@@ -317,6 +317,7 @@ transcript resumes.
 | `tiny pull <session> [dir]` | bring a session's workspace back to this machine |
 | `tiny shell <session>` | shell on a session's workspace — finished sessions too |
 | `tiny questions` | every decision waiting on a human; `--json` for event sources, `--all` to include idle nudges |
+| `tiny gateway on` | keep the Claude credential in the egress proxy; agent pods hold a placeholder (`tiny federation` stores none, for API billing) |
 | `tiny egress denied` | hosts agents tried to reach and were refused by the allow-list; `tiny egress allow <host>` widens it |
 | `tiny answer <question> <text>` | answer a ✳ card — and perform its action, as you |
 | `echo "…" \| tiny deliver <session> --ensure --origin "github:o/r#3"` | pipe a message into a session's inbox; `--origin` remembers where the work came from, so a blocked session can be reported back there |
@@ -381,9 +382,10 @@ Things this does not do well yet, so you don't discover them the hard way:
   the conversation, not a half-finished tool call. The win is that nobody
   has to be present for it, not that recovery is magic.
 - **The model is not self-hosted.** Agents sign in with a Claude or
-  ChatGPT subscription and call cloud APIs. That credential lives in the
-  agent pod; if your namespace allows egress, an injected agent could
-  burn your quota. Scope the account, restrict egress if your CNI can.
+  ChatGPT subscription and call cloud APIs. By default that credential
+  lives in the agent pod; `tiny gateway on` or `tiny federation` takes the
+  Claude one out, but an injected agent can still burn your quota while
+  it runs. Scope the account, restrict egress if your CNI can.
 - **You need a machine that stays on.** kind on a laptop is fine for
   trying it, but sessions there die with the laptop — the point is a
   cluster that outlives your lid: k3s on an old PC is enough.
