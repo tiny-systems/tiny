@@ -56,10 +56,33 @@ die() {
 # exit code lands in the workspace so a restarted container (a Deployment
 # restarts it, always) never runs the command a second time; the pod then
 # idles so its logs stay readable until the owner deletes the session.
+# Before running, the workspace gets its code: a folder shipped by
+# `tiny run --dir` (waited for), or a clone of TINY_REPO. The command runs
+# in /workspace/repo when there is one.
 if [ "$AGENT" = "command" ]; then
   [ "$#" -gt 0 ] || die "a command session needs a command."
   DONE="$WORKSPACE/.tiny/command-done"
   if [ ! -f "$DONE" ]; then
+    if [ "${TINY_HANDOFF:-}" = "true" ]; then
+      waited=0
+      while [ ! -f "$WORKSPACE/.tiny/handoff-complete" ]; do
+        sleep 1
+        waited=$((waited+1))
+        [ "$waited" -lt 600 ] || die "the folder to run in never arrived after 10 minutes — delete this session and rerun tiny run"
+      done
+    fi
+    if [ -n "${TINY_REPO:-}" ] && [ ! -d "$WORKSPACE/repo" ]; then
+      command -v git >/dev/null 2>&1 || die "--repo needs git in the image; pick an image with git, or ship the folder with --dir."
+      echo "tiny: cloning $TINY_REPO" >&2
+      if ! git clone --quiet --depth 1 "$TINY_REPO" "$WORKSPACE/repo"; then
+        # Recorded like a failed command, so the run ends instead of
+        # restarting into the same failure.
+        echo "tiny: clone failed — nothing was run" >&2
+        echo 128 > "$DONE"
+        exec sleep infinity
+      fi
+    fi
+    cd "$WORKSPACE/repo" 2>/dev/null || cd "$WORKSPACE"
     "$@"
     echo "$?" > "$DONE"
   fi

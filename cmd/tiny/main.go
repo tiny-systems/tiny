@@ -4,6 +4,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -47,6 +48,11 @@ func main() {
 		return
 	}
 	if err := cli.Execute(version); err != nil {
+		// tiny run ends with its command's exit code.
+		var exit cli.ExitError
+		if errors.As(err, &exit) {
+			os.Exit(exit.Code)
+		}
 		os.Exit(1)
 	}
 }

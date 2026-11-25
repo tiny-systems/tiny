@@ -11,6 +11,7 @@ package cli
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -60,9 +61,11 @@ Start a session with a task; it runs as a pod with a persistent workspace
 and keeps working when you disconnect. When the agent needs a decision, its
 row lights up — answer from the fleet screen, or from anywhere with kubectl.
 Your cluster, your keys, your repos.`,
-		Version:       version,
-		SilenceUsage:  true,
-		SilenceErrors: false,
+		Version:      version,
+		SilenceUsage: true,
+		// Errors are printed below, except a command's exit code, which
+		// tiny run passes through silently.
+		SilenceErrors: true,
 		// Bare tiny is the fleet screen. Every start picks the target —
 		// namespaces separate groups of agents, and which group you are
 		// looking at is a per-launch choice. Enter-enter keeps yesterday's.
@@ -81,6 +84,7 @@ Your cluster, your keys, your repos.`,
 
 	root.AddCommand(
 		newNewCmd(),
+		newRunCmd(),
 		newShellCmd(),
 		newAnswerCmd(),
 		newSetupCmd(),
@@ -100,7 +104,12 @@ Your cluster, your keys, your repos.`,
 		newExportCmd(),
 		newUpgradeCmd(),
 	)
-	return root.Execute()
+	err := root.Execute()
+	var exit ExitError
+	if err != nil && !errors.As(err, &exit) {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+	}
+	return err
 }
 
 func newInitCmd() *cobra.Command {

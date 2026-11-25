@@ -66,6 +66,10 @@ type Row struct {
 	Age      time.Duration
 	Question *agentsv1.Question // open (unanswered) question, newest wins
 	Paused   bool               // workload scaled to zero on purpose
+	// Command marks a command session (agent "command"); Exit is its exit
+	// code once the command has finished.
+	Command bool
+	Exit    *int
 }
 
 // NeedsHuman reports whether the row should wear the amber mark.
@@ -96,6 +100,8 @@ type Store struct {
 	// Profile is the named target this store was resolved through, if any
 	// — shown beside the raw context/namespace, never instead of it.
 	Profile string
+	// commands caches command sessions' exit codes for the fleet screen.
+	commands commandCache
 }
 
 // Snapshot is one consistent read of the fleet.
@@ -132,7 +138,10 @@ func (s *Store) Load(ctx context.Context) (*Snapshot, error) {
 			}
 		}
 	}
-	return join(sessions.Items, questions.Items, live, time.Now()), nil
+	now := time.Now()
+	snap := join(sessions.Items, questions.Items, live, now)
+	s.fillCommandResults(ctx, snap.Rows, now)
+	return snap, nil
 }
 
 // allContainerStatuses walks init and main containers as one list — the
@@ -160,7 +169,7 @@ func livePhase(p *corev1.Pod) (phase, pod, message string) {
 		if cs.Name == agentContainer {
 			switch {
 			case cs.State.Running != nil:
-				return "Running", p.Name, ""
+				return string(agentsv1.SessionRunning), p.Name, ""
 			case cs.State.Terminated != nil && cs.State.Terminated.ExitCode != 0:
 				return "Failed", p.Name, strings.TrimSpace(cs.State.Terminated.Message)
 			}
@@ -229,6 +238,7 @@ func join(sessions []agentsv1.Session, questions []agentsv1.Question, live map[s
 			Age:      now.Sub(se.CreationTimestamp.Time),
 			Question: open[se.Name],
 			Paused:   se.Annotations[PausedAnnotation] == trueWord,
+			Command:  se.Spec.Agent == commandAgent,
 		})
 	}
 	// Creation order, oldest first: rows never jump when a question arrives
@@ -356,12 +366,21 @@ type CreateOpts struct {
 	// Handoff marks the session as receiving a laptop session's workspace
 	// and transcript after start — the entrypoint waits for them.
 	Handoff bool
+	// Command makes a command session: no agent, the entrypoint runs this
+	// argv once (Agent must be empty or "command").
+	Command []string
 }
 
 func (s *Store) Create(ctx context.Context, o CreateOpts) (*agentsv1.Session, error) {
 	se := &agentsv1.Session{
 		ObjectMeta: metav1.ObjectMeta{Namespace: s.Kube.Namespace},
 		Spec:       agentsv1.SessionSpec{Task: o.Task, Repo: o.Repo, Image: o.Image, Agent: o.Agent, Model: o.Model},
+	}
+	if len(o.Command) > 0 {
+		if o.Agent != "" && o.Agent != commandAgent {
+			return nil, fmt.Errorf("a command session runs no agent; drop --agent %s", o.Agent)
+		}
+		se.Spec.Agent, se.Spec.Command = commandAgent, o.Command
 	}
 	if o.Handoff {
 		se.Annotations = map[string]string{workload.HandoffAnnotation: "true"}

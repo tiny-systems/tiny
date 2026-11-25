@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"time"
 
 	"github.com/tiny-systems/tiny/internal/sessions"
@@ -12,10 +14,17 @@ import (
 // prints each stage once, so the first-ever run (a multi-minute image pull)
 // reads as progress instead of a silent stall. Returns the pod name.
 func waitForSession(ctx context.Context, store *sessions.Store, name string) (string, error) {
+	return waitForSessionTo(ctx, store, name, os.Stdout, "agent up")
+}
+
+// waitForSessionTo is waitForSession with its progress lines sent to w —
+// tiny run keeps stdout for the command's own output — and its own word
+// for "running" (a command session has no agent).
+func waitForSessionTo(ctx context.Context, store *sessions.Store, name string, w io.Writer, up string) (string, error) {
 	var last string
 	report := func(stage string) {
 		if stage != last && stage != "" {
-			fmt.Printf("  ◌ %s\n", stage)
+			_, _ = fmt.Fprintf(w, "  ◌ %s\n", stage)
 			last = stage
 		}
 	}
@@ -50,7 +59,7 @@ func waitForSession(ctx context.Context, store *sessions.Store, name string) (st
 			if !settled {
 				continue
 			}
-			fmt.Printf("  ● agent up (%s)\n", pod)
+			_, _ = fmt.Fprintf(w, "  ● %s (%s)\n", up, pod)
 			return pod, nil
 		}
 		report(stage)

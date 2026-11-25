@@ -12,6 +12,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+
+	agentsv1 "github.com/tiny-systems/tiny/api/v1alpha1"
 )
 
 /*
@@ -966,7 +968,7 @@ func detail(row Row) string {
 		return row.Activity
 	}
 	// A stuck session says why before anything else.
-	if row.Message != "" && row.Phase != "Running" {
+	if row.Message != "" && row.Phase != string(agentsv1.SessionRunning) {
 		return row.Message
 	}
 	// Declared intent first (agents keep it current), the live turn-tail
