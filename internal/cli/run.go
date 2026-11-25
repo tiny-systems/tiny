@@ -137,15 +137,21 @@ func runCommand(parent context.Context, o runOpts, command []string) error {
 		logf("  ◌ session %s deleted", se.Name)
 	}
 
+	// fail reports why the run stopped, then removes the session.
+	fail := func(err error) error {
+		err = interrupted(ctx, err)
+		cleanup()
+		return err
+	}
+
 	pod, err := waitForSessionTo(setup, store, se.Name, os.Stderr, "running")
 	if err != nil {
-		cleanup()
-		return interrupted(ctx, err)
+		return fail(err)
 	}
 	if o.dir != "" {
 		logf("  ◌ shipping %s", o.dir)
-		files := 0
-		if err := store.PushTree(setup, pod, "/workspace/repo", o.dir, func(string) { files++ }); err != nil {
+		shipped := 0
+		if err := store.PushTree(setup, pod, "/workspace/repo", o.dir, func(string) { shipped++ }); err != nil {
 			cleanup()
 			return interrupted(ctx, err)
 		}
@@ -153,28 +159,36 @@ func runCommand(parent context.Context, o runOpts, command []string) error {
 			cleanup()
 			return interrupted(ctx, err)
 		}
-		logf("  ✓ %d files landed in /workspace/repo", files)
+		logf("  ✓ %s landed in /workspace/repo", files(shipped))
 	}
 	if o.detach {
-		logf("  started; follow it with:  kubectl -n %s logs -f %s -c agent", k.Namespace, pod)
+		logf("  started; follow it with:  kubectl -n %s logs -f deploy/%s-agent", k.Namespace, se.Name)
 		logf("  look around:  tiny shell %s    remove:  tiny rm %s", se.Name, se.Name)
 		return nil
 	}
 
 	code, err := followCommand(ctx, store, pod)
 	if err != nil {
-		cleanup()
-		return interrupted(ctx, err)
+		return fail(err)
+	}
+	if code != 0 {
+		logf("  ✗ exited %d", code)
 	}
 	if keep {
 		logf("  kept: tiny shell %s to look around, tiny rm %s when done", se.Name, se.Name)
 	}
 	cleanup()
 	if code != 0 {
-		logf("  ✗ exited %d", code)
 		return ExitError{Code: code}
 	}
 	return nil
+}
+
+func files(n int) string {
+	if n == 1 {
+		return "1 file"
+	}
+	return fmt.Sprintf("%d files", n)
 }
 
 // followCommand streams the command's output until its exit code is

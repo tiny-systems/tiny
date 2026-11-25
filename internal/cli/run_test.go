@@ -67,3 +67,9 @@ func TestExitErrorSurvivesWrapping(t *testing.T) {
 		t.Fatalf("errors.As lost the code: %v", err)
 	}
 }
+
+func TestFilesCount(t *testing.T) {
+	if files(1) != "1 file" || files(3) != "3 files" || files(0) != "0 files" {
+		t.Fatal("files")
+	}
+}

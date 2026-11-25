@@ -111,6 +111,11 @@ Full detail: [threat model](https://tinysystems.io/docs/threat-model/) ·
 - **Two agents, one flag.** `tiny new --agent codex` runs OpenAI's Codex
   instead of Claude; `--model` picks the model for either. Sign in with
   the plan you already pay for — Claude Pro/Max or ChatGPT Plus.
+- **The same box, without an agent.** `tiny run` runs one command in a
+  session's confinement, with no model and no credentials, streams its
+  output and exits with its exit code. Run an unfamiliar repo's tests
+  under gVisor:
+  `tiny run --image node:22 --runtime-class gvisor --repo https://github.com/acme/app -- npm test`.
 - **Sessions survive pod loss.** The workspace is a persistent volume and
   the pod is disposable: a rescheduled pod resumes the transcript and
   keeps going. We test this by force-killing pods mid-task.
@@ -251,7 +256,7 @@ replacement mounts the same workspace and resumes the transcript.
   pass in, and `session.Delete` removes it. The package docs list the RBAC
   the caller needs. With `agent: command` it runs one command instead of
   an agent, with no model, no credentials, no token and no sidecar, under
-  the same confinement as any session.
+  the same confinement as any session; `tiny run` is that from the CLI.
 - The sidecar is powerless by design: it can create Questions and update
   its own session's status, nothing else. When the agent reaches a
   decision it must not make alone, the tool call **blocks** — minutes or
@@ -292,6 +297,7 @@ transcript resumes.
 | `tiny new --image quay.io/buildah/stable --user 1000 --unconfined "…"` | a builder — agents build images and push them to the namespace registry (`--unconfined`: rootless buildah needs user namespaces) |
 | `tiny new --agent codex --model gpt-5.2-codex "…"` | the same session, OpenAI's Codex inside |
 | `tiny new --dir . "…"` | ship this folder as the workspace — uncommitted changes and `.git` included, no git remote needed |
+| `tiny run --image python:3.13-slim -- python3 script.py` | run one command in a confined session, no agent or credentials; output streams back and tiny exits with the command's code (`--repo`, `--dir`, `--runtime-class gvisor`, `--keep`, `-d`) |
 | `tiny broadcast "demo at 10 — wrap up"` | one message into every unfinished session's inbox |
 | `tiny handoff` | move THIS directory's local Claude Code session to the cluster, mid-conversation |
 | `tiny attach <session>` | join the session's terminal directly (detach: `ctrl-q d`) |

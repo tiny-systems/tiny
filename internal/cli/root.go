@@ -3,6 +3,7 @@
 // The whole surface:
 //
 //	tiny new "task"   start a session (installs the runtime on first contact)
+//	tiny run -- cmd   run one command in a confined session, exit with its code
 //	tiny              the fleet screen — who runs, who needs you
 //	tiny init         install/upgrade the runtime explicitly (CI, platform habits)
 //	tiny upgrade      update this binary
