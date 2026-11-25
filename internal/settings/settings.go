@@ -51,7 +51,52 @@ type Settings struct {
 	// that installs the cache's CA certificate on every node so their
 	// container runtimes accept it. Explicitly separate from Zot.
 	ZotNodeTrust bool
+	// ModelGateway keeps the Claude credential out of agent pods: the
+	// egress proxy holds it and adds it to model requests on the way out.
+	// The value names the credential's kind, GatewayOAuth (a subscription
+	// token) or GatewayAPIKey, so agents send a placeholder of the same
+	// kind. Empty is off. Needs EgressProxy.
+	ModelGateway string
+	// Federation, when its rule and organization are set, signs agents in
+	// to the Claude API with Anthropic Workload Identity Federation: the
+	// pod's projected service-account token is exchanged for a short-lived
+	// access token, and no Claude credential is stored at all.
+	Federation Federation
 }
+
+// Kinds of credential the model gateway can hold.
+const (
+	GatewayOAuth  = "oauth"
+	GatewayAPIKey = "apikey"
+)
+
+// Federation is the Claude Console configuration a session needs to
+// exchange its identity token: the IDs shown when the federation rule was
+// created. None of them is a secret.
+type Federation struct {
+	RuleID           string
+	OrganizationID   string
+	ServiceAccountID string
+	WorkspaceID      string // needed when the rule covers several workspaces
+	// Audience the projected token is minted for; the rule must match it.
+	Audience string
+}
+
+// DefaultFederationAudience is the audience Anthropic's guides use.
+const DefaultFederationAudience = "https://api.anthropic.com"
+
+// On reports whether federation is configured.
+func (f Federation) On() bool { return f.RuleID != "" && f.OrganizationID != "" }
+
+// Keys the switchboard stores the gateway and federation under.
+const (
+	KeyModelGateway             = "modelGateway"
+	KeyFederationRule           = "federationRule"
+	KeyFederationOrganization   = "federationOrganization"
+	KeyFederationServiceAccount = "federationServiceAccount"
+	KeyFederationWorkspace      = "federationWorkspace"
+	KeyFederationAudience       = "federationAudience"
+)
 
 // Load reads the switchboard; a missing ConfigMap is all-off, not an error.
 func Load(ctx context.Context, c client.Client, namespace string) (Settings, error) {
@@ -71,5 +116,29 @@ func Load(ctx context.Context, c client.Client, namespace string) (Settings, err
 		FenceWait:    cm.Data["fenceWait"] == on,
 		EgressProxy:  cm.Data["egressProxy"] == on,
 		RunnerRepo:   cm.Data["runnerRepo"],
+		ModelGateway: modelGateway(cm.Data[KeyModelGateway]),
+		Federation: Federation{
+			RuleID:           cm.Data[KeyFederationRule],
+			OrganizationID:   cm.Data[KeyFederationOrganization],
+			ServiceAccountID: cm.Data[KeyFederationServiceAccount],
+			WorkspaceID:      cm.Data[KeyFederationWorkspace],
+			Audience:         orDefault(cm.Data[KeyFederationAudience], DefaultFederationAudience),
+		},
 	}, nil
+}
+
+// modelGateway accepts only the kinds the workload knows how to fake; any
+// other value is off rather than a pod with a placeholder of no kind.
+func modelGateway(v string) string {
+	if v == GatewayOAuth || v == GatewayAPIKey {
+		return v
+	}
+	return ""
+}
+
+func orDefault(v, d string) string {
+	if v == "" {
+		return d
+	}
+	return v
 }

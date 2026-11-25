@@ -97,7 +97,7 @@ func TestEnsureWorkspaceAcceptsOwnClaimAndCreatesFresh(t *testing.T) {
 // suffix, so ".svc" does not cover it — without the exact name the store
 // dies the moment the egress allow-list is switched on.
 func TestNoProxyCoversInNamespaceServices(t *testing.T) {
-	list := noProxyList("http://10.96.0.5:3128")
+	list := noProxyList("http://10.96.0.5:3128", "10.96.0.5")
 	for _, host := range []string{"tiny-minio", "tiny-zot", "tiny-egress"} {
 		if !slices.Contains(strings.Split(list, ","), host) {
 			t.Errorf("NO_PROXY is missing %q — that traffic would be proxied and refused", host)
@@ -106,7 +106,7 @@ func TestNoProxyCoversInNamespaceServices(t *testing.T) {
 	if !strings.Contains(list, ".svc") {
 		t.Error("NO_PROXY is missing .svc — expose_port URLs would be proxied")
 	}
-	if noProxyList("") != "" {
+	if noProxyList("", "") != "" {
 		t.Error("NO_PROXY should be empty when no proxy is configured")
 	}
 }

@@ -39,7 +39,10 @@ const (
 	proxyAllowCM = ProxyAllowConfigMap
 	proxyPort    = 3128
 	dnsPort      = 5353 // unprivileged; the Service maps 53 onto it
-	allowKey     = "hosts"
+	// GatewayPort is the model gateway: agents' ANTHROPIC_BASE_URL when
+	// the namespace keeps its Claude credential in the proxy.
+	GatewayPort = 8080
+	allowKey    = "hosts"
 )
 
 // proxyServicePorts is what sessions see: the CONNECT proxy, and DNS on
@@ -49,6 +52,7 @@ func proxyServicePorts() []corev1.ServicePort {
 		{Name: proxyArg, Port: proxyPort, TargetPort: intstr.FromInt32(proxyPort)},
 		{Name: "dns-udp", Protocol: corev1.ProtocolUDP, Port: 53, TargetPort: intstr.FromInt32(dnsPort)},
 		{Name: "dns-tcp", Protocol: corev1.ProtocolTCP, Port: 53, TargetPort: intstr.FromInt32(dnsPort)},
+		{Name: "model", Port: GatewayPort, TargetPort: intstr.FromInt32(GatewayPort)},
 	}
 }
 
@@ -176,11 +180,14 @@ func (r *Applier) ensureProxyDeployment(ctx context.Context, ns, image string) e
 							fmt.Sprintf("--addr=:%d", proxyPort),
 							fmt.Sprintf("--dns=:%d", dnsPort),
 							"--allow-file=/etc/tiny/" + allowKey,
+							fmt.Sprintf("--model-gateway=:%d", GatewayPort),
+							"--model-credential-dir=/etc/tiny-model",
 						},
 						Ports: []corev1.ContainerPort{
 							{Name: proxyArg, ContainerPort: proxyPort},
 							{Name: "dns-udp", ContainerPort: dnsPort, Protocol: corev1.ProtocolUDP},
 							{Name: "dns-tcp", ContainerPort: dnsPort, Protocol: corev1.ProtocolTCP},
+							{Name: "model", ContainerPort: GatewayPort},
 						},
 						// The proxy is the one thing every session's traffic
 						// passes through; it gets the same confinement they do.
@@ -189,9 +196,13 @@ func (r *Applier) ensureProxyDeployment(ctx context.Context, ns, image string) e
 							AllowPrivilegeEscalation: ptr(false),
 							Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
 						},
-						VolumeMounts: []corev1.VolumeMount{{
-							Name: "allow", MountPath: "/etc/tiny",
-						}},
+						VolumeMounts: []corev1.VolumeMount{
+							{Name: "allow", MountPath: "/etc/tiny"},
+							// The model credential lives here and nowhere a
+							// session can mount. Optional: without `tiny
+							// gateway on` the gateway answers 503.
+							{Name: "model-credential", MountPath: "/etc/tiny-model", ReadOnly: true},
+						},
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
 								corev1.ResourceCPU:    resource.MustParse("10m"),
@@ -204,6 +215,14 @@ func (r *Applier) ensureProxyDeployment(ctx context.Context, ns, image string) e
 						VolumeSource: corev1.VolumeSource{
 							ConfigMap: &corev1.ConfigMapVolumeSource{
 								LocalObjectReference: corev1.LocalObjectReference{Name: proxyAllowCM},
+							},
+						},
+					}, {
+						Name: "model-credential",
+						VolumeSource: corev1.VolumeSource{
+							Secret: &corev1.SecretVolumeSource{
+								SecretName: workload.ModelCredentialSecret,
+								Optional:   ptr(true),
 							},
 						},
 					}},

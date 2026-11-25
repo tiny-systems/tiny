@@ -17,6 +17,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 
@@ -56,6 +57,11 @@ func runProxy(args []string) {
 	allowFile := fs.String("allow-file", "/etc/tiny/egress-allow", "file of permitted hosts, one per line")
 	dnsAddr := fs.String("dns", ":5353", "answer session DNS here; empty disables")
 	resolv := fs.String("resolv", "/etc/resolv.conf", "where the cluster nameserver and search domains are read from")
+	gatewayAddr := fs.String("model-gateway", "",
+		"serve the model gateway here (agents' ANTHROPIC_BASE_URL); empty disables")
+	credDir := fs.String("model-credential-dir", "/etc/tiny-model",
+		"directory holding the Claude credential the gateway attaches")
+	upstream := fs.String("model-upstream", "https://api.anthropic.com", "where the gateway forwards")
 	_ = fs.Parse(args)
 
 	rules, err := egressproxy.LoadRules(*allowFile)
@@ -87,6 +93,19 @@ func runProxy(args []string) {
 		go func() { log.Fatal(res.ServeUDP(pc)) }()
 		go func() { log.Fatal(res.ServeTCP(l)) }()
 		log.Printf("session dns on %s: forwarding %v to %s, refusing the rest", *dnsAddr, search, upstream)
+	}
+
+	// The model gateway: agents hold a placeholder, this attaches the
+	// namespace's real Claude credential, which only this pod can read.
+	if *gatewayAddr != "" {
+		up, err := url.Parse(*upstream)
+		if err != nil {
+			log.Fatalf("model gateway upstream: %v", err)
+		}
+		gw := &http.Server{Addr: *gatewayAddr, Handler: egressproxy.NewGateway(up, *credDir),
+			ReadHeaderTimeout: 20 * time.Second}
+		go func() { log.Fatal(gw.ListenAndServe()) }()
+		log.Printf("model gateway on %s, forwarding /v1/ to %s with the credential in %s", *gatewayAddr, *upstream, *credDir)
 	}
 
 	log.Printf("tiny egress proxy on %s, allow-list %s", *addr, *allowFile)

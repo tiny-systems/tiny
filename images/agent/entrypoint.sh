@@ -25,6 +25,13 @@ export PATH="$TINY_HOME/bin:$PATH"
 
 WORKSPACE=/workspace
 MARKER="$WORKSPACE/.tiny/started"
+# Behind the model gateway or with federation, the pod spec blanks the
+# Claude credential names so a key in tiny-agent-env can't reach this
+# container. Unset the blanks: an empty token is not the same as none to
+# every tool.
+for v in CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN; do
+  eval "[ -n \"\${$v:-}\" ]" || unset "$v"
+done
 AGENT="${TINY_AGENT:-claude}"
 export CLAUDE_CONFIG_DIR="$WORKSPACE/.claude"
 # uid 61000 has no passwd entry in a foreign image; HOME must still point

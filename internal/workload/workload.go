@@ -457,8 +457,8 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 					{Name: "https_proxy", Value: proxyEnv},
 					{Name: "HTTP_PROXY", Value: proxyEnv},
 					{Name: "http_proxy", Value: proxyEnv},
-					{Name: "NO_PROXY", Value: noProxyList(proxyEnv)},
-					{Name: "no_proxy", Value: noProxyList(proxyEnv)},
+					{Name: "NO_PROXY", Value: noProxyList(proxyEnv, proxyIP)},
+					{Name: "no_proxy", Value: noProxyList(proxyEnv, proxyIP)},
 				}, mcpEnv(s.Spec.MCPServers)...),
 				VolumeMounts: agentMounts(workspace, tinyHome, envSecret),
 			},
@@ -499,6 +499,9 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 			func(m corev1.VolumeMount) bool { return m.Name == repoKeysVolume })
 		podSpec.Volumes = slices.DeleteFunc(podSpec.Volumes, func(v corev1.Volume) bool { return v.Name == repoKeysVolume })
 	}
+	if err := sessionModelAuth(&podSpec, s, command, cfg, cfgErr, proxyIP); err != nil && strict {
+		return corev1.PodSpec{}, nil, err
+	}
 	if cfgErr == nil && cfg.Egress && cfg.FenceWait {
 		// Last, so nothing of the session runs before the fence holds.
 		podSpec.InitContainers = append(podSpec.InitContainers, fenceWait(images.Agent, s))
@@ -509,6 +512,11 @@ func buildPodSpec(ctx context.Context, c client.Client, images Images, s *agents
 
 // repoKeysVolume carries the repo deploy key (RepoKeysSecret) into agent pods.
 const repoKeysVolume = "repo-keys"
+
+// ModelCredentialSecret holds the namespace's Claude credential when the
+// model gateway is on. Only the egress proxy mounts it; no session pod
+// references it, which is the point.
+const ModelCredentialSecret = "tiny-model-credential"
 
 // commandAgent is the session agent that runs spec.command with no model.
 const commandAgent = "command"
@@ -683,11 +691,14 @@ func serviceIP(ctx context.Context, c client.Client, ns, name string) (string, e
 //
 // The CIDRs are for Go-based tooling, which understands them in
 // NO_PROXY. curl does not, which is the other reason the names are here.
-func noProxyList(proxyEnv string) string {
+func noProxyList(proxyEnv, proxyIP string) string {
 	if proxyEnv == "" {
 		return ""
 	}
+	// The proxy's own address, whatever range the cluster's services use:
+	// the model gateway lives on it and must be reached directly.
 	return strings.Join([]string{
+		proxyIP,
 		"localhost", "127.0.0.1",
 		"tiny-minio", "tiny-zot", egressService,
 		".svc", ".svc.cluster.local", ".cluster.local",
@@ -710,4 +721,92 @@ func rewriteThroughCache(image, ip string) string {
 		return image // explicit registry: not ours to reroute
 	}
 	return fmt.Sprintf("%s:%d/%s", ip, 5000, image)
+}
+
+// Where the projected identity token for Workload Identity Federation is
+// mounted, and the placeholders an agent holds behind the model gateway.
+const (
+	federationTokenDir = "/var/run/secrets/anthropic.com"
+	federationVolume   = "anthropic-identity"
+	federationTokenTTL = 3600
+	placeholderOAuth   = "sk-ant-oat01-tiny-gateway-placeholder"
+	placeholderAPIKey  = "sk-ant-api03-tiny-gateway-placeholder"
+	envOAuthToken      = "CLAUDE_CODE_OAUTH_TOKEN"
+	envAPIKey          = "ANTHROPIC_API_KEY"
+	envAuthToken       = "ANTHROPIC_AUTH_TOKEN"
+	envBaseURL         = "ANTHROPIC_BASE_URL"
+	gatewayPort        = 8080 // addons.GatewayPort; addons imports this package
+)
+
+// sessionModelAuth applies modelAuth to Claude sessions whose namespace
+// settings could be read; command and codex sessions are left alone.
+func sessionModelAuth(pod *corev1.PodSpec, s *agentsv1.Session, command bool, cfg settings.Settings, cfgErr error, proxyIP string) error {
+	if command || cfgErr != nil || !runsClaude(s) {
+		return nil
+	}
+	return modelAuth(pod, cfg, proxyIP)
+}
+
+// runsClaude reports whether the session's agent is Claude Code, the only
+// agent the gateway and federation sign in.
+func runsClaude(s *agentsv1.Session) bool { return s.Spec.Agent == "" || s.Spec.Agent == "claude" }
+
+// modelAuth keeps the Claude credential out of the agent container when
+// the namespace asks for it. Federation wins over the gateway: it stores
+// nothing at all. In both modes the container's env blanks the stored
+// credential names, so even a key still sitting in tiny-agent-env (env
+// beats envFrom) never reaches the agent; the entrypoint unsets blanks.
+func modelAuth(pod *corev1.PodSpec, cfg settings.Settings, proxyIP string) error {
+	agent := &pod.Containers[0]
+	switch {
+	case cfg.Federation.On():
+		f := cfg.Federation
+		pod.Volumes = append(pod.Volumes, corev1.Volume{
+			Name: federationVolume,
+			VolumeSource: corev1.VolumeSource{Projected: &corev1.ProjectedVolumeSource{
+				Sources: []corev1.VolumeProjection{{ServiceAccountToken: &corev1.ServiceAccountTokenProjection{
+					// Minted for Anthropic: the Kubernetes API refuses a
+					// token with this audience, so it opens nothing here.
+					Audience:          f.Audience,
+					ExpirationSeconds: ptr(int64(federationTokenTTL)),
+					Path:              "token",
+				}}},
+			}},
+		})
+		agent.VolumeMounts = append(agent.VolumeMounts, corev1.VolumeMount{Name: federationVolume, MountPath: federationTokenDir, ReadOnly: true})
+		env := []corev1.EnvVar{
+			{Name: "ANTHROPIC_IDENTITY_TOKEN_FILE", Value: federationTokenDir + "/token"},
+			{Name: "ANTHROPIC_FEDERATION_RULE_ID", Value: f.RuleID},
+			{Name: "ANTHROPIC_ORGANIZATION_ID", Value: f.OrganizationID},
+		}
+		if f.ServiceAccountID != "" {
+			env = append(env, corev1.EnvVar{Name: "ANTHROPIC_SERVICE_ACCOUNT_ID", Value: f.ServiceAccountID})
+		}
+		if f.WorkspaceID != "" {
+			env = append(env, corev1.EnvVar{Name: "ANTHROPIC_WORKSPACE_ID", Value: f.WorkspaceID})
+		}
+		agent.Env = append(blankCredentials(agent.Env), env...)
+	case cfg.ModelGateway != "":
+		if !cfg.EgressProxy || proxyIP == "" {
+			return fmt.Errorf("the model gateway runs in the egress proxy, which is off or has no address: turn the proxy on (tiny egress) or the gateway off (tiny gateway off)")
+		}
+		placeholder := corev1.EnvVar{Name: envOAuthToken, Value: placeholderOAuth}
+		if cfg.ModelGateway == settings.GatewayAPIKey {
+			placeholder = corev1.EnvVar{Name: envAPIKey, Value: placeholderAPIKey}
+		}
+		env := blankCredentials(agent.Env)
+		env = slices.DeleteFunc(env, func(e corev1.EnvVar) bool { return e.Name == placeholder.Name })
+		agent.Env = append(env, placeholder,
+			corev1.EnvVar{Name: envBaseURL, Value: fmt.Sprintf("http://%s:%d", proxyIP, gatewayPort)})
+	}
+	return nil
+}
+
+// blankCredentials adds empty values for every Claude credential name, so
+// the container env overrides whatever tiny-agent-env carries.
+func blankCredentials(env []corev1.EnvVar) []corev1.EnvVar {
+	for _, name := range []string{envOAuthToken, envAPIKey, envAuthToken} {
+		env = append(env, corev1.EnvVar{Name: name, Value: ""})
+	}
+	return env
 }

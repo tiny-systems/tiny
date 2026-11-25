@@ -20,6 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/tiny-systems/tiny/internal/kube"
+	"github.com/tiny-systems/tiny/internal/sessions"
 	"github.com/tiny-systems/tiny/internal/workload"
 )
 
@@ -74,6 +75,14 @@ func newSetupCmd() *cobra.Command {
 // setupAgentToken makes sure the tiny-agent-env secret holds a credential
 // the agent can start with.
 func setupAgentToken(ctx context.Context, k *kube.Client) error {
+	store := newStore(k)
+	if f, err := store.FederationState(ctx); err == nil && f.On() {
+		fmt.Println("  ✓ federation on: Claude sessions sign in without a stored credential (tiny federation)")
+		return nil
+	}
+	if kind, err := store.GatewayState(ctx); err == nil && kind != "" {
+		return setupGatewayToken(ctx, store)
+	}
 	existing := &corev1.Secret{}
 	getErr := k.Client.Get(ctx, kube.Key(k.Namespace, workload.AgentEnvSecret), existing)
 	secretExists := getErr == nil
@@ -126,6 +135,30 @@ func setupAgentToken(ctx context.Context, k *kube.Client) error {
 		return fmt.Errorf("create tiny-agent-env: %w", err)
 	}
 	fmt.Printf("  ✓ agent token stored (%s)\n", key)
+	return nil
+}
+
+// setupGatewayToken stores or rotates the credential the model gateway
+// attaches, straight into the proxy's Secret, so the token never passes
+// through tiny-agent-env.
+func setupGatewayToken(ctx context.Context, store *sessions.Store) error {
+	fmt.Print("  ✓ gateway on: the Claude credential lives in the egress proxy — replace it? [y/N] ")
+	if !confirmed(readLine()) {
+		return nil
+	}
+	fmt.Print("  Paste a `claude setup-token` or an Anthropic API key (input hidden, empty to skip): ")
+	token, err := readSecret()
+	if err != nil || token == "" {
+		return err
+	}
+	key := "CLAUDE_CODE_OAUTH_TOKEN"
+	if strings.HasPrefix(token, "sk-ant-a") {
+		key = "ANTHROPIC_API_KEY"
+	}
+	if err := store.StoreGatewayCredential(ctx, key, token); err != nil {
+		return err
+	}
+	fmt.Printf("  ✓ gateway credential replaced (%s); the proxy picks it up within a minute\n", key)
 	return nil
 }
 
