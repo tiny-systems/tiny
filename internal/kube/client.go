@@ -6,7 +6,6 @@ package kube
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	agentsv1 "github.com/tiny-systems/tiny/api/v1alpha1"
@@ -104,16 +103,12 @@ func loadConfig(explicitPath, context string) (*rest.Config, string, error) {
 			return cfg, ns, nil
 		}
 	}
+	// The default rules are kubectl's: KUBECONFIG as a list of files
+	// merged in order, else ~/.kube/config. Treating KUBECONFIG as one
+	// path broke the common "a:b" setup.
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	if explicitPath != "" {
 		loadingRules.ExplicitPath = explicitPath
-	} else if env := os.Getenv("KUBECONFIG"); env != "" {
-		loadingRules.ExplicitPath = env
-	} else if home, err := os.UserHomeDir(); err == nil {
-		defaultPath := filepath.Join(home, ".kube", "config")
-		if _, err := os.Stat(defaultPath); err == nil {
-			loadingRules.ExplicitPath = defaultPath
-		}
 	}
 
 	overrides := &clientcmd.ConfigOverrides{}

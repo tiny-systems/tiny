@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -80,6 +81,53 @@ func (s *Store) Attach(ctx context.Context, session, pod string) error {
 		Tty:               true,
 		TerminalSizeQueue: sizeQueue(sizes),
 	})
+}
+
+// TerminalSize is a terminal's width and height in cells.
+type TerminalSize = remotecommand.TerminalSize
+
+// AttachStream connects the session's tmux to the given streams instead of
+// this process's terminal — for a terminal drawn elsewhere, such as the
+// desktop app's. sizes delivers resizes; close it to end the attach.
+// Blocks until detach, the stream ends or ctx is done.
+func (s *Store) AttachStream(ctx context.Context, pod string, stdin io.Reader, stdout io.Writer, sizes <-chan TerminalSize) error {
+	exec, err := s.tmuxExecutor(pod)
+	if err != nil {
+		return err
+	}
+	q := make(sizeQueue, 1)
+	go func() {
+		defer close(q)
+		for sz := range sizes {
+			select {
+			case q <- sz:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return exec.StreamWithContext(ctx, remotecommand.StreamOptions{
+		Stdin: stdin, Stdout: stdout, Tty: true, TerminalSizeQueue: q,
+	})
+}
+
+// tmuxExecutor prepares an exec into the agent container's tmux.
+func (s *Store) tmuxExecutor(pod string) (remotecommand.Executor, error) {
+	cfg := s.Kube.RESTConfig
+	restClient, err := restClientFor(setGroupVersion(cfg))
+	if err != nil {
+		return nil, err
+	}
+	req := restClient.Post().
+		Resource("pods").Name(pod).Namespace(s.Kube.Namespace).
+		SubResource("exec").
+		VersionedParams(&corev1.PodExecOptions{
+			Container: agentContainer,
+			Command: []string{"sh", "-c",
+				`exec "$([ -x /tiny/bin/tmux ] && echo /tiny/bin/tmux || echo tmux)" -u attach -t main`},
+			Stdin: true, Stdout: true, Stderr: false, TTY: true,
+		}, scheme.ParameterCodec)
+	return remotecommand.NewSPDYExecutor(cfg, "POST", req.URL())
 }
 
 type sizeQueue chan remotecommand.TerminalSize
