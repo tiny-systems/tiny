@@ -17,6 +17,13 @@ import (
 // namespace's default sandbox.
 const NoRuntimeClass = "none"
 
+// NoSandboxAnnotation marks a session that opted out of the namespace
+// sandbox, so the workload doesn't apply the default to it later.
+const NoSandboxAnnotation = "tinysystems.io/no-sandbox"
+
+// optedOut is NoSandboxAnnotation's value.
+const optedOut = "true"
+
 // ApplyDefaultRuntimeClass fills a new session's runtime class from the
 // namespace settings when the session names none. It writes the class
 // into the spec, so the session shows what it runs under and a later
@@ -26,8 +33,15 @@ func ApplyDefaultRuntimeClass(ctx context.Context, c client.Client, s *agentsv1.
 	switch s.Spec.RuntimeClassName {
 	case NoRuntimeClass:
 		s.Spec.RuntimeClassName = ""
+		if s.Annotations == nil {
+			s.Annotations = map[string]string{}
+		}
+		s.Annotations[NoSandboxAnnotation] = optedOut
 		return nil
 	case "":
+		if s.Annotations[NoSandboxAnnotation] == optedOut {
+			return nil
+		}
 	default:
 		return nil
 	}

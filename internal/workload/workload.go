@@ -191,6 +191,12 @@ func ensure(ctx context.Context, c client.Client, s *agentsv1.Session, strict bo
 	if !apierrors.IsNotFound(err) {
 		return err
 	}
+	// Every way a session comes to exist (tiny new, pkg/session, an
+	// action, kubectl) ends here, so the namespace sandbox is applied here
+	// too: a Session created without a runtime gets the default in its pod.
+	if err := ApplyDefaultRuntimeClass(ctx, c, s); err != nil {
+		return err
+	}
 	if err := checkRuntimeClass(ctx, c, s); err != nil {
 		return err
 	}

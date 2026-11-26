@@ -100,3 +100,36 @@ func TestSandboxOnRefusesAMissingClass(t *testing.T) {
 		t.Fatal(`"none" accepted as a sandbox`)
 	}
 }
+
+// A Session created some other way (kubectl, an action, another client)
+// still gets the sandbox when its workload is built; an opted-out one
+// stays out.
+func TestSandboxReachesSessionsCreatedElsewhere(t *testing.T) {
+	store, c := sandboxStore(t)
+	ctx := t.Context()
+	if err := store.SandboxOn(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	raw := &agentsv1.Session{ObjectMeta: metav1.ObjectMeta{Namespace: "agents", Name: "raw", UID: "u1"},
+		Spec: agentsv1.SessionSpec{Agent: "command", Command: []string{"echo"}}}
+	if err := c.Create(ctx, raw); err != nil {
+		t.Fatal(err)
+	}
+	if err := workload.Ensure(ctx, c, raw); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	if got := podRuntimeClass(t, c, "raw"); got != "gvisor" {
+		t.Fatalf("raw session's pod runs under %q, want gvisor", got)
+	}
+
+	out, err := store.Create(ctx, CreateOpts{Name: "out", Command: []string{"echo"}, RuntimeClass: workload.NoRuntimeClass})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Annotations[workload.NoSandboxAnnotation] != "true" {
+		t.Fatal("opt-out not recorded on the session")
+	}
+	if got := podRuntimeClass(t, c, "out"); got != "" {
+		t.Fatalf("opted-out session's pod runs under %q", got)
+	}
+}
