@@ -70,7 +70,7 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().StringVar(&o.image, "image", "", "image to run the command in; it needs sh (default: the tiny agent image)")
 	cmd.Flags().StringVar(&o.repo, "repo", "", "git URL cloned into the workspace first; the command runs inside it (the image needs git)")
 	cmd.Flags().StringVar(&o.dir, "dir", "", "local folder shipped into the workspace first, as it stands; the command runs inside it")
-	cmd.Flags().StringVar(&o.runtimeClass, "runtime-class", "", "sandboxed runtime the cluster provides, e.g. gvisor or kata (the RuntimeClass must exist)")
+	cmd.Flags().StringVar(&o.runtimeClass, "runtime-class", "", "sandboxed runtime the cluster provides, e.g. gvisor or kata; default: the namespace sandbox (tiny sandbox), none to opt out")
 	cmd.Flags().StringVar(&o.cpu, "cpu", "", "CPU request (e.g. 2, 500m)")
 	cmd.Flags().StringVar(&o.memory, "memory", "", "memory request and limit (e.g. 4Gi)")
 	cmd.Flags().Int64Var(&o.user, "user", 0, "uid to run as, for images wired to a specific user")

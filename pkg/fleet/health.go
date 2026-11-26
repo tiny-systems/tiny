@@ -29,6 +29,12 @@ type Health struct {
 	SignIn string `json:"signIn"`
 	// Codex reports whether a Codex credential is stored.
 	Codex bool `json:"codex"`
+	// Sandbox is the runtime class new sessions run under (tiny sandbox),
+	// "" when they run on the node's default runtime.
+	Sandbox string `json:"sandbox,omitempty"`
+	// SandboxAvailable reports whether the cluster has a gvisor
+	// RuntimeClass, so the sandbox can be switched on.
+	SandboxAvailable bool `json:"sandboxAvailable"`
 }
 
 // How Claude sessions sign in, as Health.SignIn reports it.
@@ -82,6 +88,8 @@ func (c *Client) Health(ctx context.Context) (Health, error) {
 	env := &corev1.Secret{}
 	envErr := c.Kube.Client.Get(ctx, client.ObjectKey{Namespace: c.Kube.Namespace, Name: workload.AgentEnvSecret}, env)
 	hasClaude := envErr == nil && (len(env.Data["CLAUDE_CODE_OAUTH_TOKEN"]) > 0 || len(env.Data["ANTHROPIC_API_KEY"]) > 0)
+	h.Sandbox = cfg.RuntimeClass
+	h.SandboxAvailable, _ = workload.RuntimeClassExists(ctx, c.Kube.Client, "gvisor")
 	h.Codex = envErr == nil && (len(env.Data["TINY_CODEX_AUTH_JSON"]) > 0 || len(env.Data["OPENAI_API_KEY"]) > 0)
 	switch {
 	case cfg.Federation.On():

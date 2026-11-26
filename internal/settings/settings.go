@@ -62,6 +62,10 @@ type Settings struct {
 	// pod's projected service-account token is exchanged for a short-lived
 	// access token, and no Claude credential is stored at all.
 	Federation Federation
+	// RuntimeClass is the sandboxed runtime (a RuntimeClass name, usually
+	// gvisor) every new session runs under unless it names its own. Empty
+	// means sessions run on the node's default runtime.
+	RuntimeClass string
 }
 
 // Kinds of credential the model gateway can hold.
@@ -96,6 +100,7 @@ const (
 	KeyFederationServiceAccount = "federationServiceAccount"
 	KeyFederationWorkspace      = "federationWorkspace"
 	KeyFederationAudience       = "federationAudience"
+	KeyRuntimeClass             = "runtimeClass"
 )
 
 // Load reads the switchboard; a missing ConfigMap is all-off, not an error.
@@ -116,6 +121,7 @@ func Load(ctx context.Context, c client.Client, namespace string) (Settings, err
 		FenceWait:    cm.Data["fenceWait"] == on,
 		EgressProxy:  cm.Data["egressProxy"] == on,
 		RunnerRepo:   cm.Data["runnerRepo"],
+		RuntimeClass: cm.Data[KeyRuntimeClass],
 		ModelGateway: modelGateway(cm.Data[KeyModelGateway]),
 		Federation: Federation{
 			RuleID:           cm.Data[KeyFederationRule],

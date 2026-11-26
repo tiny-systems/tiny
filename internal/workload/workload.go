@@ -21,7 +21,6 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	nodev1 "k8s.io/api/node/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -645,15 +644,14 @@ func checkRuntimeClass(ctx context.Context, c client.Client, s *agentsv1.Session
 	if name == "" {
 		return nil
 	}
-	err := c.Get(ctx, types.NamespacedName{Name: name}, &nodev1.RuntimeClass{})
+	ok, err := RuntimeClassExists(ctx, c, name)
 	switch {
-	case err == nil, apierrors.IsForbidden(err):
-		return nil
-	case apierrors.IsNotFound(err):
-		return fmt.Errorf("runtime class %q does not exist on this cluster: install it first (gVisor: runsc; Kata: kata-containers), or drop --runtime-class", name)
-	default:
+	case err != nil:
 		return fmt.Errorf("runtime class %q: %w", name, err)
+	case !ok:
+		return fmt.Errorf("runtime class %q does not exist on this cluster: install it first (gVisor: runsc; Kata: kata-containers), drop --runtime-class, or turn the default sandbox off (tiny sandbox off)", name)
 	}
+	return nil
 }
 
 func agentUID(s *agentsv1.Session) int64 {

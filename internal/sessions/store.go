@@ -358,7 +358,8 @@ type CreateOpts struct {
 	// user namespaces or setuid helpers (rootless buildah).
 	Unconfined bool
 	// RuntimeClass runs the session under a sandboxed runtime the cluster
-	// provides (gVisor, Kata).
+	// provides (gVisor, Kata). Empty takes the namespace default (tiny
+	// sandbox); workload.NoRuntimeClass opts out of it.
 	RuntimeClass string
 	// EnvSecret names a secret (labeled for this session) whose keys land
 	// in the agent's env — the Actions job token path.
@@ -400,6 +401,9 @@ func (s *Store) Create(ctx context.Context, o CreateOpts) (*agentsv1.Session, er
 	}
 	if o.EnvSecret != "" {
 		se.Annotations = map[string]string{"tinysystems.io/env-secret": o.EnvSecret}
+	}
+	if err := workload.ApplyDefaultRuntimeClass(ctx, s.Kube.Client, se); err != nil {
+		return nil, err
 	}
 	want := *se.Spec.DeepCopy()
 	if err := s.Kube.Client.Create(ctx, se); err != nil {

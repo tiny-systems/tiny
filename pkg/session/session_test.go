@@ -9,6 +9,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	nodev1 "k8s.io/api/node/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -26,7 +27,8 @@ import (
 func fakeClient(t *testing.T) client.WithWatch {
 	t.Helper()
 	scheme := runtime.NewScheme()
-	for _, add := range []func(*runtime.Scheme) error{corev1.AddToScheme, appsv1.AddToScheme, agentsv1.AddToScheme} {
+	adds := []func(*runtime.Scheme) error{corev1.AddToScheme, appsv1.AddToScheme, nodev1.AddToScheme, agentsv1.AddToScheme}
+	for _, add := range adds {
 		if err := add(scheme); err != nil {
 			t.Fatal(err)
 		}
@@ -246,5 +248,32 @@ func TestDeleteIgnoresMissing(t *testing.T) {
 	}
 	if err := session.Delete(ctx, c, "ns", "s1"); err != nil {
 		t.Fatalf("second Delete: %v", err)
+	}
+}
+
+// Sessions created through the library take the namespace sandbox too,
+// so a runner or another operator can't start one outside it by accident.
+func TestCreateTakesTheNamespaceSandbox(t *testing.T) {
+	c := fakeClient(t)
+	ctx := t.Context()
+	rc := &nodev1.RuntimeClass{ObjectMeta: metav1.ObjectMeta{Name: "gvisor"}, Handler: "runsc"}
+	if err := c.Create(ctx, rc); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Create(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: settings.Name},
+		Data: map[string]string{settings.KeyRuntimeClass: "gvisor"}}); err != nil {
+		t.Fatal(err)
+	}
+	s := newSession()
+	if err := session.Create(ctx, c, s); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	var dep appsv1.Deployment
+	if err := c.Get(ctx, client.ObjectKey{Namespace: "ns", Name: "s1-agent"}, &dep); err != nil {
+		t.Fatalf("deployment: %v", err)
+	}
+	podRC := dep.Spec.Template.Spec.RuntimeClassName
+	if s.Spec.RuntimeClassName != "gvisor" || podRC == nil || *podRC != "gvisor" {
+		t.Fatalf("spec %q pod %v, want gvisor", s.Spec.RuntimeClassName, podRC)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	nodev1 "k8s.io/api/node/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
@@ -64,4 +65,28 @@ func TestHealthReadsNodesAndSignIn(t *testing.T) {
 type runtimeObject = interface {
 	metav1.Object
 	runtime.Object
+}
+
+// Health says which runtime new sessions get and whether gVisor is there
+// to switch on.
+func TestHealthReportsTheSandbox(t *testing.T) {
+	s := runtime.NewScheme()
+	for _, add := range []func(*runtime.Scheme) error{corev1.AddToScheme, nodev1.AddToScheme} {
+		if err := add(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rc := &nodev1.RuntimeClass{ObjectMeta: metav1.ObjectMeta{Name: "gvisor"}, Handler: "runsc"}
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: "agents", Name: settings.Name},
+		Data: map[string]string{settings.KeyRuntimeClass: "gvisor"}}
+	fc := clientfake.NewClientBuilder().WithScheme(s).WithObjects(rc, cm).Build()
+	c := &Client{Store: &sessions.Store{Kube: &kube.Client{Client: fc,
+		Namespace: "agents", RESTConfig: &rest.Config{Host: "http://127.0.0.1:1"}}}}
+	h, err := c.Health(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.Sandbox != "gvisor" || !h.SandboxAvailable {
+		t.Fatalf("sandbox %q available %v", h.Sandbox, h.SandboxAvailable)
+	}
 }

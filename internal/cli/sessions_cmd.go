@@ -183,7 +183,7 @@ func newNewCmd() *cobra.Command {
 	cmd.Flags().StringVar(&cpu, "cpu", "", "CPU request (e.g. 2, 500m)")
 	cmd.Flags().StringVar(&memory, "memory", "", "memory request and limit (e.g. 4Gi)")
 	cmd.Flags().Int64Var(&user, "user", 0, "uid to run as, for images wired to a specific user (buildah: 1000)")
-	cmd.Flags().StringVar(&runtimeClass, "runtime-class", "", "run the session under a sandboxed runtime the cluster provides, e.g. gvisor or kata (the RuntimeClass must already exist)")
+	cmd.Flags().StringVar(&runtimeClass, "runtime-class", "", "run the session under a sandboxed runtime the cluster provides, e.g. gvisor or kata (the RuntimeClass must exist); default: the namespace sandbox (tiny sandbox), none to opt out")
 	cmd.Flags().BoolVar(&unconfined, "unconfined", false, "lift the seccomp/capability hardening — for rootless buildah and podman, which need user namespaces")
 	cmd.Flags().BoolVar(&noAttachHint, "quiet", false, "skip the follow-up hint")
 	return cmd

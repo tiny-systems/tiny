@@ -92,6 +92,9 @@ func SetImageTag(version string) { workload.SetDefaultImageTag(version) }
 // already exists, call Ensure. With only GenerateName set, every call
 // creates a new session.
 func Create(ctx context.Context, c client.Client, s *agentsv1.Session) error {
+	if err := workload.ApplyDefaultRuntimeClass(ctx, c, s); err != nil {
+		return err
+	}
 	want := *s.Spec.DeepCopy()
 	if err := c.Create(ctx, s); err != nil {
 		if apierrors.IsAlreadyExists(err) {
