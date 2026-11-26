@@ -15,6 +15,14 @@ like the CLI. The API may change before tiny v1.
 package fleet
 
 import (
+	"context"
+	"fmt"
+
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"github.com/tiny-systems/tiny/internal/kube"
 	"github.com/tiny-systems/tiny/internal/sessions"
 	"github.com/tiny-systems/tiny/internal/workload"
@@ -42,8 +50,8 @@ type Client struct {
 
 // Connect builds a client for a kubeconfig context and namespace. An empty
 // context means the kubeconfig's current one.
-func Connect(context, namespace string) (*Client, error) {
-	k, err := kube.NewClient(kube.Options{Context: context, Namespace: namespace})
+func Connect(kubeContext, namespace string) (*Client, error) {
+	k, err := kube.NewClient(kube.Options{Context: kubeContext, Namespace: namespace})
 	if err != nil {
 		return nil, err
 	}
@@ -55,3 +63,31 @@ func Connect(context, namespace string) (*Client, error) {
 // isn't a release version leaves the images on "main". Process-wide; call
 // once before creating sessions.
 func SetVersion(version string) { workload.SetDefaultImageTag(version) }
+
+// CopyAgentCredentials copies the agent credentials Secret (the Claude and
+// Codex sign-ins `tiny setup` stores) from one fleet to another, creating
+// or replacing it there. The values go cluster to cluster through this
+// process and are never returned.
+func CopyAgentCredentials(ctx context.Context, from, to *Client) error {
+	src := &corev1.Secret{}
+	srcKey := client.ObjectKey{Namespace: from.Kube.Namespace, Name: workload.AgentEnvSecret}
+	if err := from.Kube.Client.Get(ctx, srcKey, src); err != nil {
+		if apierrors.IsNotFound(err) {
+			return fmt.Errorf("%s has no agent credentials to copy", from.Kube.Namespace)
+		}
+		return err
+	}
+	dst := &corev1.Secret{}
+	err := to.Kube.Client.Get(ctx, client.ObjectKey{Namespace: to.Kube.Namespace, Name: workload.AgentEnvSecret}, dst)
+	if apierrors.IsNotFound(err) {
+		return to.Kube.Client.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Namespace: to.Kube.Namespace, Name: workload.AgentEnvSecret},
+			Data:       src.Data,
+		})
+	}
+	if err != nil {
+		return err
+	}
+	dst.Data = src.Data
+	return to.Kube.Client.Update(ctx, dst)
+}
