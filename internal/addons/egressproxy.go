@@ -21,6 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/tiny-systems/tiny/internal/workload"
@@ -230,16 +231,21 @@ func (r *Applier) ensureProxyDeployment(ctx context.Context, ns, image string) e
 			},
 		},
 	}
-	var existing appsv1.Deployment
-	err := r.Get(ctx, types.NamespacedName{Namespace: ns, Name: proxyName}, &existing)
-	if apierrors.IsNotFound(err) {
-		return r.Create(ctx, dep)
-	}
-	if err != nil {
-		return err
-	}
-	existing.Spec = dep.Spec
-	return r.Update(ctx, &existing)
+	// The deployment controller writes the object's status moments after
+	// a create, so an update right behind it can hit a stale version:
+	// re-read and retry rather than fail a fresh install.
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var existing appsv1.Deployment
+		err := r.Get(ctx, types.NamespacedName{Namespace: ns, Name: proxyName}, &existing)
+		if apierrors.IsNotFound(err) {
+			return r.Create(ctx, dep)
+		}
+		if err != nil {
+			return err
+		}
+		existing.Spec = dep.Spec
+		return r.Update(ctx, &existing)
+	})
 }
 
 // TeardownProxyAddon removes the proxy but KEEPS the allow-list: it is
