@@ -8,7 +8,7 @@
 
 **A coding agent with no keys and no open ports — the real Claude Code and Codex CLIs, as pods on your own Kubernetes.**
 
-![tiny demo: a session is created, its pod is killed mid-task, and the fleet screen shows it still working](https://tinysystems.io/static/demo.gif?v=clean1)
+![tiny demo: a session is created, its pod is killed mid-task, and the fleet screen shows it still working](https://tinysystems.dev/static/demo.gif?v=clean1)
 
 An agent that reads issues, pulls dependencies and browses the web is an
 agent that will eventually be told to do something by someone who is not
@@ -62,7 +62,7 @@ are here.
 
 | closed | how |
 |---|---|
-| repo credentials | none in the pod by default: work leaves as a `git bundle` and a [courier job](https://tinysystems.io/docs/outbox/) pushes it with a short-lived token. Opting into a deploy key (`tiny setup`) puts one there — see the open list |
+| repo credentials | none in the pod by default: work leaves as a `git bundle` and a [courier job](https://tinysystems.dev/docs/outbox/) pushes it with a short-lived token. Opting into a deploy key (`tiny setup`) puts one there — see the open list |
 | cloud credentials | none in the pod, and the egress policy blocks `169.254.169.254`, the endpoint that hands out an instance's IAM role |
 | inbound network | nothing listens — no `containerPort`, the MCP sidecar binds `127.0.0.1`. You reach a session through the Kubernetes API, under your RBAC |
 | lateral movement | default-deny egress cuts other namespaces, the node, and every port except 80/443 |
@@ -72,8 +72,8 @@ are here.
 
 | open | why |
 |---|---|
-| the model credential | by default it lives in the agent pod, because the real vendor CLI needs one. For Claude you can take it out: `tiny gateway on` keeps it in the egress proxy and gives pods a placeholder, and `tiny federation` (API billing) stores none at all. Either way a compromised session can still spend quota while it runs; it can't walk off with a long-lived key ([details](https://tinysystems.io/docs/model-credentials/)) |
-| HTTPS to the internet | by default, yes: a NetworkPolicy matches addresses, not hostnames. The [hostname allow-list](https://tinysystems.io/docs/egress/) narrows it to named hosts — though allow-listing `github.com` still permits a gist |
+| the model credential | by default it lives in the agent pod, because the real vendor CLI needs one. For Claude you can take it out: `tiny gateway on` keeps it in the egress proxy and gives pods a placeholder, and `tiny federation` (API billing) stores none at all. Either way a compromised session can still spend quota while it runs; it can't walk off with a long-lived key ([details](https://tinysystems.dev/docs/model-credentials/)) |
+| HTTPS to the internet | by default, yes: a NetworkPolicy matches addresses, not hostnames. The [hostname allow-list](https://tinysystems.dev/docs/egress/) narrows it to named hosts — though allow-listing `github.com` still permits a gist |
 | the agent's own tool calls | it runs `--permission-mode bypassPermissions`. `ask_human` is cooperative — nothing intercepts it |
 | a deploy key, if you add one | `tiny setup` offers to mint one, and the entrypoint copies it to the agent's `~/.ssh`. Convenient for private repos, but it is a long-lived write credential in the pod. The outbox exists so you never have to |
 
@@ -84,9 +84,9 @@ by the policy and cut by the allow-list, which routes every outbound
 connection through a `CONNECT` proxy that filters by hostname without
 terminating TLS.
 
-Full detail: [threat model](https://tinysystems.io/docs/threat-model/) ·
-[egress policy](https://tinysystems.io/docs/egress/) ·
-[the gate](https://tinysystems.io/docs/gate/)
+Full detail: [threat model](https://tinysystems.dev/docs/threat-model/) ·
+[egress policy](https://tinysystems.dev/docs/egress/) ·
+[the gate](https://tinysystems.dev/docs/gate/)
 
 ## What makes it different
 
@@ -327,7 +327,7 @@ transcript resumes.
 | `tiny init` | install or upgrade the runtime on a cluster; scriptable for CI (`--context X -n Y --yes`) |
 | `tiny upgrade` | update the binary (checksum-verified, never downgrades), then run `tiny init` per cluster |
 
-Every command and flag: **[tinysystems.io/docs/commands](https://tinysystems.io/docs/commands/)**.
+Every command and flag: **[tinysystems.dev/docs/commands](https://tinysystems.dev/docs/commands/)**.
 
 On the fleet screen: `m` types a message straight into a session's prompt
 (delivered through a durable inbox — it survives pod restarts and
@@ -438,8 +438,8 @@ One repository, one version:
 > people find projects like this, so if you want it to keep going,
 > **a star up top genuinely helps.**
 
-Website & docs: **[tinysystems.io](https://tinysystems.io)** · field
-notes: [tinysystems.io/blog](https://tinysystems.io/blog/) · demo garden:
+Website & docs: **[tinysystems.dev](https://tinysystems.dev)** · field
+notes: [tinysystems.dev/blog](https://tinysystems.dev/blog/) · demo garden:
 [seedling](https://github.com/tiny-systems/seedling)
 
 MIT.
