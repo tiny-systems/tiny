@@ -40,7 +40,7 @@ func PickShown(shown []agentsv1.ShownFile, which string) (agentsv1.ShownFile, er
 // ShownName is the local file name for a shown file: its own base name,
 // cleaned. The agent chose it, so it never picks the directory.
 func ShownName(f agentsv1.ShownFile) string {
-	name := strings.TrimLeft(path.Base(f.Path), ".")
+	name := strings.TrimLeft(Printable(path.Base(f.Path)), ".")
 	if name == "" || name == "/" {
 		return fallbackShownName
 	}

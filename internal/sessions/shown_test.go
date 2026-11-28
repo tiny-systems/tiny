@@ -25,7 +25,7 @@ func TestPickShown(t *testing.T) {
 }
 
 func TestShownNameStaysAFileName(t *testing.T) {
-	for p, want := range map[string]string{"/workspace/shot.png": "shot.png", "/workspace/.hidden": "hidden", "/": "shown", "/a/..": "shown"} {
+	for p, want := range map[string]string{"/workspace/shot.png": "shot.png", "/workspace/.hidden": "hidden", "/": "shown", "/a/..": "shown", "/w/a\x1b[2J.png": "a[2J.png"} {
 		if got := ShownName(agentsv1.ShownFile{Path: p}); got != want {
 			t.Errorf("ShownName(%q) = %q, want %q", p, got, want)
 		}
