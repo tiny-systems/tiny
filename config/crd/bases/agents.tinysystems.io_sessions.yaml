@@ -285,6 +285,34 @@ spec:
               pod:
                 description: Pod running the session, when one exists.
                 type: string
+              shown:
+                description: |-
+                  Shown lists the files the agent put in front of the operator with
+                  the show_user tool, oldest first, at most MaxShown. Only the path is
+                  recorded: the file stays in the pod, and a client reads it from
+                  there when the operator opens it.
+                items:
+                  description: ShownFile is one file the agent showed the operator.
+                  properties:
+                    at:
+                      description: At is when it was shown.
+                      format: date-time
+                      type: string
+                    caption:
+                      description: Caption says what the file is and why it matters.
+                      maxLength: 500
+                      type: string
+                    path:
+                      description: Path is the file's absolute path inside the agent
+                        container.
+                      maxLength: 1024
+                      type: string
+                  required:
+                  - at
+                  - path
+                  type: object
+                maxItems: 20
+                type: array
               title:
                 description: |-
                   Title is the agent's own running description of what it is doing —

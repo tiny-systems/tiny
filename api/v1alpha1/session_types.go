@@ -190,6 +190,29 @@ type SessionStatus struct {
 	// cgroup every ~30s — no metrics-server, no cluster-scoped RBAC.
 	// +optional
 	Usage *SessionUsage `json:"usage,omitempty"`
+	// Shown lists the files the agent put in front of the operator with
+	// the show_user tool, oldest first, at most MaxShown. Only the path is
+	// recorded: the file stays in the pod, and a client reads it from
+	// there when the operator opens it.
+	// +optional
+	// +kubebuilder:validation:MaxItems=20
+	Shown []ShownFile `json:"shown,omitempty"`
+}
+
+// MaxShown is how many show_user entries a session keeps.
+const MaxShown = 20
+
+// ShownFile is one file the agent showed the operator.
+type ShownFile struct {
+	// Path is the file's absolute path inside the agent container.
+	// +kubebuilder:validation:MaxLength=1024
+	Path string `json:"path"`
+	// Caption says what the file is and why it matters.
+	// +kubebuilder:validation:MaxLength=500
+	// +optional
+	Caption string `json:"caption,omitempty"`
+	// At is when it was shown.
+	At metav1.Time `json:"at"`
 }
 
 // SessionUsage is a point-in-time reading, human units.

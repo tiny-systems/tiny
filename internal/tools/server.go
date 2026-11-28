@@ -100,6 +100,13 @@ func (s *Server) MCP() *mcp.Server {
 			"work changes.",
 	}, s.setTitle)
 	mcp.AddTool(srv, &mcp.Tool{
+		Name: "show_user",
+		Description: "Put a file in front of the human operator: it appears in their conversation with you, " +
+			"images inline. Use it for a screenshot of what you built or fixed, a chart, a diagram, a generated " +
+			"report — anything easier to see than to describe. It returns at once; it does not wait for a reply. " +
+			"Give a one-line caption saying what to look at.",
+	}, s.showUser)
+	mcp.AddTool(srv, &mcp.Tool{
 		Name: "session_create",
 		Description: "Start another coding-agent session with a task of its own. The human operator is asked to " +
 			"allow it first, and THE CALL BLOCKS UNTIL THEY DECIDE — minutes or hours, and it may be " +

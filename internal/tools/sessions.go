@@ -3,9 +3,12 @@ package tools
 import (
 	"context"
 	"fmt"
+	"path"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	agentsv1 "github.com/tiny-systems/tiny/api/v1alpha1"
@@ -188,4 +191,73 @@ func orUnknown(v string) string {
 		return "(unattributed)"
 	}
 	return v
+}
+
+// ShowInput is the show_user argument shape shown to the model.
+type ShowInput struct {
+	Path    string `json:"path" jsonschema:"Absolute path of the file in your container, e.g. /workspace/screenshots/login.png. Images (PNG, JPEG, GIF, WebP, SVG) show inline; other files are offered to open or save."`
+	Caption string `json:"caption,omitempty" jsonschema:"One line saying what it is and what to look at, e.g. 'login page after the fix: the error banner is gone'."`
+}
+
+// ShowOutput confirms what was recorded.
+type ShowOutput struct {
+	Shown string `json:"shown"`
+}
+
+// showUser records a file for the operator's conversation view. Nothing is
+// copied: the sidecar can't see the agent's files, and the client reads
+// the file from the pod with the operator's own access when it's opened.
+func (s *Server) showUser(ctx context.Context, _ *mcp.CallToolRequest, in ShowInput) (*mcp.CallToolResult, ShowOutput, error) {
+	p, err := cleanShowPath(in.Path)
+	if err != nil {
+		return nil, ShowOutput{}, err
+	}
+	caption := strings.TrimSpace(in.Caption)
+	if r := []rune(caption); len(r) > 500 {
+		caption = string(r[:500])
+	}
+	ref := s.sessionFor(ctx)
+	if ref.Name == "" {
+		return nil, ShowOutput{}, fmt.Errorf("cannot determine which session this is")
+	}
+	key := client.ObjectKey{Namespace: s.Namespace, Name: ref.Name}
+	entry := agentsv1.ShownFile{Path: p, Caption: caption, At: metav1.Now()}
+	se := &agentsv1.Session{}
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		if err := s.Client.Get(ctx, key, se); err != nil {
+			return err
+		}
+		se.Status.Shown = append(se.Status.Shown, entry)
+		if n := len(se.Status.Shown); n > agentsv1.MaxShown {
+			se.Status.Shown = se.Status.Shown[n-agentsv1.MaxShown:]
+		}
+		return s.Client.Status().Update(ctx, se)
+	})
+	if err != nil {
+		return nil, ShowOutput{}, fmt.Errorf("record the file: %w", err)
+	}
+	// An older Session CRD has no status.shown and the API server drops it
+	// without an error: say so instead of claiming the operator sees it.
+	if len(se.Status.Shown) == 0 {
+		return nil, ShowOutput{}, fmt.Errorf("this cluster's tiny runtime is too old to show files; the operator can upgrade it with `tiny init`. Mention the file's path in your reply instead")
+	}
+	return nil, ShowOutput{Shown: p}, nil
+}
+
+// cleanShowPath accepts an absolute path with no parent-directory steps.
+func cleanShowPath(p string) (string, error) {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return "", fmt.Errorf("path is empty")
+	}
+	if !path.IsAbs(p) {
+		return "", fmt.Errorf("path must be absolute, e.g. /workspace/%s", p)
+	}
+	if len(p) > 1024 {
+		return "", fmt.Errorf("path is too long")
+	}
+	if strings.ContainsAny(p, "\x00\n") {
+		return "", fmt.Errorf("path has a control character")
+	}
+	return path.Clean(p), nil
 }

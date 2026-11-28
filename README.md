@@ -214,7 +214,7 @@ flowchart LR
     crd["Session + Question CRDs"]
     subgraph pod["session pod - Deployment"]
       agent["agent: claude or codex<br/>in tmux"]
-      mcp["tiny-mcp sidecar<br/>ask_human, set_title, spawn"]
+      mcp["tiny-mcp sidecar<br/>ask_human, set_title, show_user, spawn"]
     end
     ws[("workspace PVC<br/>transcript, inbox, outbox")]
     subgraph addons["add-ons, one checkbox each"]
@@ -244,7 +244,7 @@ replacement mounts the same workspace and resumes the transcript.
 - A **Session** is a Kubernetes object whose workload is a plain
   Deployment: the agent in a detachable tmux plus a small **tiny-mcp**
   sidecar on localhost — the agent's toolbox (`ask_human`, `set_title`,
-  `session_list`, `session_create`, `expose_port`, `enable_store`).
+  `show_user`, `session_list`, `session_create`, `expose_port`, `enable_store`).
   Kubernetes itself resurrects dead pods — kill one mid-task and the
   replacement resumes the transcript; that is stock ReplicaSet behavior,
   not tiny code.

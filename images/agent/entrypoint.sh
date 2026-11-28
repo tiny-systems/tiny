@@ -136,7 +136,7 @@ cat > "$CLAUDE_CONFIG_DIR/settings.json" <<'JSON'
   "skipDangerousModePermissionPrompt": true,
   "autoUpdates": false,
   "permissions": {
-    "allow": ["mcp__tiny__ask_human", "mcp__tiny__await_answer", "mcp__tiny__set_title", "mcp__tiny__session_list", "mcp__tiny__session_create", "mcp__tiny__expose_port", "mcp__tiny__enable_store"]
+    "allow": ["mcp__tiny__ask_human", "mcp__tiny__await_answer", "mcp__tiny__set_title", "mcp__tiny__show_user", "mcp__tiny__session_list", "mcp__tiny__session_create", "mcp__tiny__expose_port", "mcp__tiny__enable_store"]
   },
   "hooks": {
     "Notification": [
@@ -228,6 +228,10 @@ watches a fleet screen, not this terminal.
 - Call `set_title` now, and again whenever the nature of your work changes —
   a short present-tense line ("migrating auth tests"). It is how the
   operator tells sessions apart.
+- To show the operator something (a screenshot of what you built, a
+  chart, a report), save it under /workspace and call `show_user` with
+  its path and a one-line caption. It appears in their conversation with
+  you; images show inline.
 - Before anything hard to undo, or when genuinely stuck, call `ask_human`
   and wait. The operator answers from their screen — it may take a while;
   that is normal, do not give up or invent an answer.
