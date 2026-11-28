@@ -80,3 +80,16 @@ func TestShowUserSaysWhenTheRuntimeDropsIt(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestShowUserStripsControlCharacters(t *testing.T) {
+	s := showServer(t, nil)
+	if _, _, err := s.showUser(context.Background(), nil, ShowInput{Path: "/workspace/a\x1b[2J.png"}); err == nil {
+		t.Fatal("path with an escape accepted")
+	}
+	if _, _, err := s.showUser(context.Background(), nil, ShowInput{Path: "/workspace/a.png", Caption: "hi\x1b[2Jthere"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := shown(t, s)[0].Caption; got != "hi[2Jthere" {
+		t.Fatalf("caption = %q", got)
+	}
+}

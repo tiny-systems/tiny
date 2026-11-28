@@ -31,3 +31,30 @@ func TestShownNameStaysAFileName(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenableOnlyPassiveMatchingTypes(t *testing.T) {
+	png := []byte("\x89PNG\r\n\x1a\n0000")
+	for _, c := range []struct {
+		name string
+		head []byte
+		want bool
+	}{
+		{"shot.png", png, true},
+		{"notes.md", []byte("# hi\n"), true},
+		{"run.command", []byte("#!/bin/sh\n"), false},
+		{"fake.png", []byte("#!/bin/sh\nrm -rf ~\n"), false},
+		{"page.html", []byte("<html>"), false},
+		{"pic.svg", []byte("<svg>"), false},
+		{"tool.app", []byte{0xca, 0xfe}, false},
+	} {
+		if got := Openable(c.name, c.head); got != c.want {
+			t.Errorf("Openable(%q) = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestPrintableDropsControls(t *testing.T) {
+	if got := Printable("ok\x1b]0;pwn\x07\u009b2J done"); got != "ok]0;pwn2J done" {
+		t.Errorf("Printable = %q", got)
+	}
+}

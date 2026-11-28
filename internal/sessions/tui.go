@@ -335,7 +335,7 @@ func (m Model) viewShown() (tea.Model, tea.Cmd) {
 	}
 	f := row.Shown[len(row.Shown)-1]
 	store, pod, name := m.store, row.Pod, row.Name
-	m.status = "opening " + ShownName(f) + "…"
+	m.status = "opening " + Printable(ShownName(f)) + "…"
 	return m, func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()

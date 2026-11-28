@@ -57,9 +57,9 @@ func newShowCmd() *cobra.Command {
 					return nil
 				}
 				for i, f := range shown {
-					fmt.Printf("  %2d  %-8s  %s\n", i+1, shortAgo(time.Since(f.At.Time)), f.Path)
+					fmt.Printf("  %2d  %-8s  %s\n", i+1, shortAgo(time.Since(f.At.Time)), sessions.Printable(f.Path))
 					if f.Caption != "" {
-						fmt.Printf("      %8s  %s\n", "", f.Caption)
+						fmt.Printf("      %8s  %s\n", "", sessions.Printable(f.Caption))
 					}
 				}
 				fmt.Printf("\n  open one: tiny show %s <n>   (or latest)\n", se.Name)
@@ -98,8 +98,11 @@ func newShowCmd() *cobra.Command {
 				fmt.Printf("  saved %s\n", out)
 				return nil
 			}
-			fmt.Printf("  opening %s\n", p)
-			return sessions.OpenLocal(p)
+			if err := sessions.OpenLocal(p); err != nil {
+				return err
+			}
+			fmt.Printf("  opened %s\n", p)
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&out, "out", "", "save the file here instead of opening it (implies latest when no number is given)")

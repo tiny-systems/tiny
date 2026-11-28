@@ -212,7 +212,7 @@ func (s *Server) showUser(ctx context.Context, _ *mcp.CallToolRequest, in ShowIn
 	if err != nil {
 		return nil, ShowOutput{}, err
 	}
-	caption := strings.TrimSpace(in.Caption)
+	caption := strings.TrimSpace(stripControl(in.Caption))
 	if r := []rune(caption); len(r) > 500 {
 		caption = string(r[:500])
 	}
@@ -256,8 +256,19 @@ func cleanShowPath(p string) (string, error) {
 	if len(p) > 1024 {
 		return "", fmt.Errorf("path is too long")
 	}
-	if strings.ContainsAny(p, "\x00\n") {
+	if stripControl(p) != p {
 		return "", fmt.Errorf("path has a control character")
 	}
 	return path.Clean(p), nil
+}
+
+// stripControl drops C0, DEL and C1 characters: the operator's terminal
+// and window print what the agent wrote here.
+func stripControl(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
+			return -1
+		}
+		return r
+	}, s)
 }
