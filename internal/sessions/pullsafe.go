@@ -202,8 +202,9 @@ func rebuildHistory(ctx context.Context, dest, bundle, head, branch, origin stri
 	}
 	git := func(args ...string) error {
 		// Belt and braces: no hooks, no fsmonitor, whatever is on disk.
-		base := []string{"-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-C", dest}
-		cmd := exec.CommandContext(ctx, "git", append(base, args...)...)
+		argv := make([]string, 0, 6+len(args))
+		argv = append(argv, "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-C", dest)
+		cmd := exec.CommandContext(ctx, "git", append(argv, args...)...)
 		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 		out, err := cmd.CombinedOutput()
 		if err != nil {
