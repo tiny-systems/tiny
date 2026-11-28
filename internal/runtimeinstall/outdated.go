@@ -62,7 +62,9 @@ func embeddedSpecFields() []string {
 	return specFields(obj)
 }
 
-// specFields reads spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.
+// specFields reads the Session schema's spec properties, plus its status
+// properties as "status.<name>": a status field the CRD lacks is dropped
+// just as silently (show_user's status.shown on an old runtime).
 func specFields(obj map[string]any) []string {
 	versions, _, _ := unstructured.NestedSlice(obj, "spec", "versions")
 	if len(versions) == 0 {
@@ -73,9 +75,13 @@ func specFields(obj map[string]any) []string {
 		return nil
 	}
 	props, _, _ := unstructured.NestedMap(v, "schema", "openAPIV3Schema", "properties", "spec", "properties")
-	out := make([]string, 0, len(props))
+	status, _, _ := unstructured.NestedMap(v, "schema", "openAPIV3Schema", "properties", "status", "properties")
+	out := make([]string, 0, len(props)+len(status))
 	for name := range props {
 		out = append(out, name)
+	}
+	for name := range status {
+		out = append(out, "status."+name)
 	}
 	slices.Sort(out)
 	return out

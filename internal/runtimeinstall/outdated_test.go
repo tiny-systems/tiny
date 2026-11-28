@@ -3,6 +3,7 @@ package runtimeinstall
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -13,15 +14,20 @@ import (
 )
 
 func crdWith(fields ...string) *unstructured.Unstructured {
-	props := map[string]any{}
+	props, status := map[string]any{}, map[string]any{}
 	for _, f := range fields {
+		if name, ok := strings.CutPrefix(f, "status."); ok {
+			status[name] = map[string]any{"type": "string"}
+			continue
+		}
 		props[f] = map[string]any{"type": "string"}
 	}
 	u := &unstructured.Unstructured{Object: map[string]any{
 		"spec": map[string]any{"versions": []any{map[string]any{
 			"name": "v1alpha1",
 			"schema": map[string]any{"openAPIV3Schema": map[string]any{"properties": map[string]any{
-				"spec": map[string]any{"properties": props},
+				"spec":   map[string]any{"properties": props},
+				"status": map[string]any{"properties": status},
 			}}},
 		}}},
 	}}
@@ -44,6 +50,9 @@ func TestMissingFieldsNamesWhatAnOldClusterLacks(t *testing.T) {
 	missing := MissingFields(context.Background(), fakeKube(crdWith("task", "repo", "image")))
 	if !slices.Contains(missing, "runtimeClassName") || !slices.Contains(missing, "mcpServers") {
 		t.Fatalf("missing = %v, want runtimeClassName and mcpServers among them", missing)
+	}
+	if !slices.Contains(missing, "status.shown") {
+		t.Fatalf("missing = %v, want status.shown (show_user) among them", missing)
 	}
 	if slices.Contains(missing, "task") {
 		t.Fatal("a field the cluster has was reported missing")
