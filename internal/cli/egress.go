@@ -11,18 +11,13 @@ without leaving the terminal.
 package cli
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"net"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
 
 	"github.com/tiny-systems/tiny/internal/addons"
 	"github.com/tiny-systems/tiny/internal/kube"
@@ -35,7 +30,8 @@ func newEgressCmd() *cobra.Command {
 		Long: "With the hostname allow-list add-on on, every outbound connection from a\n" +
 			"session goes through a proxy that filters by name. `tiny egress` shows the\n" +
 			"list, `tiny egress denied` shows what agents tried and were refused, and\n" +
-			"`tiny egress allow <host>` widens the list. A leading dot allows subdomains.",
+			"`tiny egress allow <host>` widens the list, `tiny egress remove <host>` narrows\n" +
+			"it. A leading dot allows subdomains.",
 		RunE: func(cmd *cobra.Command, _ []string) error { return egressList(cmd) },
 	}
 	cmd.AddCommand(&cobra.Command{
@@ -59,6 +55,29 @@ func newEgressCmd() *cobra.Command {
 				return nil
 			}
 			fmt.Printf("  ✓ %s allowed — live in a minute or two (kubelet syncs the ConfigMap, then the proxy re-reads)\n", args[0])
+			return nil
+		},
+	})
+	cmd.AddCommand(&cobra.Command{
+		Use:   "remove <host>",
+		Short: "Take a host off the allow-list",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			k, err := sessionKube()
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+			defer cancel()
+			removed, err := newStore(k).RemoveHost(ctx, args[0])
+			if err != nil {
+				return err
+			}
+			if !removed {
+				fmt.Printf("  · %s was not on the list\n", args[0])
+				return nil
+			}
+			fmt.Printf("  ✓ %s removed — refused in a minute or two (kubelet syncs the ConfigMap, then the proxy re-reads)\n", args[0])
 			return nil
 		},
 	})
@@ -129,9 +148,9 @@ func egressList(cmd *cobra.Command) error {
 	return nil
 }
 
-// readDenials scans the proxy's recent log for refusals. The proxy writes
-// one line per refusal — "egress DENIED <method> <host>" — so counting
-// them is the whole job.
+// readDenials reports the proxy's recent refusals as the denied listing
+// prints them: counts, the last time each was refused, and which ones were
+// lookups the proxy never saw a connection for.
 func readDenials(ctx context.Context, k *kube.Client, tail int64) (map[string]int, map[string]string, error) {
 	counts, latest, viaDNS, err := readDenialsDetailed(ctx, k, tail)
 	for h := range viaDNS {
@@ -141,63 +160,21 @@ func readDenials(ctx context.Context, k *kube.Client, tail int64) (map[string]in
 }
 
 func readDenialsDetailed(ctx context.Context, k *kube.Client, tail int64) (map[string]int, map[string]string, map[string]bool, error) {
-	cs, err := kubernetes.NewForConfig(k.RESTConfig)
+	refused, err := newStore(k).Refusals(ctx, tail)
 	if err != nil {
 		return nil, nil, nil, err
-	}
-	pods, err := cs.CoreV1().Pods(k.Namespace).List(ctx, metav1.ListOptions{LabelSelector: "app=" + addons.ProxyName})
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	if len(pods.Items) == 0 {
-		return nil, nil, nil, fmt.Errorf("the egress proxy is not running — switch on the hostname allow-list in namespace settings")
 	}
 	counts := map[string]int{}
 	latest := map[string]string{}
 	viaDNS := map[string]bool{}
-	for i := range pods.Items {
-		p := &pods.Items[i]
-		if p.Status.Phase != corev1.PodRunning {
-			continue
+	for _, r := range refused {
+		counts[r.Host] = r.Count
+		if !r.Last.IsZero() {
+			latest[r.Host] = r.Last.Local().Format("15:04:05")
 		}
-		stream, err := cs.CoreV1().Pods(k.Namespace).GetLogs(p.Name, &corev1.PodLogOptions{TailLines: &tail, Timestamps: true}).Stream(ctx)
-		if err != nil {
-			return nil, nil, nil, err
+		if r.Lookup {
+			viaDNS[r.Host] = true
 		}
-		sc := bufio.NewScanner(stream)
-		sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-		for sc.Scan() {
-			line := sc.Text()
-			_, after, found := strings.Cut(line, "egress DENIED ")
-			if !found {
-				continue
-			}
-			rest := strings.Fields(after)
-			if len(rest) < 2 {
-				continue
-			}
-			// The proxy logs host:port; the allow-list matches by host, so
-			// strip the port and the line is pasteable into `allow`.
-			host := rest[1]
-			if h, _, err := net.SplitHostPort(host); err == nil {
-				host = h
-			}
-			// A refused LOOKUP is a different animal from a refused
-			// connect: something in the session tried to resolve the name
-			// itself instead of handing it to the proxy, so allow-listing
-			// the host will not help it.
-			if rest[0] == "DNS" {
-				viaDNS[host] = true
-			}
-			counts[host]++
-			// the RFC3339 timestamp is the first field of the line
-			if ts := strings.Fields(line); len(ts) > 0 {
-				if t, perr := time.Parse(time.RFC3339Nano, ts[0]); perr == nil {
-					latest[host] = t.Local().Format("15:04:05")
-				}
-			}
-		}
-		_ = stream.Close()
 	}
 	return counts, latest, viaDNS, nil
 }

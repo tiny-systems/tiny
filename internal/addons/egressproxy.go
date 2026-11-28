@@ -11,6 +11,7 @@ package addons
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -267,9 +268,9 @@ func (r *Applier) TeardownProxyAddon(ctx context.Context, ns string) error {
 // it keeps the operator's comments and ordering: the list is theirs, we
 // only add a line. The proxy re-reads the file within a minute.
 func (r *Applier) AllowHost(ctx context.Context, ns, host string) (added bool, err error) {
-	host = strings.ToLower(strings.TrimSpace(host))
-	if host == "" || strings.ContainsAny(host, " \t#") {
-		return false, fmt.Errorf("not a hostname: %q", host)
+	host, err = NormalizeHost(host)
+	if err != nil {
+		return false, err
 	}
 	var cm corev1.ConfigMap
 	if err := r.Get(ctx, types.NamespacedName{Namespace: ns, Name: proxyAllowCM}, &cm); err != nil {
@@ -287,6 +288,51 @@ func (r *Applier) AllowHost(ctx context.Context, ns, host string) (added bool, e
 	}
 	cm.Data[allowKey] = body
 	return true, r.Update(ctx, &cm)
+}
+
+// RemoveHost takes a host off the namespace allow-list: every line naming
+// exactly that host goes, comments on other lines stay. It reports whether
+// anything was removed.
+func (r *Applier) RemoveHost(ctx context.Context, ns, host string) (removed bool, err error) {
+	host, err = NormalizeHost(host)
+	if err != nil {
+		return false, err
+	}
+	var cm corev1.ConfigMap
+	if err := r.Get(ctx, types.NamespacedName{Namespace: ns, Name: proxyAllowCM}, &cm); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	var kept []string
+	for line := range strings.SplitSeq(cm.Data[allowKey], "\n") {
+		if hs := r.parseHosts(line); len(hs) == 1 && hs[0] == host {
+			removed = true
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if !removed {
+		return false, nil
+	}
+	cm.Data[allowKey] = strings.Join(kept, "\n")
+	return true, r.Update(ctx, &cm)
+}
+
+// hostPattern is what the allow-list accepts: a DNS name or IPv4 address,
+// optionally with a leading dot to admit subdomains.
+var hostPattern = regexp.MustCompile(`^\.?([a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?\.)*[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?$`)
+
+// NormalizeHost lowercases and trims a host for the allow-list and refuses
+// anything the proxy would not match as written: ports, schemes, paths,
+// wildcards, spaces.
+func NormalizeHost(host string) (string, error) {
+	h := strings.ToLower(strings.TrimSpace(host))
+	if len(h) > 253 || !hostPattern.MatchString(h) {
+		return "", fmt.Errorf("not a hostname: %q (write it like github.com, or .github.com for its subdomains too)", host)
+	}
+	return h, nil
 }
 
 // parseHosts is AllowedHosts' parser, shared so add and list agree.

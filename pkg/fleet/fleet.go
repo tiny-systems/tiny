@@ -43,7 +43,22 @@ type (
 	Footprint = sessions.Footprint
 	// FileChange is one changed file in a Footprint.
 	FileChange = sessions.FileChange
+	// Egress is a namespace's internet access: mode, fence, allow-list.
+	Egress = sessions.Egress
+	// Refusal is one host the allow-list turned away.
+	Refusal = sessions.Refusal
 )
+
+// Egress modes, as Egress.Mode reports them and SetEgressMode takes them.
+const (
+	EgressOpen      = sessions.EgressOpen
+	EgressFenced    = sessions.EgressFenced
+	EgressAllowList = sessions.EgressAllowList
+)
+
+// ErrNoProxy means the allow-list proxy is not running, so there are no
+// refusals to read.
+var ErrNoProxy = sessions.ErrNoProxy
 
 // ShellContainer is the container to name in ShellStream when the shell
 // runs in the inspection pod EnsureShellPod starts.
