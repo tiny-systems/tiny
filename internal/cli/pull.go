@@ -24,8 +24,9 @@ func newPullCmd() *cobra.Command {
 		Short: "Bring a session's workspace back to this machine",
 		Long: "Copies the session's working tree — committed work, uncommitted changes and\n" +
 			".git — into a local directory (default: ./<session>). The directory must be\n" +
-			"empty or absent; nothing local is ever overwritten. The pulled .git loses its\n" +
-			"hooks and every config key git would run (fsmonitor, filters, includes…).\n\n" +
+			"empty or absent; nothing local is ever overwritten. The session's .git is\n" +
+			"never copied (its hooks and config would run here): the history comes as a\n" +
+			"git bundle into a fresh repository, so git must be installed locally.\n\n" +
 			"To continue in an existing clone instead, pull to a scratch directory and\n" +
 			"fetch from it: git fetch ./<session> <branch>.",
 		Args: cobra.RangeArgs(1, 2),
@@ -64,12 +65,17 @@ func newPullCmd() *cobra.Command {
 			}
 
 			fmt.Printf("  ◌ pulling %s from %s\n", srcDir, name)
-			count, err := store.PullTree(ctx, pod, srcDir, dest, nil)
+			res, err := store.PullTree(ctx, pod, srcDir, dest, nil)
 			if err != nil {
 				return err
 			}
-			fmt.Printf("  ✓ %d files landed in %s\n", count, dest)
-			fmt.Printf("    review:  git -C %s log --oneline\n", dest)
+			fmt.Printf("  ✓ %d files landed in %s\n", res.Files, dest)
+			if res.Note != "" {
+				fmt.Printf("    %s\n", res.Note)
+			}
+			if res.History {
+				fmt.Printf("    review:  git -C %s log --oneline\n", dest)
+			}
 			return nil
 		},
 	}

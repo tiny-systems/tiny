@@ -99,14 +99,21 @@ func (s *Store) MarkHandoffComplete(ctx context.Context, pod string) error {
 
 // PullTree brings a session's directory back: the pod tars it out over the
 // exec API and we lay it down under dest. Nothing is overwritten — dest
-// must be empty or absent, so a pull can never eat local work.
-func (s *Store) PullTree(ctx context.Context, pod, srcDir, dest string, progress func(file string)) (int, error) {
+// must be empty or absent, so a pull can never eat local work. No .git
+// is copied: the history is rebuilt here from a bundle (see pullsafe.go).
+// On any error, what was pulled is removed.
+func (s *Store) PullTree(ctx context.Context, pod, srcDir, dest string, progress func(file string)) (res PullResult, err error) {
 	if err := emptyOrAbsent(dest); err != nil {
-		return 0, err
+		return res, err
 	}
 	if err := os.MkdirAll(dest, 0o755); err != nil {
-		return 0, err
+		return res, err
 	}
+	defer func() {
+		if err != nil {
+			_ = os.RemoveAll(dest)
+		}
+	}()
 
 	pr, pw := io.Pipe()
 	var stderr strings.Builder
@@ -121,23 +128,27 @@ func (s *Store) PullTree(ctx context.Context, pod, srcDir, dest string, progress
 
 	count, err := untarInto(pr, dest, progress)
 	if streamErr := <-errc; streamErr != nil {
-		return count, fmt.Errorf("pull %s: %s", srcDir, strings.TrimSpace(stderr.String()+" "+streamErr.Error()))
+		return res, fmt.Errorf("pull %s: %s", srcDir, strings.TrimSpace(stderr.String()+" "+streamErr.Error()))
 	}
 	if strings.Contains(stderr.String(), "NODIR") {
-		return 0, fmt.Errorf("%s does not exist in the session", srcDir)
+		return res, fmt.Errorf("%s does not exist in the session", srcDir)
 	}
 	if err != nil {
-		return count, err
+		return res, err
 	}
-	// The pod's .git is the agent's: keep the history, drop what git
-	// would run (hooks, fsmonitor, filters, includes).
-	if err := defuseGit(dest); err != nil {
-		// Can't clean it: don't leave it. The files stay, the history goes.
-		if rmErr := os.RemoveAll(filepath.Join(dest, ".git")); rmErr != nil {
-			return count, fmt.Errorf("pulled, but .git could not be cleaned or removed; don't run git in %s: %w", dest, err)
-		}
+	res.Files = count
+	removed, err := removeRepoLike(dest)
+	if err != nil {
+		return res, err
 	}
-	return count, nil
+	res.History, res.Note, err = s.pullHistory(ctx, pod, srcDir, dest)
+	if err != nil {
+		return res, err
+	}
+	if removed > 0 {
+		res.Note = strings.TrimSpace(res.Note + fmt.Sprintf(" %d nested git repositor%s left out.", removed, map[bool]string{true: "y", false: "ies"}[removed == 1]))
+	}
+	return res, nil
 }
 
 // emptyOrAbsent refuses a destination that already holds anything.
@@ -157,7 +168,8 @@ func emptyOrAbsent(dest string) error {
 
 // untarInto extracts a gzipped tar under dest. Entry names come from a pod
 // whose files an AGENT writes, so every path is checked to land inside dest:
-// a crafted name like ../../.ssh/authorized_keys must not escape.
+// a crafted name like ../../.ssh/authorized_keys must not escape. Entries
+// under any .git are skipped.
 func untarInto(r io.Reader, dest string, progress func(file string)) (int, error) {
 	gz, err := gzip.NewReader(r)
 	if err != nil {
@@ -178,6 +190,11 @@ func untarInto(r io.Reader, dest string, progress func(file string)) (int, error
 		}
 		if err != nil {
 			return count, err
+		}
+		// No repository metadata from the pod is ever written: git would
+		// run its hooks and config here. History comes as a bundle.
+		if isGitPath(hdr.Name) {
+			continue
 		}
 		target, err := safeJoin(root, hdr.Name)
 		if err != nil {
