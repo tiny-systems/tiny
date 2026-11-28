@@ -315,10 +315,36 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateDelete(msg.String())
 	case "p":
 		return m.togglePause()
+	case "v":
+		return m.viewShown()
 	case "r":
 		return m, m.load()
 	}
 	return m, nil
+}
+
+// viewShown opens the newest file the selected session showed you.
+func (m Model) viewShown() (tea.Model, tea.Cmd) {
+	row, ok := m.selected()
+	if !ok || len(row.Shown) == 0 {
+		return m, nil
+	}
+	if row.Pod == "" || row.Phase != string(agentsv1.SessionRunning) {
+		m.err = fmt.Errorf("%s isn't running; resume it (p) to open its files", row.Name)
+		return m, nil
+	}
+	f := row.Shown[len(row.Shown)-1]
+	store, pod, name := m.store, row.Pod, row.Name
+	m.status = "opening " + ShownName(f) + "…"
+	return m, func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		dest := filepath.Join(ShownDir(name), ShownName(f))
+		if err := store.FetchShown(ctx, pod, f, dest); err != nil {
+			return actionDoneMsg{err}
+		}
+		return actionDoneMsg{OpenLocal(dest)}
+	}
 }
 
 // togglePause pauses a running session or resumes a paused one — scaling
@@ -660,6 +686,10 @@ func (m Model) View() string {
 			if !row.NeedsHuman() && row.Title == "" && row.Activity == "" {
 				what = helpStyle.Render(what)
 			}
+			if n := len(row.Shown); n > 0 {
+				name = trunc(name, 18) + " " + glyphGreen.Render("▣")
+				name += strings.Repeat(" ", max(0, 20-lipgloss.Width(name)))
+			}
 			line := fmt.Sprintf("%s %-20s %-10s %5s %6s %7s  %s", m.glyph(row), name, phaseWord(row), fmtAge(row.Age), orDash(row.CPU), orDash(row.Mem), what)
 			if i == m.cursor {
 				line = rowSel.Render("▸ " + line)
@@ -926,6 +956,9 @@ func (m Model) listHints() string {
 	hints := "[enter] attach"
 	if row, ok := m.selected(); ok && row.NeedsHuman() {
 		hints += "  [a] answer"
+	}
+	if row, ok := m.selected(); ok && len(row.Shown) > 0 {
+		hints += "  [v] view latest file"
 	}
 	pr := "[p] pause"
 	if row, ok := m.selected(); ok && row.Paused {

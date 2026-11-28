@@ -70,6 +70,9 @@ type Row struct {
 	// code once the command has finished.
 	Command bool
 	Exit    *int
+	// Shown is what the agent put in front of the operator (show_user),
+	// oldest first.
+	Shown []agentsv1.ShownFile
 }
 
 // NeedsHuman reports whether the row should wear the amber mark.
@@ -237,6 +240,7 @@ func join(sessions []agentsv1.Session, questions []agentsv1.Question, live map[s
 			Pod:      podName,
 			Age:      now.Sub(se.CreationTimestamp.Time),
 			Question: open[se.Name],
+			Shown:    se.Status.Shown,
 			Paused:   se.Annotations[PausedAnnotation] == trueWord,
 			Command:  se.Spec.Agent == commandAgent,
 		})
