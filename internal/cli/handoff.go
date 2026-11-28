@@ -7,7 +7,9 @@ command.
 package cli
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -59,6 +61,11 @@ func newHandoffCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("no local Claude Code session found for %s: %w", dir, err)
 			}
+			// Claude Code's folder names are lossy (/a/b-c and /a/b/c share
+			// one): only a conversation recorded in this very folder goes.
+			if cwd, err := transcriptCwd(latest); err != nil || cwd != dir {
+				return fmt.Errorf("the latest Claude Code conversation in %s was not started in %s; run handoff from the folder it was started in", transcriptDir, dir)
+			}
 			fmt.Printf("  transcript: %s\n", filepath.Base(latest))
 
 			// Two writers, one story: the local claude must be stopped first.
@@ -98,7 +105,14 @@ func newHandoffCmd() *cobra.Command {
 			fmt.Printf("  ✓ %d files landed in /workspace/repo\n", count)
 
 			fmt.Println("  ◌ shipping the transcript")
-			if err := store.PushTree(ctx, pod, "/workspace/.claude/projects/"+workspaceSlug, transcriptDir, nil); err != nil {
+			// Only this conversation, not every older one for the folder.
+			stage, err := stageFile(latest)
+			if err != nil {
+				return err
+			}
+			err = store.PushTree(ctx, pod, "/workspace/.claude/projects/"+workspaceSlug, stage, nil)
+			_ = os.RemoveAll(stage)
+			if err != nil {
 				return err
 			}
 			if err := store.MarkHandoffComplete(ctx, pod); err != nil {
@@ -137,4 +151,42 @@ func mtime(path string) time.Time {
 		return time.Time{}
 	}
 	return st.ModTime()
+}
+
+// transcriptCwd reads the working folder a Claude Code conversation
+// recorded on its first line that has one.
+func transcriptCwd(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = f.Close() }()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1<<20), 64<<20)
+	for n := 0; sc.Scan() && n < 2000; n++ {
+		var line struct {
+			Cwd string `json:"cwd"`
+		}
+		if json.Unmarshal(sc.Bytes(), &line) == nil && line.Cwd != "" {
+			return line.Cwd, nil
+		}
+	}
+	return "", fmt.Errorf("%s records no working folder", filepath.Base(path))
+}
+
+// stageFile copies one file alone into a fresh temporary folder.
+func stageFile(path string) (string, error) {
+	stage, err := os.MkdirTemp("", "tiny-handoff-")
+	if err != nil {
+		return "", err
+	}
+	b, err := os.ReadFile(path)
+	if err == nil {
+		err = os.WriteFile(filepath.Join(stage, filepath.Base(path)), b, 0o600)
+	}
+	if err != nil {
+		_ = os.RemoveAll(stage)
+		return "", err
+	}
+	return stage, nil
 }
