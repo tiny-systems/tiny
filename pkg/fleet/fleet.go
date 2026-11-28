@@ -25,6 +25,7 @@ import (
 
 	"github.com/tiny-systems/tiny/internal/kube"
 	"github.com/tiny-systems/tiny/internal/sessions"
+	"github.com/tiny-systems/tiny/internal/settings"
 	"github.com/tiny-systems/tiny/internal/workload"
 )
 
@@ -47,6 +48,9 @@ type (
 	Egress = sessions.Egress
 	// Refusal is one host the allow-list turned away.
 	Refusal = sessions.Refusal
+	// Federation is the Claude Console rule a namespace signs agents in
+	// with (SetFederation, FederationState). None of its IDs is a secret.
+	Federation = settings.Federation
 )
 
 // Egress modes, as Egress.Mode reports them and SetEgressMode takes them.
