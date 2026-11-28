@@ -126,7 +126,18 @@ func (s *Store) PullTree(ctx context.Context, pod, srcDir, dest string, progress
 	if strings.Contains(stderr.String(), "NODIR") {
 		return 0, fmt.Errorf("%s does not exist in the session", srcDir)
 	}
-	return count, err
+	if err != nil {
+		return count, err
+	}
+	// The pod's .git is the agent's: keep the history, drop what git
+	// would run (hooks, fsmonitor, filters, includes).
+	if err := defuseGit(dest); err != nil {
+		// Can't clean it: don't leave it. The files stay, the history goes.
+		if rmErr := os.RemoveAll(filepath.Join(dest, ".git")); rmErr != nil {
+			return count, fmt.Errorf("pulled, but .git could not be cleaned or removed; don't run git in %s: %w", dest, err)
+		}
+	}
+	return count, nil
 }
 
 // emptyOrAbsent refuses a destination that already holds anything.

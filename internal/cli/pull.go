@@ -24,7 +24,8 @@ func newPullCmd() *cobra.Command {
 		Short: "Bring a session's workspace back to this machine",
 		Long: "Copies the session's working tree — committed work, uncommitted changes and\n" +
 			".git — into a local directory (default: ./<session>). The directory must be\n" +
-			"empty or absent; nothing local is ever overwritten.\n\n" +
+			"empty or absent; nothing local is ever overwritten. The pulled .git loses its\n" +
+			"hooks and every config key git would run (fsmonitor, filters, includes…).\n\n" +
 			"To continue in an existing clone instead, pull to a scratch directory and\n" +
 			"fetch from it: git fetch ./<session> <branch>.",
 		Args: cobra.RangeArgs(1, 2),
