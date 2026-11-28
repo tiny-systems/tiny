@@ -48,12 +48,35 @@ var (
 	objectID = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
 )
 
-// isGitPath reports whether a tar path has a .git component, in any case.
+// isGitPath reports whether a tar path has a component a filesystem could
+// take for .git: any case, HFS+ ignorable code points removed, trailing
+// dots and spaces trimmed (NTFS), and the 8.3 short name git~1. The same
+// normalization git's own verify_path applies.
 func isGitPath(name string) bool {
 	for p := range strings.SplitSeq(filepath.ToSlash(name), "/") {
-		if strings.EqualFold(p, ".git") {
+		if isGitName(p) {
 			return true
 		}
+	}
+	return false
+}
+
+func isGitName(p string) bool {
+	p = strings.Map(func(r rune) rune {
+		if hfsIgnorable(r) {
+			return -1
+		}
+		return r
+	}, p)
+	p = strings.TrimRight(p, ". ")
+	return strings.EqualFold(p, ".git") || strings.EqualFold(p, "git~1")
+}
+
+// hfsIgnorable lists the code points HFS+ drops when comparing names.
+func hfsIgnorable(r rune) bool {
+	switch {
+	case r >= 0x200c && r <= 0x200f, r >= 0x202a && r <= 0x202e, r >= 0x206a && r <= 0x206f, r == 0xfeff:
+		return true
 	}
 	return false
 }
@@ -65,6 +88,16 @@ func removeRepoLike(dest string) (int, error) {
 	err := filepath.WalkDir(dest, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+		if path != dest && isGitName(d.Name()) {
+			// The tar step skips these; anything still here is removed.
+			if err := os.RemoveAll(path); err != nil {
+				return err
+			}
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
 		}
 		if !d.IsDir() || !looksLikeGitDir(path) {
 			return nil
@@ -156,8 +189,21 @@ func (s *Store) pullHistory(ctx context.Context, pod, srcDir, dest string) (bool
 // the commits a shallow clone stops at (only validated ids), so a bundle
 // from one has the boundary it needs.
 func rebuildHistory(ctx context.Context, dest, bundle, head, branch, origin string, shallow []string) error {
+	// The repository must be one this code creates: refuse anything
+	// already there under a name git would read.
+	entries, err := os.ReadDir(dest)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if isGitName(e.Name()) {
+			return fmt.Errorf("refusing to build history: %s already exists in the pulled folder", e.Name())
+		}
+	}
 	git := func(args ...string) error {
-		cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dest}, args...)...)
+		// Belt and braces: no hooks, no fsmonitor, whatever is on disk.
+		base := []string{"-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-C", dest}
+		cmd := exec.CommandContext(ctx, "git", append(base, args...)...)
 		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 		out, err := cmd.CombinedOutput()
 		if err != nil {

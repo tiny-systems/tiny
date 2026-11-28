@@ -175,3 +175,26 @@ func TestRebuildHistoryFromAShallowClone(t *testing.T) {
 		t.Errorf("status = %q", got)
 	}
 }
+
+func TestIsGitNameCatchesFilesystemAliases(t *testing.T) {
+	for _, n := range []string{".git", ".GIT", ".git.", ".git ", ".g\u200cit", "\ufeff.git", "GIT~1", ".Git.. "} {
+		if !isGitName(n) {
+			t.Errorf("%q not caught", n)
+		}
+	}
+	for _, n := range []string{"git", ".github", ".gitignore", "x.git"} {
+		if isGitName(n) {
+			t.Errorf("%q caught by mistake", n)
+		}
+	}
+}
+
+func TestRebuildHistoryRefusesAnExistingGitDir(t *testing.T) {
+	dest := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dest, ".Git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := rebuildHistory(context.Background(), dest, "/nonexistent", "", "", "", nil); err == nil || !strings.Contains(err.Error(), "refusing") {
+		t.Errorf("err = %v, want a refusal", err)
+	}
+}
