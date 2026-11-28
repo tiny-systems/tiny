@@ -1005,7 +1005,7 @@ func (s *Store) uploadFile(ctx context.Context, session, localPath string, annou
 		if err != nil {
 			return "", err
 		}
-		pod, container = shellPod, "shell"
+		pod, container = shellPod, ShellContainer
 		cleanup = func() {
 			cctx, ccancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer ccancel()

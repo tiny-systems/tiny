@@ -39,11 +39,20 @@ type (
 	CreateOpts = sessions.CreateOpts
 	// TerminalSize is a terminal's width and height in cells.
 	TerminalSize = sessions.TerminalSize
+	// Footprint is what a session changed: branch, files, lines, outbox.
+	Footprint = sessions.Footprint
+	// FileChange is one changed file in a Footprint.
+	FileChange = sessions.FileChange
 )
+
+// ShellContainer is the container to name in ShellStream when the shell
+// runs in the inspection pod EnsureShellPod starts.
+const ShellContainer = sessions.ShellContainer
 
 // Client acts on one namespace of one cluster, with the caller's own
 // kubeconfig credentials. Its methods are the CLI's: Load, Answer, Pause,
-// Resume, Create, Delete, AttachStream and the rest of the session store.
+// Resume, Create, Delete, AttachStream, ShellStream, Footprint, FilePatch,
+// UploadFile, PullTree and the rest of the session store.
 type Client struct {
 	*sessions.Store
 }

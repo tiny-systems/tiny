@@ -62,7 +62,7 @@ func (s *Store) ensureShellPod(ctx context.Context, session string, attempt int)
 					},
 				}},
 				Containers: []corev1.Container{{
-					Name:       "shell",
+					Name:       ShellContainer,
 					Image:      image,
 					Command:    []string{"sh", "-c", "sleep 43200"}, // half a day, then it reaps itself
 					WorkingDir: "/workspace",

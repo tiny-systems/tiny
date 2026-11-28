@@ -10,7 +10,10 @@ so there is one definition of "what did this session change".
 package sessions
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -184,4 +187,42 @@ func Overlap(bySession map[string]Footprint) map[string][]string {
 		}
 	}
 	return hits
+}
+
+// MaxPatchBytes caps one file's patch: a window can show a long diff, but a
+// generated or vendored file shouldn't stream megabytes into it.
+const MaxPatchBytes = 512 << 10
+
+// patchScript prints one file's change against the default branch: the
+// committed work plus whatever is still dirty, or the whole file when git
+// doesn't track it yet. The path arrives as $1, never inside the script.
+const patchScript = `
+cd /workspace/repo 2>/dev/null || { echo "no repo in workspace" >&2; exit 3; }
+base=$(git rev-parse --verify -q origin/main || git rev-parse --verify -q origin/master || git rev-parse --verify -q main || git rev-parse --verify -q master || echo HEAD)
+if git ls-files --error-unmatch -- "$1" >/dev/null 2>&1 || git cat-file -e "$base:$1" 2>/dev/null; then
+  git diff --no-color --no-ext-diff "$base" -- "$1"
+else
+  git diff --no-color --no-index -- /dev/null "$1"
+fi
+exit 0
+`
+
+// FilePatch reads one changed file's patch from a running session's pod,
+// as unified diff text. A patch over MaxPatchBytes comes back cut, with
+// cut set.
+func (s *Store) FilePatch(ctx context.Context, pod, path string) (patch string, cut bool, err error) {
+	if path == "" || strings.HasPrefix(path, "/") || strings.ContainsRune(path, 0) {
+		return "", false, fmt.Errorf("not a path in the repo: %q", path)
+	}
+	var buf bytes.Buffer
+	out := &capWriter{buf: &buf, limit: MaxPatchBytes}
+	var stderr strings.Builder
+	if err := s.execStream(ctx, pod, agentContainer,
+		[]string{"sh", "-c", patchScript, "patch", path}, nil, out, &stderr); err != nil && !out.over {
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return "", false, errors.New(msg)
+		}
+		return "", false, err
+	}
+	return buf.String(), out.over, nil
 }

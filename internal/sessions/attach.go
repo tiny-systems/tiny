@@ -95,6 +95,12 @@ func (s *Store) AttachStream(ctx context.Context, pod string, stdin io.Reader, s
 	if err != nil {
 		return err
 	}
+	return streamTTY(ctx, exec, stdin, stdout, sizes)
+}
+
+// streamTTY runs an interactive exec, forwarding resizes until sizes
+// closes or ctx ends.
+func streamTTY(ctx context.Context, exec remotecommand.Executor, stdin io.Reader, stdout io.Writer, sizes <-chan TerminalSize) error {
 	q := make(sizeQueue, 1)
 	go func() {
 		defer close(q)
@@ -113,6 +119,12 @@ func (s *Store) AttachStream(ctx context.Context, pod string, stdin io.Reader, s
 
 // tmuxExecutor prepares an exec into the agent container's tmux.
 func (s *Store) tmuxExecutor(pod string) (remotecommand.Executor, error) {
+	return s.ttyExecutor(pod, agentContainer, []string{"sh", "-c",
+		`exec "$([ -x /tiny/bin/tmux ] && echo /tiny/bin/tmux || echo tmux)" -u attach -t main`})
+}
+
+// ttyExecutor prepares an interactive exec with a terminal.
+func (s *Store) ttyExecutor(pod, container string, cmd []string) (remotecommand.Executor, error) {
 	cfg := s.Kube.RESTConfig
 	restClient, err := restClientFor(setGroupVersion(cfg))
 	if err != nil {
@@ -122,13 +134,35 @@ func (s *Store) tmuxExecutor(pod string) (remotecommand.Executor, error) {
 		Resource("pods").Name(pod).Namespace(s.Kube.Namespace).
 		SubResource("exec").
 		VersionedParams(&corev1.PodExecOptions{
-			Container: agentContainer,
-			Command: []string{"sh", "-c",
-				`exec "$([ -x /tiny/bin/tmux ] && echo /tiny/bin/tmux || echo tmux)" -u attach -t main`},
-			Stdin: true, Stdout: true, Stderr: false, TTY: true,
+			Container: container,
+			Command:   cmd,
+			Stdin:     true, Stdout: true, Stderr: false, TTY: true,
 		}, scheme.ParameterCodec)
 	return remotecommand.NewSPDYExecutor(cfg, "POST", req.URL())
 }
+
+// shellCommand starts a login shell in the workspace: bash when the image
+// has it, sh otherwise, in the repo when there is one.
+const shellCommand = `cd /workspace/repo 2>/dev/null || cd /workspace 2>/dev/null; ` +
+	`command -v bash >/dev/null 2>&1 && exec bash -l || exec sh -l`
+
+// ShellStream opens a plain shell beside the agent, wired to the given
+// streams like AttachStream: the session's own pod when it runs, or the
+// inspection pod (EnsureShellPod) when it doesn't, which the caller then
+// removes with DeleteShellPod. container is "" for the agent's.
+func (s *Store) ShellStream(ctx context.Context, pod, container string, stdin io.Reader, stdout io.Writer, sizes <-chan TerminalSize) error {
+	if container == "" {
+		container = agentContainer
+	}
+	exec, err := s.ttyExecutor(pod, container, []string{"sh", "-c", shellCommand})
+	if err != nil {
+		return err
+	}
+	return streamTTY(ctx, exec, stdin, stdout, sizes)
+}
+
+// ShellContainer is the container inside the inspection pod.
+const ShellContainer = "shell"
 
 type sizeQueue chan remotecommand.TerminalSize
 
